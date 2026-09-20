@@ -1,0 +1,35 @@
+import express from "express";
+import cors from "cors";
+import { buildApiRouter } from "./routes";
+import { requestId, errorHandler } from "../platform/http";
+import { requireAuth } from "../platform/auth";
+import { allowedCorsOrigins } from "../config/env";
+
+export function createApp() {
+  const app = express();
+  const corsOrigins = allowedCorsOrigins();
+  app.use(cors({
+    credentials: true,
+    origin(origin, callback) {
+      if (!origin || corsOrigins.has(origin.replace(/\/$/, ""))) return callback(null, true);
+      return callback(null, false);
+    },
+  }));
+  app.use(express.json({ limit: "8mb" }));
+  app.use(requestId);
+  app.get("/health", (_req, res) => {
+    res.json({ data: { status: "ok" } });
+  });
+  app.use("/api/v1", (req, res, next) => {
+    if (req.method === "POST" && (
+      req.path === "/identity/login" || req.path === "/auth/login" ||
+      req.path === "/identity/activate" || req.path === "/auth/activate"
+    )) {
+      return next();
+    }
+    return requireAuth(req, res, next);
+  });
+  app.use("/api/v1", buildApiRouter());
+  app.use(errorHandler);
+  return app;
+}

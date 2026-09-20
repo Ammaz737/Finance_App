@@ -1,0 +1,2 @@
+/** Allowlisted AI tools */
+export {};

@@ -1,0 +1,68 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+  vendor-portal:
+    profiles: ["portals"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+  advisor-console:
+    profiles: ["portals"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+  stack:
+    profiles: ["portals"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://finance:finance@postgres:5432/finance
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data/uploads:/data/finance-app/uploads
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql://finance:finance@postgres:5432/finance
+      REDIS_URL: redis://redis:6379
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: finance
+      POSTGRES_PASSWORD: finance
+      POSTGRES_DB: finance
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+  redis:
+    image: redis:7
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres-data:
+  redis-data:

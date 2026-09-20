@@ -1,0 +1,25 @@
+{
+  "name": "@finance/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@finance/api-client": "workspace:*",
+    "@finance/permissions": "workspace:*",
+    "@tanstack/react-query": "^5.87.4",
+    "expo": "^54.0.2",
+    "expo-router": "^6.0.1",
+    "expo-secure-store": "^15.0.7",
+    "react": "^19.1.1",
+    "react-native": "^0.81.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.13",
+    "typescript": "^5.9.2"
+  }
+}

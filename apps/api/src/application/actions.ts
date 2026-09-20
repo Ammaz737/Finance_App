@@ -1,0 +1,4204 @@
+import crypto from "node:crypto";
+import { Prisma } from "@prisma/client";
+import { assertPositiveMoney, assertSameCurrency, MoneyError } from "@finance/money";
+import { prisma } from "../database/client";
+import { AppError } from "../platform/http";
+import type { RequestContext } from "../platform/auth/context";
+import { auditedCommand } from "../platform/database";
+import { evaluatePolicy, loadPolicyRules } from "../engines/policy";
+import { actOnApproval, progressLabel, startApproval } from "../engines/workflow";
+import { postLedger } from "../engines/ledger";
+import { hashPassword } from "../platform/auth";
+import { env } from "../config/env";
+import { hashRequest, withIdempotency } from "../platform/idempotency";
+import { assertEntityPermission, scopedWhere } from "../platform/resource-access";
+import { MockCardIssuerAdapter } from "../integrations/card-issuer/mock.card-issuer.adapter";
+import { MockOcrAdapter } from "../integrations/ocr/mock.ocr.adapter";
+import { MockPayoutAdapter } from "../integrations/payout/mock.payout.adapter";
+import { MockPaymentRailAdapter } from "../integrations/payment-rail/mock.payment-rail.adapter";
+import { MockAccountingAdapter } from "../integrations/accounting/mock.accounting.adapter";
+import { MockTravelAdapter } from "../integrations/travel/mock.travel.adapter";
+import { calculateReimbursement } from "../modules/reimbursements/domain/calc";
+import { pickAccountingRule } from "../modules/accounting/domain/rules";
+import { evaluateMatch, normalizeProcurementLines, sumLineAmounts } from "../modules/procurement/domain/match";
+import { budgetCapacity, sumByCurrency } from "../modules/reporting/domain/budget-math";
+
+const cardIssuer = new MockCardIssuerAdapter();
+const ocrProvider = new MockOcrAdapter();
+const payoutProvider = new MockPayoutAdapter();
+const paymentRail = new MockPaymentRailAdapter();
+const accountingProvider = new MockAccountingAdapter();
+const travelProvider = new MockTravelAdapter();
+
+function dec(value: string | number) {
+  return new Prisma.Decimal(value);
+}
+
+function n(value: Prisma.Decimal | string | number) {
+  return Number(value);
+}
+
+function requireMoney(amount: string | number, currency: string) {
+  try {
+    return assertPositiveMoney(amount, currency);
+  } catch (error) {
+    if (error instanceof MoneyError) throw new AppError(error.code, error.message, 400);
+    throw error;
+  }
+}
+
+function requireCurrencyMatch(expected: string, actual: string) {
+  try {
+    return assertSameCurrency(expected, actual);
+  } catch (error) {
+    if (error instanceof MoneyError) throw new AppError(error.code, error.message, 400);
+    throw error;
+  }
+}
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function issueActivationToken() {
+  const token = crypto.randomBytes(32).toString("base64url");
+  return {
+    token,
+    tokenHash: hashToken(token),
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  };
+}
+
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{12,128}$/;
+
+function assertPasswordPolicy(password: string) {
+  if (!PASSWORD_RULE.test(password)) {
+    throw new AppError("WEAK_PASSWORD", "Password needs 12+ characters with mixed case and a number", 400);
+  }
+}
+
+async function queueAccounting(
+  ctx: RequestContext,
+  sourceType: string,
+  sourceId: string,
+  legalEntityId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+  extras: { amount?: string | number | Prisma.Decimal | null; currency?: string | null; memo?: string; category?: string } = {},
+) {
+  const amount = extras.amount != null && String(extras.amount) !== "" ? dec(String(extras.amount)) : null;
+  const currency = extras.currency ?? null;
+  const memo = extras.memo?.trim() ?? "";
+  const category = extras.category?.trim() ?? "";
+
+  const rules = await db.accountingRule.findMany({
+    where: { organizationId: ctx.organizationId, enabled: true },
+    orderBy: { priority: "asc" },
+  });
+  const applied = pickAccountingRule(rules, {
+    sourceType,
+    category,
+    memo,
+    amount: amount != null ? Number(amount) : null,
+  });
+  const nextCategory = applied?.category?.trim() || category;
+  const nextMemo = applied?.memo?.trim() || memo;
+  const nextCoding = applied?.coding ?? {};
+
+  return db.accountingEntry.upsert({
+    where: { organizationId_sourceType_sourceId: { organizationId: ctx.organizationId, sourceType, sourceId } },
+    update: {
+      status: "NEEDS_REVIEW",
+      ...(amount != null ? { amount } : {}),
+      ...(currency ? { currency } : {}),
+      ...(nextMemo ? { memo: nextMemo } : {}),
+      ...(nextCategory ? { category: nextCategory } : {}),
+      ...(Object.keys(nextCoding).length ? { coding: nextCoding } : {}),
+      syncError: null,
+    },
+    create: {
+      organizationId: ctx.organizationId,
+      legalEntityId,
+      sourceType,
+      sourceId,
+      status: "NEEDS_REVIEW",
+      amount,
+      currency,
+      memo: nextMemo,
+      category: nextCategory,
+      coding: nextCoding,
+    },
+  });
+}
+
+export const people = {
+  async list(ctx: RequestContext) {
+    return prisma.user.findMany({
+      where: { organizationId: ctx.organizationId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        status: true,
+        managerId: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  },
+  async create(ctx: RequestContext, body: { email: string; firstName: string; lastName: string; roleId: string; managerId?: string }) {
+    const activation = issueActivationToken();
+    const placeholderHash = await hashPassword(crypto.randomBytes(32).toString("base64url"));
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findFirst({ where: { organizationId: ctx.organizationId, email: body.email.toLowerCase() }, select: { id: true } });
+      if (existing) throw new AppError("DUPLICATE_PERSON", "A person with this email already exists", 409);
+      const role = await tx.role.findFirst({ where: { id: body.roleId, organizationId: ctx.organizationId } });
+      const manager = body.managerId ? await tx.user.findFirst({ where: { id: body.managerId, organizationId: ctx.organizationId, status: "ACTIVE" } }) : null;
+      if (!role || (body.managerId && !manager)) throw new AppError("INVALID_REFERENCE", "Role or manager is unavailable", 400);
+      if (role.name === "Owner" && !ctx.roles.includes("Owner")) throw new AppError("FORBIDDEN", "Only an owner can assign owner access", 403);
+      const user = await tx.user.create({ data: {
+        organizationId: ctx.organizationId, email: body.email.toLowerCase(),
+        firstName: body.firstName.trim(), lastName: body.lastName.trim(), passwordHash: placeholderHash,
+        managerId: manager?.id, status: "DRAFT", passwordMustChange: true,
+        activationTokenHash: activation.tokenHash, activationExpiresAt: activation.expiresAt,
+      } });
+      await tx.userRole.create({ data: { organizationId: ctx.organizationId, userId: user.id, roleId: role.id } });
+      await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: "people.create", objectType: "User", objectId: user.id, newValue: { email: user.email, status: user.status, role: role.name, managerId: user.managerId, activationIssued: true }, correlationId: ctx.correlationId } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "user.created", payload: { userId: user.id } } });
+      return {
+        id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName,
+        status: user.status, role: role.name, managerId: user.managerId,
+        activationToken: activation.token, activationExpiresAt: activation.expiresAt,
+      };
+    });
+  },
+  async publish(ctx: RequestContext, id: string) {
+    return auditedCommand(ctx, { action: "people.publish", objectType: "User", objectId: id, event: "user.published" }, async (tx) => {
+      const user = await tx.user.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true, status: true, email: true, activationTokenHash: true } });
+      if (!user) throw new AppError("NOT_FOUND", "User not found", 404);
+      if (user.status !== "DRAFT") throw new AppError("INVALID_STATE", "Only draft people can be published", 409);
+      if (user.activationTokenHash) {
+        throw new AppError("ACTIVATION_REQUIRED", "This person must activate with their invite token before publish is allowed", 409);
+      }
+      const claim = await tx.user.updateMany({ where: { id, organizationId: ctx.organizationId, status: "DRAFT" }, data: { status: "ACTIVE", passwordMustChange: false } });
+      if (claim.count !== 1) throw new AppError("PERSON_CONFLICT", "Person changed; refresh and try again", 409);
+      const updated = await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, email: true, firstName: true, lastName: true, status: true, managerId: true } });
+      return { result: updated, oldValue: { status: user.status }, newValue: { status: updated.status } };
+    });
+  },
+  async resetCredentials(ctx: RequestContext, id: string) {
+    if (id === ctx.userId) throw new AppError("SOD_VIOLATION", "Use password change for your own account", 403);
+    const activation = issueActivationToken();
+    const placeholderHash = await hashPassword(crypto.randomBytes(32).toString("base64url"));
+    return auditedCommand(ctx, { action: "people.reset_credentials", objectType: "User", objectId: id, event: "user.credentials_reset" }, async (tx) => {
+      const user = await tx.user.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true, status: true, email: true } });
+      if (!user) throw new AppError("NOT_FOUND", "User not found", 404);
+      if (user.status === "TERMINATED") throw new AppError("INVALID_STATE", "Terminated people cannot be reset", 409);
+      const claim = await tx.user.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: user.status },
+        data: {
+          passwordHash: placeholderHash,
+          passwordMustChange: true,
+          activationTokenHash: activation.tokenHash,
+          activationExpiresAt: activation.expiresAt,
+          status: user.status === "ACTIVE" ? "ACTIVE" : "DRAFT",
+        },
+      });
+      if (claim.count !== 1) throw new AppError("PERSON_CONFLICT", "Person changed; refresh and try again", 409);
+      await tx.session.deleteMany({ where: { userId: id, organizationId: ctx.organizationId } });
+      const updated = await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, email: true, firstName: true, lastName: true, status: true } });
+      return {
+        result: { ...updated, activationToken: activation.token, activationExpiresAt: activation.expiresAt },
+        oldValue: { status: user.status },
+        newValue: { status: updated.status, credentialsReset: true },
+      };
+    });
+  },
+  async activate(input: { email: string; workspace: string; token: string; password: string }) {
+    assertPasswordPolicy(input.password);
+    const organization = await prisma.organization.findUnique({ where: { slug: input.workspace.toLowerCase() }, select: { id: true } });
+    if (!organization) throw new AppError("INVALID_CREDENTIALS", "Invalid activation details", 401);
+    const tokenHash = hashToken(input.token);
+    return prisma.$transaction(async (tx) => {
+      const user = await tx.user.findFirst({
+        where: { organizationId: organization.id, email: input.email.toLowerCase() },
+      });
+      if (!user || !user.activationTokenHash || user.activationTokenHash !== tokenHash) {
+        throw new AppError("INVALID_ACTIVATION", "Activation token is invalid", 401);
+      }
+      if (!user.activationExpiresAt || user.activationExpiresAt < new Date()) {
+        throw new AppError("ACTIVATION_EXPIRED", "Activation token has expired", 401);
+      }
+      if (user.status === "TERMINATED") throw new AppError("INVALID_STATE", "Account cannot be activated", 409);
+      const passwordHash = await hashPassword(input.password);
+      const claim = await tx.user.updateMany({
+        where: { id: user.id, organizationId: organization.id, activationTokenHash: tokenHash },
+        data: {
+          passwordHash,
+          status: "ACTIVE",
+          passwordMustChange: false,
+          activationTokenHash: null,
+          activationExpiresAt: null,
+        },
+      });
+      if (claim.count !== 1) throw new AppError("ACTIVATION_CONFLICT", "Activation already used; request a new invite", 409);
+      await tx.session.deleteMany({ where: { userId: user.id, organizationId: organization.id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: organization.id, actorId: user.id, action: "people.activate",
+        objectType: "User", objectId: user.id, newValue: { status: "ACTIVE" },
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: organization.id, type: "user.activated", payload: { userId: user.id } } });
+      return { id: user.id, email: user.email, status: "ACTIVE", organizationId: organization.id };
+    });
+  },
+  async terminate(ctx: RequestContext, id: string) {
+    if (id === ctx.userId) throw new AppError("SOD_VIOLATION", "You cannot terminate your own account", 403);
+    return auditedCommand(ctx, { action: "people.terminate", objectType: "User", objectId: id, event: "user.terminated" }, async (tx) => {
+      const user = await tx.user.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true, status: true, email: true } });
+      if (!user) throw new AppError("NOT_FOUND", "User not found", 404);
+      if (user.status === "TERMINATED") throw new AppError("INVALID_STATE", "Person is already terminated", 409);
+      const ownerRole = await tx.role.findFirst({ where: { organizationId: ctx.organizationId, name: "Owner" }, select: { id: true } });
+      if (ownerRole) {
+        const targetOwner = await tx.userRole.findFirst({ where: { organizationId: ctx.organizationId, userId: id, roleId: ownerRole.id }, select: { id: true } });
+        if (targetOwner && !ctx.roles.includes("Owner")) throw new AppError("FORBIDDEN", "Only an owner can terminate another owner", 403);
+        if (targetOwner) {
+          const assignments = await tx.userRole.findMany({ where: { organizationId: ctx.organizationId, roleId: ownerRole.id }, select: { userId: true } });
+          const activeOwners = await tx.user.count({ where: { id: { in: assignments.map((item) => item.userId) }, organizationId: ctx.organizationId, status: "ACTIVE" } });
+          if (activeOwners <= 1) throw new AppError("LAST_OWNER", "The last active owner cannot be terminated", 409);
+        }
+      }
+      const claim = await tx.user.updateMany({ where: { id, organizationId: ctx.organizationId, status: user.status }, data: { status: "TERMINATED" } });
+      if (claim.count !== 1) throw new AppError("PERSON_CONFLICT", "Person changed; refresh and try again", 409);
+      await tx.session.deleteMany({ where: { userId: id, organizationId: ctx.organizationId } });
+      const frozenCards = await tx.card.updateMany({ where: { holderId: id, organizationId: ctx.organizationId, status: "ACTIVE" }, data: { status: "FROZEN" } });
+      const updated = await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, email: true, firstName: true, lastName: true, status: true, managerId: true } });
+      return { result: updated, oldValue: { status: user.status }, newValue: { status: updated.status, frozenCards: frozenCards.count } };
+    });
+  },
+};
+
+export const spend = {
+  async createRequest(ctx: RequestContext, body: {
+    programId: string; name: string; amount: string; currency: string; legalEntityId: string;
+    purpose?: string; vendorId?: string; fulfillmentType?: "VIRTUAL_CARD" | "FUND_ONLY";
+    recurrence?: string; expiresAt?: string;
+  }) {
+    const money = requireMoney(body.amount, body.currency);
+    assertEntityPermission(ctx, "spend_request.create", body.legalEntityId);
+    return prisma.$transaction(async (tx) => {
+      const program = await tx.spendProgram.findFirst({ where: { id: body.programId, organizationId: ctx.organizationId, legalEntityId: body.legalEntityId, status: "ACTIVE" } });
+      if (!program) throw new AppError("INVALID_PROGRAM", "Spend program is unavailable", 400);
+      requireCurrencyMatch(program.currency, money.currency);
+      if (dec(money.amount).greaterThan(program.maxAmount)) {
+        throw new AppError("INVALID_AMOUNT", "Amount must be within the program limit", 400);
+      }
+      const entity = await tx.legalEntity.findFirst({ where: { id: body.legalEntityId, organizationId: ctx.organizationId } });
+      if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
+      requireCurrencyMatch(entity.currency, money.currency);
+      if (body.vendorId) {
+        const vendor = await tx.vendor.findFirst({ where: { id: body.vendorId, organizationId: ctx.organizationId } });
+        if (!vendor) throw new AppError("INVALID_VENDOR", "Vendor is unavailable", 400);
+      }
+      const fulfillmentType = body.fulfillmentType
+        ?? (program.defaultFulfillmentType === "FUND_ONLY" ? "FUND_ONLY" : "VIRTUAL_CARD");
+      let expiresAt: Date | null = body.expiresAt ? new Date(body.expiresAt) : null;
+      if (!expiresAt && program.defaultValidDays && program.defaultValidDays > 0) {
+        expiresAt = new Date(Date.now() + program.defaultValidDays * 24 * 60 * 60 * 1000);
+      }
+      if (expiresAt && Number.isNaN(expiresAt.getTime())) throw new AppError("INVALID_EXPIRY", "expiresAt is invalid", 400);
+      if (expiresAt && expiresAt.getTime() <= Date.now()) throw new AppError("INVALID_EXPIRY", "expiresAt must be in the future", 400);
+
+      const request = await tx.spendRequest.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: body.legalEntityId,
+          programId: body.programId,
+          requesterId: ctx.userId,
+          name: body.name.trim(),
+          purpose: (body.purpose ?? "").trim(),
+          vendorId: body.vendorId || null,
+          amount: dec(money.amount),
+          currency: money.currency,
+          status: "SUBMITTED",
+          fulfillmentType,
+          recurrence: body.recurrence?.trim() || "NONE",
+          expiresAt,
+        },
+      });
+      await startApproval({
+        organizationId: ctx.organizationId,
+        objectType: "spend_request",
+        objectId: request.id,
+        requesterId: ctx.userId,
+        title: request.name,
+        amount: money.amount,
+        currency: money.currency,
+        legalEntityId: body.legalEntityId,
+      }, tx);
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "spend_request.submit",
+        objectType: "SpendRequest", objectId: request.id,
+        newValue: { name: request.name, amount: money.amount, currency: money.currency, status: request.status, fulfillmentType },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "request.submitted", payload: { objectType: "SpendRequest", objectId: request.id } } });
+      return request;
+    });
+  },
+  async approveRequest(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const request = await tx.spendRequest.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!request) throw new AppError("NOT_FOUND", "Spend request not found", 404);
+      if (request.status !== "SUBMITTED" && request.status !== "IN_REVIEW") throw new AppError("INVALID_STATE", "Request is not pending approval", 409);
+      assertEntityPermission(ctx, "spend_request.approve", request.legalEntityId);
+      const instance = await tx.approvalInstance.findFirst({
+        where: { organizationId: ctx.organizationId, objectId: id, objectType: "spend_request", status: "IN_REVIEW" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!instance) throw new AppError("NOT_FOUND", "Approval was not started", 404);
+      const updatedInstance = await actOnApproval({ instanceId: instance.id, actorId: ctx.userId, action: "approve" }, tx);
+      if (updatedInstance.status !== "APPROVED") {
+        await tx.spendRequest.updateMany({ where: { id, organizationId: ctx.organizationId, status: { in: ["SUBMITTED", "IN_REVIEW"] } }, data: { status: "IN_REVIEW" } });
+        return { request: await tx.spendRequest.findUniqueOrThrow({ where: { id } }), approval: updatedInstance };
+      }
+
+      const claim = await tx.spendRequest.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: { in: ["SUBMITTED", "IN_REVIEW"] } },
+        data: { status: "APPROVED" },
+      });
+      if (claim.count !== 1) throw new AppError("REQUEST_CONFLICT", "Request changed; refresh and try again", 409);
+
+      const program = await tx.spendProgram.findFirst({ where: { id: request.programId, organizationId: ctx.organizationId } });
+      const fulfillmentType = request.fulfillmentType === "FUND_ONLY" ? "FUND_ONLY" : "VIRTUAL_CARD";
+
+      if (program?.budgetId) {
+        const budget = await tx.budget.findFirst({
+          where: { id: program.budgetId, organizationId: ctx.organizationId, legalEntityId: request.legalEntityId },
+        });
+        if (!budget) throw new AppError("BUDGET_UNAVAILABLE", "Linked budget is unavailable", 400);
+        if (budget.committedAmount.plus(budget.actualAmount).plus(request.amount).greaterThan(budget.amount)) {
+          throw new AppError("BUDGET_EXCEEDED", "Request would exceed remaining budget capacity", 400);
+        }
+        const reserved = await tx.budget.updateMany({
+          where: { id: budget.id, committedAmount: budget.committedAmount, actualAmount: budget.actualAmount },
+          data: { committedAmount: { increment: request.amount }, freshness: new Date() },
+        });
+        if (reserved.count !== 1) throw new AppError("BUDGET_CONFLICT", "Budget changed; refresh and try again", 409);
+      }
+
+      let fund = await tx.fund.findFirst({ where: { organizationId: ctx.organizationId, spendRequestId: request.id } });
+      if (!fund) {
+        try {
+          fund = await tx.fund.create({
+            data: {
+              organizationId: ctx.organizationId,
+              legalEntityId: request.legalEntityId,
+              name: `${request.name} fund`,
+              ownerId: request.requesterId,
+              spendRequestId: request.id,
+              availableAmount: request.amount,
+              limitAmount: request.amount,
+              currency: request.currency,
+              validFrom: new Date(),
+              validTo: request.expiresAt,
+            },
+          });
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            fund = await tx.fund.findFirstOrThrow({ where: { organizationId: ctx.organizationId, spendRequestId: request.id } });
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      let card = await tx.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } });
+      if (fulfillmentType === "VIRTUAL_CARD" && !card) {
+        const issued = cardIssuer.issueVirtual();
+        let lock: string | null = program?.merchantLockDefault?.trim() || null;
+        if (request.vendorId) {
+          const vendor = await tx.vendor.findFirst({ where: { id: request.vendorId, organizationId: ctx.organizationId } });
+          lock = vendor?.name ?? lock;
+        }
+        try {
+          card = await tx.card.create({
+            data: {
+              organizationId: ctx.organizationId,
+              legalEntityId: request.legalEntityId,
+              fundId: fund.id,
+              holderId: request.requesterId,
+              type: "VIRTUAL",
+              last4: issued.last4,
+              token: issued.token,
+              providerRef: `mock_${issued.token}`,
+              network: issued.network,
+              merchantLock: lock,
+              allowedMccs: program?.allowedMccsDefault || null,
+              perTransactionLimit: program?.perTransactionLimitDefault ?? null,
+              velocityMaxAmount: program?.velocityMaxAmountDefault ?? null,
+              velocityMaxCount: program?.velocityMaxCountDefault ?? null,
+            },
+          });
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            card = await tx.card.findFirstOrThrow({ where: { organizationId: ctx.organizationId, fundId: fund.id } });
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      const updated = await tx.spendRequest.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "spend_request.approve",
+        objectType: "SpendRequest", objectId: id,
+        oldValue: { status: request.status },
+        newValue: { status: updated.status, fulfillmentType, fundId: fund.id, cardId: card?.id ?? null },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "request.approved", payload: { objectType: "SpendRequest", objectId: id, fundId: fund.id, cardId: card?.id ?? null, fulfillmentType } } });
+      return { request: updated, fund, card, approval: updatedInstance };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  },
+};
+
+export const cards = {
+  async authorize(ctx: RequestContext, body: { cardId: string; amount: string; currency: string; merchant: string; merchantCategory: string; idempotencyKey: string }) {
+    if (env.nodeEnv === "production") throw new AppError("PROVIDER_REQUIRED", "Card authorization must come from a certified processor", 403);
+    const money = requireMoney(body.amount, body.currency);
+    const scopedKey = `${ctx.organizationId}:${body.idempotencyKey}`;
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.cardAuthorization.findFirst({
+        where: { organizationId: ctx.organizationId, idempotencyKey: { in: [scopedKey, body.idempotencyKey] } },
+      });
+      if (existing) {
+        if (existing.cardId !== body.cardId || !existing.amount.equals(money.amount) || existing.currency !== money.currency || existing.merchant !== body.merchant || existing.merchantCategory !== body.merchantCategory) {
+          throw new AppError("IDEMPOTENCY_CONFLICT", "This idempotency key was used for a different authorization", 409);
+        }
+        const priorTxn = await tx.txn.findFirst({ where: { organizationId: ctx.organizationId, authorizationId: existing.id }, select: { id: true } });
+        return { ...existing, transactionId: priorTxn?.id };
+      }
+
+      const decline = async (input: { cardId: string; fundId: string; reason: string }) => {
+        const declined = await tx.cardAuthorization.create({
+          data: {
+            organizationId: ctx.organizationId,
+            cardId: input.cardId,
+            fundId: input.fundId,
+            amount: dec(money.amount),
+            currency: money.currency,
+            merchant: body.merchant,
+            merchantCategory: body.merchantCategory,
+            decision: "DECLINED",
+            reason: input.reason,
+            idempotencyKey: scopedKey,
+          },
+        });
+        await tx.auditEvent.create({ data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "card.authorize",
+          objectType: "CardAuthorization", objectId: declined.id,
+          newValue: { decision: declined.decision, reason: declined.reason }, correlationId: ctx.correlationId,
+        } });
+        return declined;
+      };
+
+      const card = await tx.card.findFirst({ where: { id: body.cardId, organizationId: ctx.organizationId } });
+      if (!card || card.status !== "ACTIVE") {
+        return decline({ cardId: body.cardId, fundId: card?.fundId ?? "none", reason: "CARD_INACTIVE" });
+      }
+      assertEntityPermission(ctx, "card.issue", card.legalEntityId);
+      const entity = await tx.legalEntity.findFirst({ where: { id: card.legalEntityId, organizationId: ctx.organizationId } });
+      if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
+      requireCurrencyMatch(entity.currency, money.currency);
+
+      const fund = await tx.fund.findFirst({ where: { id: card.fundId, organizationId: ctx.organizationId } });
+      if (!fund || fund.status !== "ACTIVE") {
+        return decline({ cardId: card.id, fundId: card.fundId, reason: "FUND_INACTIVE" });
+      }
+      requireCurrencyMatch(fund.currency, money.currency);
+      const now = new Date();
+      if (fund.validFrom > now || (fund.validTo && fund.validTo < now)) {
+        return decline({ cardId: card.id, fundId: fund.id, reason: "FUND_EXPIRED" });
+      }
+      if (card.merchantLock) {
+        const lock = card.merchantLock.trim().toLowerCase();
+        const merchant = body.merchant.trim().toLowerCase();
+        if (!merchant.includes(lock) && lock !== merchant) {
+          return decline({ cardId: card.id, fundId: fund.id, reason: "MERCHANT_LOCK" });
+        }
+      }
+
+      const amount = dec(money.amount);
+
+      const businessLimit = await tx.businessLimit.findFirst({
+        where: { organizationId: ctx.organizationId, legalEntityId: card.legalEntityId, currency: money.currency },
+      });
+      if (businessLimit) {
+        const usage = await tx.txn.aggregate({
+          where: {
+            organizationId: ctx.organizationId,
+            legalEntityId: card.legalEntityId,
+            currency: money.currency,
+            status: { in: ["PENDING", "CLEARED"] },
+          },
+          _sum: { amount: true },
+        });
+        const used = usage._sum.amount ?? dec(0);
+        if (used.plus(amount).greaterThan(businessLimit.amount)) {
+          return decline({ cardId: card.id, fundId: fund.id, reason: "BUSINESS_LIMIT" });
+        }
+      }
+
+      if (card.allowedMccs) {
+        const allowed = card.allowedMccs.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+        const category = body.merchantCategory.trim().toLowerCase();
+        if (allowed.length && !allowed.includes(category)) {
+          return decline({ cardId: card.id, fundId: fund.id, reason: "MCC_BLOCKED" });
+        }
+      }
+
+      if (card.perTransactionLimit && amount.greaterThan(card.perTransactionLimit)) {
+        return decline({ cardId: card.id, fundId: fund.id, reason: "PER_TXN_LIMIT" });
+      }
+
+      const windowHours = Math.max(1, card.velocityWindowHours || 24);
+      const since = new Date(now.getTime() - windowHours * 60 * 60 * 1000);
+      if (card.velocityMaxCount != null || card.velocityMaxAmount != null) {
+        const velocityTxns = await tx.txn.findMany({
+          where: {
+            organizationId: ctx.organizationId,
+            cardId: card.id,
+            status: { in: ["PENDING", "CLEARED"] },
+            authorizedAt: { gte: since },
+          },
+          select: { amount: true },
+        });
+        if (card.velocityMaxCount != null && velocityTxns.length >= card.velocityMaxCount) {
+          return decline({ cardId: card.id, fundId: fund.id, reason: "VELOCITY_COUNT" });
+        }
+        if (card.velocityMaxAmount != null) {
+          const velocitySum = velocityTxns.reduce((sum, row) => sum.plus(row.amount), dec(0));
+          if (velocitySum.plus(amount).greaterThan(card.velocityMaxAmount)) {
+            return decline({ cardId: card.id, fundId: fund.id, reason: "VELOCITY_AMOUNT" });
+          }
+        }
+      }
+
+      if (cardIssuer.authorize({ available: Number(fund.availableAmount), amount: Number(money.amount) }) === "DECLINED") {
+        return decline({ cardId: card.id, fundId: fund.id, reason: "INSUFFICIENT_FUND" });
+      }
+      const reserved = await tx.fund.updateMany({
+        where: { id: card.fundId, organizationId: ctx.organizationId, status: "ACTIVE", availableAmount: { gte: amount } },
+        data: { availableAmount: { decrement: amount } },
+      });
+      if (reserved.count === 0) {
+        return decline({ cardId: card.id, fundId: fund.id, reason: "INSUFFICIENT_FUND" });
+      }
+
+      const policy = evaluatePolicy({ objectType: "card", amount: Number(money.amount), merchant: body.merchant });
+      if (policy.result === "BLOCK") {
+        await tx.fund.update({ where: { id: card.fundId }, data: { availableAmount: { increment: amount } } });
+        return decline({ cardId: card.id, fundId: fund.id, reason: policy.rule || "POLICY_BLOCK" });
+      }
+
+      const auth = await tx.cardAuthorization.create({
+        data: {
+          organizationId: ctx.organizationId,
+          cardId: card.id,
+          fundId: card.fundId,
+          amount,
+          currency: money.currency,
+          merchant: body.merchant,
+          merchantCategory: body.merchantCategory,
+          decision: "APPROVED",
+          reason: policy.rule,
+          providerEventId: `mock_auth_${scopedKey}`,
+          idempotencyKey: scopedKey,
+        },
+      });
+      const txn = await tx.txn.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: card.legalEntityId,
+          cardId: card.id,
+          fundId: card.fundId,
+          authorizationId: auth.id,
+          amount,
+          currency: money.currency,
+          merchant: body.merchant,
+          status: "PENDING",
+        },
+      });
+      await postLedger(ctx.organizationId, `auth ${auth.id}`, [
+        { account: `fund:${card.fundId}`, direction: "DEBIT", amount: money.amount, currency: money.currency },
+        { account: "card.pending", direction: "CREDIT", amount: money.amount, currency: money.currency },
+      ], tx);
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "card.authorize",
+        objectType: "CardAuthorization", objectId: auth.id,
+        newValue: { decision: auth.decision, transactionId: txn.id, amount: money.amount }, correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: {
+        organizationId: ctx.organizationId, type: "transaction.authorized",
+        payload: { objectType: "CardAuthorization", objectId: auth.id, transactionId: txn.id },
+      } });
+      return { ...auth, transactionId: txn.id };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  },
+
+  async capture(ctx: RequestContext, transactionId: string, body: { amount?: string } = {}) {
+    if (env.nodeEnv === "production") throw new AppError("PROVIDER_REQUIRED", "Transaction capture must come from the processor", 403);
+    return prisma.$transaction(async (tx) => {
+      const txn = await tx.txn.findFirst({ where: { id: transactionId, organizationId: ctx.organizationId } });
+      if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
+      assertEntityPermission(ctx, "card.issue", txn.legalEntityId);
+      if (txn.status === "CLEARED") {
+        const existingExpense = await tx.expense.findFirst({ where: { organizationId: ctx.organizationId, transactionId: txn.id } });
+        return { transaction: txn, expense: existingExpense };
+      }
+      if (txn.status !== "PENDING") throw new AppError("INVALID_STATE", "Only pending holds can be captured", 409);
+
+      const captureAmount = body.amount ? dec(requireMoney(body.amount, txn.currency).amount) : txn.amount;
+      if (captureAmount.lessThanOrEqualTo(0) || captureAmount.greaterThan(txn.amount)) {
+        throw new AppError("INVALID_AMOUNT", "Capture amount must be within the authorized hold", 400);
+      }
+      if (cardIssuer.capture({ authorizedAmount: Number(txn.amount), captureAmount: Number(captureAmount) }) === "DECLINED") {
+        throw new AppError("PROVIDER_DECLINED", "Processor declined capture", 409);
+      }
+
+      const release = txn.amount.minus(captureAmount);
+      const claim = await tx.txn.updateMany({
+        where: { id: txn.id, organizationId: ctx.organizationId, status: "PENDING" },
+        data: {
+          status: "CLEARED",
+          amount: captureAmount,
+          capturedAmount: captureAmount,
+          clearedAt: new Date(),
+        },
+      });
+      if (claim.count !== 1) throw new AppError("TRANSACTION_CONFLICT", "Transaction changed; refresh and try again", 409);
+
+      if (txn.fundId && release.greaterThan(0)) {
+        await tx.fund.update({
+          where: { id: txn.fundId },
+          data: { availableAmount: { increment: release } },
+        });
+        await postLedger(ctx.organizationId, `capture release ${txn.id}`, [
+          { account: "card.pending", direction: "DEBIT", amount: String(release), currency: txn.currency },
+          { account: `fund:${txn.fundId}`, direction: "CREDIT", amount: String(release), currency: txn.currency },
+        ], tx);
+      }
+
+      await applyBudgetCapture(tx, ctx.organizationId, txn.legalEntityId, txn.fundId, captureAmount);
+
+      let holderId = ctx.userId;
+      if (txn.cardId) {
+        const card = await tx.card.findFirst({ where: { id: txn.cardId, organizationId: ctx.organizationId } });
+        if (card) holderId = card.holderId;
+      }
+
+      let expense = await tx.expense.findFirst({ where: { organizationId: ctx.organizationId, transactionId: txn.id } });
+      if (!expense) {
+        try {
+          expense = await tx.expense.create({
+            data: {
+              organizationId: ctx.organizationId,
+              legalEntityId: txn.legalEntityId,
+              userId: holderId,
+              transactionId: txn.id,
+              amount: captureAmount,
+              currency: txn.currency,
+              merchant: txn.merchant,
+              status: "INCOMPLETE",
+            },
+          });
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            expense = await tx.expense.findFirstOrThrow({ where: { organizationId: ctx.organizationId, transactionId: txn.id } });
+          } else {
+            throw error;
+          }
+        }
+      }
+      await queueAccounting(ctx, "CARD_TRANSACTION", txn.id, txn.legalEntityId, tx, {
+        amount: captureAmount,
+        currency: txn.currency,
+        memo: txn.merchant,
+      });
+      const updated = await tx.txn.update({
+        where: { id: txn.id },
+        data: { providerClearEventId: `mock_clear_${txn.id}` },
+      });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "transaction.capture",
+        objectType: "Transaction", objectId: txn.id,
+        oldValue: { status: "PENDING", amount: String(txn.amount) },
+        newValue: { status: "CLEARED", amount: String(captureAmount), expenseId: expense.id },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: {
+        organizationId: ctx.organizationId, type: "transaction.cleared",
+        payload: { objectType: "Transaction", objectId: txn.id, expenseId: expense.id, capturedAmount: String(captureAmount) },
+      } });
+      return { transaction: updated, expense };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  },
+
+  async clear(ctx: RequestContext, transactionId: string) {
+    return cards.capture(ctx, transactionId, {});
+  },
+
+  async void(ctx: RequestContext, transactionId: string) {
+    if (env.nodeEnv === "production") throw new AppError("PROVIDER_REQUIRED", "Transaction void must come from the processor", 403);
+    return prisma.$transaction(async (tx) => {
+      const txn = await tx.txn.findFirst({ where: { id: transactionId, organizationId: ctx.organizationId } });
+      if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
+      assertEntityPermission(ctx, "card.issue", txn.legalEntityId);
+      if (txn.status === "VOIDED") return { transaction: txn };
+      if (txn.status !== "PENDING") throw new AppError("INVALID_STATE", "Only pending holds can be voided", 409);
+      if (cardIssuer.void({ authorizedAmount: Number(txn.amount) }) === "DECLINED") {
+        throw new AppError("PROVIDER_DECLINED", "Processor declined void", 409);
+      }
+      const claim = await tx.txn.updateMany({
+        where: { id: txn.id, organizationId: ctx.organizationId, status: "PENDING" },
+        data: { status: "VOIDED", voidedAt: new Date() },
+      });
+      if (claim.count !== 1) throw new AppError("TRANSACTION_CONFLICT", "Transaction changed; refresh and try again", 409);
+      if (txn.fundId) {
+        await tx.fund.update({
+          where: { id: txn.fundId },
+          data: { availableAmount: { increment: txn.amount } },
+        });
+        await postLedger(ctx.organizationId, `void ${txn.id}`, [
+          { account: "card.pending", direction: "DEBIT", amount: String(txn.amount), currency: txn.currency },
+          { account: `fund:${txn.fundId}`, direction: "CREDIT", amount: String(txn.amount), currency: txn.currency },
+        ], tx);
+      }
+      const updated = await tx.txn.findUniqueOrThrow({ where: { id: txn.id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "transaction.void",
+        objectType: "Transaction", objectId: txn.id,
+        oldValue: { status: "PENDING" }, newValue: { status: "VOIDED" },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: {
+        organizationId: ctx.organizationId, type: "transaction.voided",
+        payload: { objectType: "Transaction", objectId: txn.id },
+      } });
+      return { transaction: updated };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  },
+
+  async reverse(ctx: RequestContext, transactionId: string) {
+    if (env.nodeEnv === "production") throw new AppError("PROVIDER_REQUIRED", "Transaction reversal must come from the processor", 403);
+    return prisma.$transaction(async (tx) => {
+      const txn = await tx.txn.findFirst({ where: { id: transactionId, organizationId: ctx.organizationId } });
+      if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
+      assertEntityPermission(ctx, "card.issue", txn.legalEntityId);
+      if (txn.status === "REVERSED") return { transaction: txn };
+      if (txn.status !== "CLEARED") throw new AppError("INVALID_STATE", "Only cleared transactions can be reversed", 409);
+      const captured = txn.capturedAmount ?? txn.amount;
+      if (cardIssuer.reverse({ capturedAmount: Number(captured) }) === "DECLINED") {
+        throw new AppError("PROVIDER_DECLINED", "Processor declined reversal", 409);
+      }
+      const claim = await tx.txn.updateMany({
+        where: { id: txn.id, organizationId: ctx.organizationId, status: "CLEARED" },
+        data: { status: "REVERSED", reversedAt: new Date() },
+      });
+      if (claim.count !== 1) throw new AppError("TRANSACTION_CONFLICT", "Transaction changed; refresh and try again", 409);
+      if (txn.fundId) {
+        await tx.fund.update({
+          where: { id: txn.fundId },
+          data: { availableAmount: { increment: captured } },
+        });
+        await postLedger(ctx.organizationId, `reverse ${txn.id}`, [
+          { account: "card.cleared", direction: "DEBIT", amount: String(captured), currency: txn.currency },
+          { account: `fund:${txn.fundId}`, direction: "CREDIT", amount: String(captured), currency: txn.currency },
+        ], tx);
+      }
+      await applyBudgetReverse(tx, ctx.organizationId, txn.legalEntityId, txn.fundId, captured);
+      await tx.expense.updateMany({
+        where: { organizationId: ctx.organizationId, transactionId: txn.id, status: { not: "CANCELLED" } },
+        data: { status: "CANCELLED" },
+      });
+      const updated = await tx.txn.findUniqueOrThrow({ where: { id: txn.id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "transaction.reverse",
+        objectType: "Transaction", objectId: txn.id,
+        oldValue: { status: "CLEARED" }, newValue: { status: "REVERSED" },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: {
+        organizationId: ctx.organizationId, type: "transaction.reversed",
+        payload: { objectType: "Transaction", objectId: txn.id },
+      } });
+      return { transaction: updated };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  },
+
+  async freeze(ctx: RequestContext, cardId: string) {
+    return auditedCommand(ctx, { action: "card.freeze", objectType: "Card", objectId: cardId, event: "card.frozen" }, async (tx) => {
+      const existing = await tx.card.findFirst({ where: { id: cardId, organizationId: ctx.organizationId } });
+      if (!existing) throw new AppError("NOT_FOUND", "Card not found", 404);
+      assertEntityPermission(ctx, "card.freeze", existing.legalEntityId);
+      if (existing.status === "TERMINATED") throw new AppError("INVALID_STATE", "Terminated cards cannot be frozen", 409);
+      if (existing.status === "FROZEN") {
+        return { result: existing, oldValue: { status: existing.status }, newValue: { status: existing.status } };
+      }
+      const claim = await tx.card.updateMany({ where: { id: cardId, organizationId: ctx.organizationId, status: existing.status }, data: { status: "FROZEN" } });
+      if (claim.count !== 1) throw new AppError("CARD_CONFLICT", "Card changed; refresh and try again", 409);
+      const card = await tx.card.findUniqueOrThrow({ where: { id: cardId } });
+      return { result: card, oldValue: { status: existing.status }, newValue: { status: card.status } };
+    });
+  },
+
+  async setControls(ctx: RequestContext, cardId: string, body: {
+    merchantLock?: string | null;
+    allowedMccs?: string | null;
+    perTransactionLimit?: string | null;
+    velocityMaxAmount?: string | null;
+    velocityMaxCount?: number | null;
+    velocityWindowHours?: number;
+  }) {
+    return auditedCommand(ctx, { action: "card.set_controls", objectType: "Card", objectId: cardId, event: "card.controls_updated" }, async (tx) => {
+      const existing = await tx.card.findFirst({ where: { id: cardId, organizationId: ctx.organizationId } });
+      if (!existing) throw new AppError("NOT_FOUND", "Card not found", 404);
+      assertEntityPermission(ctx, "card.issue", existing.legalEntityId);
+      const perTxn = body.perTransactionLimit === undefined ? undefined
+        : body.perTransactionLimit === null || body.perTransactionLimit === "" ? null
+          : dec(requireMoney(body.perTransactionLimit, "USD").amount);
+      const velocityAmt = body.velocityMaxAmount === undefined ? undefined
+        : body.velocityMaxAmount === null || body.velocityMaxAmount === "" ? null
+          : dec(requireMoney(body.velocityMaxAmount, "USD").amount);
+      if (body.velocityMaxCount != null && (body.velocityMaxCount < 1 || body.velocityMaxCount > 10_000)) {
+        throw new AppError("INVALID_VELOCITY", "velocityMaxCount must be between 1 and 10000", 400);
+      }
+      if (body.velocityWindowHours != null && (body.velocityWindowHours < 1 || body.velocityWindowHours > 720)) {
+        throw new AppError("INVALID_VELOCITY", "velocityWindowHours must be between 1 and 720", 400);
+      }
+      const card = await tx.card.update({
+        where: { id: cardId },
+        data: {
+          ...(body.merchantLock !== undefined ? { merchantLock: body.merchantLock?.trim() || null } : {}),
+          ...(body.allowedMccs !== undefined ? { allowedMccs: body.allowedMccs?.trim() || null } : {}),
+          ...(perTxn !== undefined ? { perTransactionLimit: perTxn } : {}),
+          ...(velocityAmt !== undefined ? { velocityMaxAmount: velocityAmt } : {}),
+          ...(body.velocityMaxCount !== undefined ? { velocityMaxCount: body.velocityMaxCount } : {}),
+          ...(body.velocityWindowHours !== undefined ? { velocityWindowHours: body.velocityWindowHours } : {}),
+        },
+      });
+      return {
+        result: card,
+        oldValue: {
+          merchantLock: existing.merchantLock,
+          allowedMccs: existing.allowedMccs,
+          perTransactionLimit: existing.perTransactionLimit ? String(existing.perTransactionLimit) : null,
+          velocityMaxAmount: existing.velocityMaxAmount ? String(existing.velocityMaxAmount) : null,
+          velocityMaxCount: existing.velocityMaxCount,
+          velocityWindowHours: existing.velocityWindowHours,
+        },
+        newValue: {
+          merchantLock: card.merchantLock,
+          allowedMccs: card.allowedMccs,
+          perTransactionLimit: card.perTransactionLimit ? String(card.perTransactionLimit) : null,
+          velocityMaxAmount: card.velocityMaxAmount ? String(card.velocityMaxAmount) : null,
+          velocityMaxCount: card.velocityMaxCount,
+          velocityWindowHours: card.velocityWindowHours,
+        },
+      };
+    });
+  },
+
+  async getDetail(ctx: RequestContext, cardId: string) {
+    const scope = await scopedWhere(ctx, "cards");
+    const card = await prisma.card.findFirst({ where: { ...scope, id: cardId } });
+    if (!card) throw new AppError("NOT_FOUND", "Card not found", 404);
+    const [fund, holder, authIds, transactions] = await Promise.all([
+      prisma.fund.findFirst({ where: { id: card.fundId, organizationId: ctx.organizationId } }),
+      prisma.user.findFirst({
+        where: { id: card.holderId, organizationId: ctx.organizationId },
+        select: { id: true, firstName: true, lastName: true, email: true, status: true },
+      }),
+      prisma.cardAuthorization.findMany({ where: { cardId: card.id, organizationId: ctx.organizationId }, select: { id: true } }),
+      prisma.txn.findMany({
+        where: { organizationId: ctx.organizationId, cardId: card.id },
+        orderBy: { authorizedAt: "desc" },
+        take: 50,
+      }),
+    ]);
+    const authorizations = await prisma.cardAuthorization.findMany({
+      where: { organizationId: ctx.organizationId, cardId: card.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    const audit = await prisma.auditEvent.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        OR: [
+          { objectType: "Card", objectId: card.id },
+          ...(authIds.length ? [{ objectType: "CardAuthorization", objectId: { in: authIds.map((row) => row.id) } }] : []),
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+    });
+    let spendRequest = null;
+    if (fund?.spendRequestId) {
+      spendRequest = await prisma.spendRequest.findFirst({
+        where: { id: fund.spendRequestId, organizationId: ctx.organizationId },
+      });
+    }
+    const pending = transactions.filter((row) => row.status === "PENDING").reduce((sum, row) => sum + Number(row.amount), 0);
+    const cleared = transactions.filter((row) => row.status === "CLEARED").reduce((sum, row) => sum + Number(row.amount), 0);
+    return {
+      card,
+      fund,
+      holder,
+      spendRequest,
+      controls: {
+        merchantLock: card.merchantLock,
+        allowedMccs: card.allowedMccs,
+        perTransactionLimit: card.perTransactionLimit ? String(card.perTransactionLimit) : null,
+        velocityMaxAmount: card.velocityMaxAmount ? String(card.velocityMaxAmount) : null,
+        velocityMaxCount: card.velocityMaxCount,
+        velocityWindowHours: card.velocityWindowHours,
+      },
+      totals: {
+        currency: fund?.currency ?? "USD",
+        available: fund ? String(fund.availableAmount) : "0",
+        pending: pending.toFixed(2),
+        cleared: cleared.toFixed(2),
+      },
+      authorizations,
+      transactions,
+      audit,
+    };
+  },
+
+  async getFundDetail(ctx: RequestContext, fundId: string) {
+    const scope = await scopedWhere(ctx, "funds");
+    const fund = await prisma.fund.findFirst({ where: { ...scope, id: fundId } });
+    if (!fund) throw new AppError("NOT_FOUND", "Fund not found", 404);
+    const [owner, card, spendRequest, transactions, authorizations] = await Promise.all([
+      prisma.user.findFirst({
+        where: { id: fund.ownerId, organizationId: ctx.organizationId },
+        select: { id: true, firstName: true, lastName: true, email: true, status: true },
+      }),
+      prisma.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } }),
+      fund.spendRequestId
+        ? prisma.spendRequest.findFirst({ where: { id: fund.spendRequestId, organizationId: ctx.organizationId } })
+        : Promise.resolve(null),
+      prisma.txn.findMany({
+        where: { organizationId: ctx.organizationId, fundId: fund.id },
+        orderBy: { authorizedAt: "desc" },
+        take: 50,
+      }),
+      prisma.cardAuthorization.findMany({
+        where: { organizationId: ctx.organizationId, fundId: fund.id },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    ]);
+    const pending = transactions.filter((row) => row.status === "PENDING").reduce((sum, row) => sum + Number(row.amount), 0);
+    const cleared = transactions.filter((row) => row.status === "CLEARED").reduce((sum, row) => sum + Number(row.amount), 0);
+    return {
+      fund,
+      owner,
+      card,
+      spendRequest,
+      totals: {
+        currency: fund.currency,
+        available: String(fund.availableAmount),
+        limit: String(fund.limitAmount),
+        pending: pending.toFixed(2),
+        cleared: cleared.toFixed(2),
+      },
+      transactions,
+      authorizations,
+    };
+  },
+};
+
+async function resolveBudgetForFund(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  legalEntityId: string,
+  fundId: string | null | undefined,
+) {
+  if (!fundId) return null;
+  const fund = await tx.fund.findFirst({ where: { id: fundId, organizationId } });
+  if (!fund?.spendRequestId) return null;
+  const request = await tx.spendRequest.findFirst({ where: { id: fund.spendRequestId, organizationId } });
+  if (!request) return null;
+  const program = await tx.spendProgram.findFirst({ where: { id: request.programId, organizationId } });
+  if (!program?.budgetId) return null;
+  return tx.budget.findFirst({
+    where: { id: program.budgetId, organizationId, legalEntityId },
+  });
+}
+
+async function applyBudgetCapture(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  legalEntityId: string,
+  fundId: string | null | undefined,
+  amount: Prisma.Decimal,
+) {
+  const budget = await resolveBudgetForFund(tx, organizationId, legalEntityId, fundId);
+  if (!budget) {
+    await tx.budget.updateMany({
+      where: { organizationId, legalEntityId },
+      data: { actualAmount: { increment: amount }, freshness: new Date() },
+    });
+    return;
+  }
+  const committedRelease = Prisma.Decimal.min(budget.committedAmount, amount);
+  await tx.budget.update({
+    where: { id: budget.id },
+    data: {
+      actualAmount: { increment: amount },
+      committedAmount: { decrement: committedRelease },
+      freshness: new Date(),
+    },
+  });
+}
+
+async function applyBudgetReverse(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  legalEntityId: string,
+  fundId: string | null | undefined,
+  amount: Prisma.Decimal,
+) {
+  const budget = await resolveBudgetForFund(tx, organizationId, legalEntityId, fundId);
+  if (!budget) {
+    await tx.budget.updateMany({
+      where: { organizationId, legalEntityId, actualAmount: { gte: amount } },
+      data: { actualAmount: { decrement: amount }, freshness: new Date() },
+    });
+    return;
+  }
+  const actualRelease = Prisma.Decimal.min(budget.actualAmount, amount);
+  await tx.budget.update({
+    where: { id: budget.id },
+    data: {
+      actualAmount: { decrement: actualRelease },
+      committedAmount: { increment: actualRelease },
+      freshness: new Date(),
+    },
+  });
+}
+
+export const expenses = {
+  async submit(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
+      if (!["INCOMPLETE", "REJECTED"].includes(expense.status)) throw new AppError("INVALID_STATE", "Expense cannot be submitted from this state", 409);
+      assertEntityPermission(ctx, "expense.create", expense.legalEntityId);
+      if (expense.userId !== ctx.userId && !ctx.roles.includes("Owner") && !ctx.permissions.includes("*")) {
+        throw new AppError("FORBIDDEN", "You can only submit your own expenses", 403);
+      }
+      const linkedReceipt = expense.receiptId
+        ? await tx.receipt.findFirst({ where: { id: expense.receiptId, organizationId: ctx.organizationId } })
+        : await tx.receipt.findFirst({ where: { organizationId: ctx.organizationId, expenseId: expense.id } });
+      const hasReceipt = Boolean(linkedReceipt);
+      const { rules } = await loadPolicyRules(
+        (args) => tx.policy.findMany(args as never),
+        ctx.organizationId,
+        "expense",
+      );
+      const policy = evaluatePolicy({
+        objectType: "expense",
+        amount: n(expense.amount),
+        hasReceipt,
+        hasMemo: Boolean(expense.memo?.trim()),
+        rules,
+      });
+      if (policy.result === "BLOCK") {
+        throw new AppError("EXPENSE_POLICY_BLOCK", policy.explanation, 400);
+      }
+      if (!hasReceipt && policy.matchedRules.includes("receipt_required")) {
+        throw new AppError("RECEIPT_REQUIRED", "Attach a receipt before submitting this expense", 400);
+      }
+      if (!expense.memo?.trim() && policy.matchedRules.includes("memo_required")) {
+        throw new AppError("MEMO_REQUIRED", "Add a business purpose before submitting this expense", 400);
+      }
+      const nextStatus = policy.result === "PASS" ? "SUBMITTED" : "IN_REVIEW";
+      const claim = await tx.expense.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: expense.status },
+        data: {
+          status: nextStatus,
+          policyResult: policy.result,
+          ...(linkedReceipt && !expense.receiptId ? { receiptId: linkedReceipt.id } : {}),
+        },
+      });
+      if (claim.count !== 1) throw new AppError("EXPENSE_CONFLICT", "Expense changed; refresh and try again", 409);
+      if (linkedReceipt && linkedReceipt.expenseId !== id) {
+        await tx.receipt.update({
+          where: { id: linkedReceipt.id },
+          data: { expenseId: id, transactionId: expense.transactionId, matchStatus: "MATCHED" },
+        });
+      }
+      await startApproval({
+        organizationId: ctx.organizationId,
+        objectType: "expense",
+        objectId: id,
+        requesterId: expense.userId,
+        title: expense.merchant || "Expense",
+        amount: String(expense.amount),
+        currency: expense.currency,
+        legalEntityId: expense.legalEntityId,
+        policySummary: `Policy ${policy.result}: ${policy.explanation}`,
+      }, tx);
+      await tx.aiRecommendation.create({
+        data: {
+          organizationId: ctx.organizationId,
+          objectType: "expense",
+          objectId: id,
+          agent: "policy-agent",
+          recommendation: policy.explanation,
+          confidence: dec("0.82"),
+          evidence: policy,
+          humanReviewRequired: policy.result !== "PASS",
+        },
+      });
+      const updated = await tx.expense.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "expense.submit",
+        objectType: "Expense", objectId: id,
+        oldValue: { status: expense.status }, newValue: { status: updated.status, policyResult: policy.result },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "expense.submitted", payload: { objectType: "Expense", objectId: id } } });
+      return { expense: updated, policy };
+    });
+  },
+  async approve(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
+      assertEntityPermission(ctx, "expense.approve", expense.legalEntityId);
+      const instance = await tx.approvalInstance.findFirst({
+        where: { organizationId: ctx.organizationId, objectId: id, objectType: "expense", status: "IN_REVIEW" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!instance) throw new AppError("NOT_FOUND", "Approval was not started", 404);
+      const decision = await actOnApproval({ instanceId: instance.id, actorId: ctx.userId, action: "approve" }, tx);
+      if (decision.status !== "APPROVED") return { expense, approval: decision };
+      const claim = await tx.expense.updateMany({ where: { id, organizationId: ctx.organizationId, status: { in: ["SUBMITTED", "IN_REVIEW"] } }, data: { status: "APPROVED" } });
+      if (claim.count !== 1) throw new AppError("EXPENSE_CONFLICT", "Expense changed; refresh and try again", 409);
+      if (expense.transactionId) {
+        await queueAccounting(ctx, "CARD_TRANSACTION", expense.transactionId, expense.legalEntityId, tx, {
+          amount: expense.amount,
+          currency: expense.currency,
+          memo: expense.merchant,
+        });
+      } else {
+        await queueAccounting(ctx, "EXPENSE", expense.id, expense.legalEntityId, tx, {
+          amount: expense.amount,
+          currency: expense.currency,
+          memo: expense.merchant,
+        });
+      }
+      const updated = await tx.expense.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "expense.approve",
+        objectType: "Expense", objectId: id, oldValue: { status: expense.status }, newValue: { status: updated.status },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "expense.approved", payload: { objectType: "Expense", objectId: id } } });
+      return updated;
+    });
+  },
+  async updateMemo(ctx: RequestContext, id: string, body: { memo: string }) {
+    return auditedCommand(ctx, { action: "expense.update_memo", objectType: "Expense", objectId: id, event: "expense.updated" }, async (tx) => {
+      const expense = await tx.expense.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
+      assertEntityPermission(ctx, "expense.create", expense.legalEntityId);
+      if (expense.userId !== ctx.userId && !ctx.roles.includes("Owner") && !ctx.permissions.includes("*")) {
+        throw new AppError("FORBIDDEN", "You can only edit your own expenses", 403);
+      }
+      if (!["INCOMPLETE", "REJECTED"].includes(expense.status)) {
+        throw new AppError("INVALID_STATE", "Only incomplete expenses can be edited", 409);
+      }
+      const memo = body.memo.trim();
+      if (memo.length > 500) throw new AppError("INVALID_MEMO", "Memo must be 500 characters or fewer", 400);
+      const updated = await tx.expense.update({ where: { id }, data: { memo } });
+      return { result: updated, oldValue: { memo: expense.memo }, newValue: { memo: updated.memo } };
+    });
+  },
+  async split(ctx: RequestContext, id: string, splits: Array<{ amount: string; category: string; department?: string }>) {
+    return prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
+      assertEntityPermission(ctx, "expense.create", expense.legalEntityId);
+      if (!["INCOMPLETE", "REJECTED", "SUBMITTED", "IN_REVIEW"].includes(expense.status)) {
+        throw new AppError("INVALID_STATE", "Splits cannot be changed in this state", 409);
+      }
+      if (!splits.length) throw new AppError("INVALID_SPLITS", "At least one split is required", 400);
+      const total = splits.reduce((sum, split) => sum.plus(dec(requireMoney(split.amount, expense.currency).amount)), dec(0));
+      if (!total.equals(expense.amount)) {
+        throw new AppError("SPLIT_IMBALANCE", "Splits must balance the expense amount exactly", 400);
+      }
+      await tx.expenseSplit.deleteMany({ where: { organizationId: ctx.organizationId, expenseId: id } });
+      await tx.expenseSplit.createMany({
+        data: splits.map((split) => ({
+          organizationId: ctx.organizationId,
+          expenseId: id,
+          amount: dec(requireMoney(split.amount, expense.currency).amount),
+          category: split.category.trim() || "UNCATEGORIZED",
+          department: split.department?.trim() ?? "",
+        })),
+      });
+      const rows = await tx.expenseSplit.findMany({ where: { organizationId: ctx.organizationId, expenseId: id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "expense.split",
+        objectType: "Expense", objectId: id,
+        newValue: { splits: rows.map((row) => ({ amount: String(row.amount), category: row.category, department: row.department })) },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "expense.split", payload: { objectType: "Expense", objectId: id } } });
+      return rows;
+    });
+  },
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "expenses");
+    const expense = await prisma.expense.findFirst({ where: { ...scope, id } });
+    if (!expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
+    const [receipt, splits, transaction] = await Promise.all([
+      expense.receiptId
+        ? prisma.receipt.findFirst({ where: { id: expense.receiptId, organizationId: ctx.organizationId } })
+        : prisma.receipt.findFirst({ where: { organizationId: ctx.organizationId, expenseId: expense.id } }),
+      prisma.expenseSplit.findMany({ where: { organizationId: ctx.organizationId, expenseId: expense.id } }),
+      expense.transactionId
+        ? prisma.txn.findFirst({ where: { id: expense.transactionId, organizationId: ctx.organizationId } })
+        : Promise.resolve(null),
+    ]);
+    const file = receipt
+      ? await prisma.attachment.findFirst({ where: { id: receipt.attachmentId, organizationId: ctx.organizationId } })
+      : null;
+    return { expense, receipt, attachment: file, splits, transaction };
+  },
+};
+
+export const receipts = {
+  async createFromAttachment(ctx: RequestContext, body: {
+    attachmentId: string;
+    expenseId?: string;
+    transactionId?: string;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const attachment = await tx.attachment.findFirst({
+        where: { id: body.attachmentId, organizationId: ctx.organizationId },
+      });
+      if (!attachment) throw new AppError("NOT_FOUND", "Attachment not found", 404);
+      if (attachment.classification !== "RECEIPT" && attachment.classification !== "attachment") {
+        throw new AppError("INVALID_ATTACHMENT", "Only receipt attachments can create receipts", 400);
+      }
+      if (attachment.malwareStatus !== "CLEAN") {
+        if (env.nodeEnv === "production") {
+          throw new AppError("ATTACHMENT_QUARANTINED", "Attachment must be scanned clean before use", 409);
+        }
+        // Local sandbox: acknowledge clean so the receipt journey can be tested without a worker.
+        await tx.attachment.update({ where: { id: attachment.id }, data: { malwareStatus: "CLEAN" } });
+      }
+
+      let expense = body.expenseId
+        ? await tx.expense.findFirst({ where: { id: body.expenseId, organizationId: ctx.organizationId } })
+        : null;
+      if (body.expenseId && !expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
+      if (expense) {
+        assertEntityPermission(ctx, "expense.create", expense.legalEntityId);
+        if (expense.userId !== ctx.userId && !ctx.roles.includes("Owner") && !ctx.permissions.includes("*")) {
+          throw new AppError("FORBIDDEN", "You can only attach receipts to your own expenses", 403);
+        }
+      }
+
+      let transactionId = body.transactionId ?? expense?.transactionId ?? null;
+      if (body.transactionId) {
+        const txn = await tx.txn.findFirst({ where: { id: body.transactionId, organizationId: ctx.organizationId } });
+        if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
+        transactionId = txn.id;
+        if (!expense) {
+          expense = await tx.expense.findFirst({ where: { organizationId: ctx.organizationId, transactionId: txn.id } });
+        }
+      }
+
+      const existing = await tx.receipt.findFirst({
+        where: { organizationId: ctx.organizationId, attachmentId: attachment.id },
+      });
+      if (existing) {
+        if (expense && existing.expenseId && existing.expenseId !== expense.id) {
+          throw new AppError("RECEIPT_LINKED", "This receipt is already linked to another expense", 409);
+        }
+        const updated = await tx.receipt.update({
+          where: { id: existing.id },
+          data: {
+            expenseId: expense?.id ?? existing.expenseId,
+            transactionId: transactionId ?? existing.transactionId,
+            matchStatus: expense || transactionId ? "MATCHED" : existing.matchStatus,
+          },
+        });
+        if (expense && expense.receiptId !== updated.id) {
+          await tx.expense.update({ where: { id: expense.id }, data: { receiptId: updated.id } });
+        }
+        return updated;
+      }
+
+      const ocr = await ocrProvider.extract({
+        attachmentId: attachment.id,
+        mimeType: attachment.mimeType,
+        originalName: attachment.originalName,
+        checksum: attachment.checksum,
+      });
+
+      const receipt = await tx.receipt.create({
+        data: {
+          organizationId: ctx.organizationId,
+          attachmentId: attachment.id,
+          expenseId: expense?.id ?? null,
+          transactionId,
+          merchantGuess: ocr.merchantGuess,
+          amountGuess: ocr.amountGuess,
+          matchStatus: expense || transactionId ? "MATCHED" : "UNMATCHED",
+          ocrStatus: "COMPLETED",
+          ocrPayload: ocr as never,
+        },
+      });
+      if (expense) {
+        await tx.expense.update({ where: { id: expense.id }, data: { receiptId: receipt.id } });
+      }
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "receipt.create",
+        objectType: "Receipt", objectId: receipt.id,
+        newValue: { attachmentId: attachment.id, expenseId: expense?.id ?? null, transactionId },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: {
+        organizationId: ctx.organizationId, type: "receipt.created",
+        payload: { objectType: "Receipt", objectId: receipt.id, expenseId: expense?.id ?? null },
+      } });
+      return receipt;
+    });
+  },
+
+  async link(ctx: RequestContext, id: string, body: { expenseId?: string; transactionId?: string }) {
+    return prisma.$transaction(async (tx) => {
+      const receipt = await tx.receipt.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!receipt) throw new AppError("NOT_FOUND", "Receipt not found", 404);
+      let expense = body.expenseId
+        ? await tx.expense.findFirst({ where: { id: body.expenseId, organizationId: ctx.organizationId } })
+        : null;
+      if (body.expenseId && !expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
+      if (expense) {
+        assertEntityPermission(ctx, "expense.create", expense.legalEntityId);
+      }
+      let transactionId = body.transactionId ?? expense?.transactionId ?? receipt.transactionId;
+      if (body.transactionId) {
+        const txn = await tx.txn.findFirst({ where: { id: body.transactionId, organizationId: ctx.organizationId } });
+        if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
+        transactionId = txn.id;
+        if (!expense) {
+          expense = await tx.expense.findFirst({ where: { organizationId: ctx.organizationId, transactionId: txn.id } });
+        }
+      }
+      if (!expense && !transactionId) throw new AppError("INVALID_LINK", "Provide an expenseId or transactionId", 400);
+      const updated = await tx.receipt.update({
+        where: { id },
+        data: {
+          expenseId: expense?.id ?? receipt.expenseId,
+          transactionId,
+          matchStatus: "MATCHED",
+        },
+      });
+      if (expense) {
+        await tx.expense.update({ where: { id: expense.id }, data: { receiptId: updated.id } });
+      }
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "receipt.link",
+        objectType: "Receipt", objectId: id,
+        newValue: { expenseId: updated.expenseId, transactionId: updated.transactionId },
+        correlationId: ctx.correlationId,
+      } });
+      return updated;
+    });
+  },
+};
+
+export const reimbursements = {
+  async create(ctx: RequestContext, body: {
+    legalEntityId: string;
+    type: "STANDARD" | "MILEAGE" | "PER_DIEM";
+    currency: string;
+    memo: string;
+    amount?: string;
+    merchant?: string;
+    receiptId?: string;
+    attachmentId?: string;
+    distanceMiles?: string;
+    mileageRate?: string;
+    perDiemNights?: number;
+    perDiemRate?: string;
+  }) {
+    let calc;
+    try {
+      calc = calculateReimbursement({
+        type: body.type,
+        currency: body.currency,
+        amount: body.amount,
+        distanceMiles: body.distanceMiles,
+        mileageRate: body.mileageRate,
+        perDiemNights: body.perDiemNights,
+        perDiemRate: body.perDiemRate,
+      });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "INVALID_AMOUNT";
+      throw new AppError(code, "Reimbursement amount could not be calculated", 400);
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const entity = await tx.legalEntity.findFirst({ where: { id: body.legalEntityId, organizationId: ctx.organizationId } });
+      if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
+      requireCurrencyMatch(entity.currency, body.currency);
+      if (!ctx.roles.includes("Owner") && !ctx.permissions.includes("*") && !ctx.permissions.includes("reimbursement.create")) {
+        throw new AppError("FORBIDDEN", "Missing reimbursement.create", 403);
+      }
+
+      let receiptId = body.receiptId ?? null;
+      if (body.attachmentId) {
+        const attachment = await tx.attachment.findFirst({
+          where: { id: body.attachmentId, organizationId: ctx.organizationId },
+        });
+        if (!attachment) throw new AppError("NOT_FOUND", "Attachment not found", 404);
+        if (attachment.malwareStatus !== "CLEAN" && env.nodeEnv !== "production") {
+          await tx.attachment.update({ where: { id: attachment.id }, data: { malwareStatus: "CLEAN" } });
+        }
+        if ((await tx.attachment.findUniqueOrThrow({ where: { id: attachment.id } })).malwareStatus !== "CLEAN") {
+          throw new AppError("ATTACHMENT_QUARANTINED", "Attachment must be scanned clean before use", 409);
+        }
+        let receipt = await tx.receipt.findFirst({ where: { organizationId: ctx.organizationId, attachmentId: attachment.id } });
+        if (!receipt) {
+          const ocr = await ocrProvider.extract({
+            attachmentId: attachment.id,
+            mimeType: attachment.mimeType,
+            originalName: attachment.originalName,
+            checksum: attachment.checksum,
+          });
+          receipt = await tx.receipt.create({
+            data: {
+              organizationId: ctx.organizationId,
+              attachmentId: attachment.id,
+              merchantGuess: ocr.merchantGuess,
+              amountGuess: ocr.amountGuess,
+              matchStatus: "UNMATCHED",
+              ocrStatus: "COMPLETED",
+              ocrPayload: ocr as never,
+            },
+          });
+        }
+        receiptId = receipt.id;
+      } else if (receiptId) {
+        const receipt = await tx.receipt.findFirst({ where: { id: receiptId, organizationId: ctx.organizationId } });
+        if (!receipt) throw new AppError("NOT_FOUND", "Receipt not found", 404);
+      }
+
+      const { rules } = await loadPolicyRules(
+        (args) => tx.policy.findMany(args as never),
+        ctx.organizationId,
+        "reimbursement",
+      );
+      const policy = evaluatePolicy({
+        objectType: "reimbursement",
+        amount: n(calc.amount),
+        hasReceipt: Boolean(receiptId),
+        hasMemo: Boolean(body.memo?.trim()),
+        rules: rules.length ? rules : [
+          { type: "receipt_required", threshold: 75 },
+          { type: "memo_required", threshold: 0 },
+        ],
+      });
+      if (policy.result === "BLOCK") {
+        throw new AppError("REIMBURSEMENT_POLICY_BLOCK", policy.explanation, 400);
+      }
+      if (!receiptId && policy.matchedRules.includes("receipt_required")) {
+        throw new AppError("RECEIPT_REQUIRED", "Attach a receipt before submitting this reimbursement", 400);
+      }
+
+      const workflow = await tx.approvalWorkflow.findFirst({ where: { organizationId: ctx.organizationId, objectType: "reimbursement" } });
+      const record = await tx.reimbursement.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: entity.id,
+          userId: ctx.userId,
+          type: body.type,
+          amount: calc.amount,
+          currency: body.currency,
+          memo: body.memo.trim(),
+          merchant: (body.merchant ?? "").trim(),
+          receiptId,
+          distanceMiles: calc.distanceMiles,
+          mileageRate: calc.mileageRate,
+          perDiemNights: calc.perDiemNights,
+          perDiemRate: calc.perDiemRate,
+          calcBreakdown: calc.breakdown as never,
+          policyResult: policy.result,
+          status: "IN_REVIEW",
+        },
+      });
+      if (receiptId) {
+        await tx.receipt.update({
+          where: { id: receiptId },
+          data: { reimbursementId: record.id, matchStatus: "MATCHED" },
+        });
+      }
+      await startApproval({
+        organizationId: ctx.organizationId,
+        workflowId: workflow?.id,
+        objectType: "reimbursement",
+        objectId: record.id,
+        requesterId: ctx.userId,
+        title: body.memo.trim() || `${body.type} reimbursement`,
+        amount: String(calc.amount),
+        currency: body.currency,
+        legalEntityId: entity.id,
+        policySummary: `Policy ${policy.result}: ${policy.explanation}`,
+      }, tx);
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "reimbursement.submit",
+          objectType: "Reimbursement", objectId: record.id,
+          newValue: {
+            type: record.type, amount: String(calc.amount), currency: body.currency,
+            status: record.status, calc: calc.breakdown, receiptId,
+          },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "reimbursement.submitted", payload: { reimbursementId: record.id } },
+      });
+      return record;
+    });
+  },
+
+  async approve(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const record = await tx.reimbursement.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!record) throw new AppError("NOT_FOUND", "Reimbursement not found", 404);
+      if (record.status !== "IN_REVIEW") throw new AppError("INVALID_STATE", "Reimbursement is no longer in review", 409);
+      assertEntityPermission(ctx, "reimbursement.approve", record.legalEntityId);
+      const instance = await tx.approvalInstance.findFirst({
+        where: { organizationId: ctx.organizationId, objectType: "reimbursement", objectId: id, status: "IN_REVIEW" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!instance) throw new AppError("NOT_FOUND", "Approval task not found", 404);
+      const decision = await actOnApproval({ instanceId: instance.id, actorId: ctx.userId, action: "approve" }, tx);
+      if (decision.status !== "APPROVED") return { reimbursement: record, approval: decision };
+      const claim = await tx.reimbursement.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "IN_REVIEW" },
+        data: { status: "APPROVED" },
+      });
+      if (claim.count !== 1) throw new AppError("REIMBURSEMENT_CONFLICT", "Reimbursement changed; refresh and try again", 409);
+      const updated = await tx.reimbursement.findUniqueOrThrow({ where: { id } });
+      // Approved ≠ paid: accounting is created only on payout confirmation.
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "reimbursement.approve",
+          objectType: "Reimbursement", objectId: id,
+          oldValue: { status: record.status }, newValue: { status: updated.status },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "reimbursement.approved", payload: { reimbursementId: id } },
+      });
+      return updated;
+    });
+  },
+
+  async schedule(ctx: RequestContext, id: string, body: { rail?: string } = {}) {
+    return prisma.$transaction(async (tx) => {
+      const record = await tx.reimbursement.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!record) throw new AppError("NOT_FOUND", "Reimbursement not found", 404);
+      assertEntityPermission(ctx, "reimbursement.pay", record.legalEntityId);
+      if (record.status === "SCHEDULED" || record.status === "PAID") {
+        return record;
+      }
+      if (record.status !== "APPROVED") {
+        throw new AppError("INVALID_STATE", "Only approved reimbursements can be scheduled for payout", 409);
+      }
+      const rail = (body.rail ?? "ACH").toUpperCase();
+      if (!["ACH", "WIRE", "CHECK"].includes(rail)) {
+        throw new AppError("INVALID_RAIL", "Payout rail must be ACH, WIRE, or CHECK", 400);
+      }
+      const scheduled = payoutProvider.schedule({
+        reimbursementId: record.id,
+        amount: String(record.amount),
+        currency: record.currency,
+        rail,
+      });
+      const claim = await tx.reimbursement.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "APPROVED" },
+        data: {
+          status: "SCHEDULED",
+          payoutRail: rail,
+          providerRef: scheduled.providerRef,
+          scheduledAt: new Date(),
+        },
+      });
+      if (claim.count !== 1) throw new AppError("REIMBURSEMENT_CONFLICT", "Reimbursement changed; refresh and try again", 409);
+      const updated = await tx.reimbursement.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "reimbursement.schedule",
+          objectType: "Reimbursement", objectId: id,
+          oldValue: { status: "APPROVED" },
+          newValue: { status: "SCHEDULED", providerRef: scheduled.providerRef, rail },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId, type: "reimbursement.scheduled",
+          payload: { reimbursementId: id, providerRef: scheduled.providerRef },
+        },
+      });
+      return updated;
+    });
+  },
+
+  async confirmPayout(ctx: RequestContext, id: string) {
+    if (env.nodeEnv === "production") {
+      throw new AppError("PROVIDER_REQUIRED", "Payout confirmation must come from the payment provider", 403);
+    }
+    return prisma.$transaction(async (tx) => {
+      const record = await tx.reimbursement.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!record) throw new AppError("NOT_FOUND", "Reimbursement not found", 404);
+      assertEntityPermission(ctx, "reimbursement.pay", record.legalEntityId);
+      if (record.status === "PAID") {
+        const existing = await tx.accountingEntry.findFirst({
+          where: { organizationId: ctx.organizationId, sourceType: "REIMBURSEMENT", sourceId: id },
+        });
+        return { reimbursement: record, accounting: existing };
+      }
+      if (record.status !== "SCHEDULED") {
+        throw new AppError("INVALID_STATE", "Only scheduled reimbursements can be confirmed as paid", 409);
+      }
+      if (!record.providerRef) throw new AppError("MISSING_PROVIDER_REF", "Payout was not scheduled with a provider reference", 409);
+      const confirmed = payoutProvider.confirm({ providerRef: record.providerRef });
+      if (confirmed.status !== "PAID") throw new AppError("PROVIDER_DECLINED", "Payout provider declined confirmation", 409);
+
+      const claim = await tx.reimbursement.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "SCHEDULED" },
+        data: { status: "PAID", paidAt: new Date() },
+      });
+      if (claim.count !== 1) throw new AppError("REIMBURSEMENT_CONFLICT", "Reimbursement changed; refresh and try again", 409);
+
+      const accounting = await queueAccounting(ctx, "REIMBURSEMENT", id, record.legalEntityId, tx, {
+        amount: record.amount,
+        currency: record.currency,
+        memo: record.memo,
+      });
+      const updated = await tx.reimbursement.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "reimbursement.payout_confirm",
+          objectType: "Reimbursement", objectId: id,
+          oldValue: { status: "SCHEDULED" },
+          newValue: { status: "PAID", accountingId: accounting.id },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId, type: "reimbursement.paid",
+          payload: { reimbursementId: id, accountingId: accounting.id },
+        },
+      });
+      return { reimbursement: updated, accounting };
+    });
+  },
+
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "reimbursements");
+    const reimbursement = await prisma.reimbursement.findFirst({ where: { ...scope, id } });
+    if (!reimbursement) throw new AppError("NOT_FOUND", "Reimbursement not found", 404);
+    const receipt = reimbursement.receiptId
+      ? await prisma.receipt.findFirst({ where: { id: reimbursement.receiptId, organizationId: ctx.organizationId } })
+      : await prisma.receipt.findFirst({ where: { organizationId: ctx.organizationId, reimbursementId: id } });
+    const attachment = receipt
+      ? await prisma.attachment.findFirst({ where: { id: receipt.attachmentId, organizationId: ctx.organizationId } })
+      : null;
+    const accounting = await prisma.accountingEntry.findFirst({
+      where: { organizationId: ctx.organizationId, sourceType: "REIMBURSEMENT", sourceId: id },
+    });
+    return { reimbursement, receipt, attachment, accounting };
+  },
+};
+
+export const vendors = {
+  async create(ctx: RequestContext, body: {
+    name: string; category?: string; legalEntityId: string; taxId?: string; riskLevel?: string; notes?: string;
+  }) {
+    assertEntityPermission(ctx, "vendor.create", body.legalEntityId);
+    const name = body.name.trim();
+    if (name.length < 2) throw new AppError("INVALID_NAME", "Vendor name is required", 400);
+    const riskLevel = (body.riskLevel ?? "LOW").toUpperCase();
+    if (!["LOW", "MEDIUM", "HIGH"].includes(riskLevel)) {
+      throw new AppError("INVALID_RISK", "Risk level must be LOW, MEDIUM, or HIGH", 400);
+    }
+    return prisma.$transaction(async (tx) => {
+      const entity = await tx.legalEntity.findFirst({ where: { id: body.legalEntityId, organizationId: ctx.organizationId } });
+      if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
+      const duplicate = await tx.vendor.findFirst({
+        where: { organizationId: ctx.organizationId, name: { equals: name, mode: "insensitive" } },
+      });
+      if (duplicate) throw new AppError("DUPLICATE_VENDOR", "A vendor with this name already exists", 409);
+      const vendor = await tx.vendor.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: entity.id,
+          name,
+          category: (body.category ?? "").trim(),
+          ownerId: ctx.userId,
+          taxId: body.taxId?.trim() || null,
+          riskLevel,
+          notes: (body.notes ?? "").trim(),
+          status: "ACTIVE",
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "vendor.create",
+          objectType: "Vendor", objectId: vendor.id,
+          newValue: { name: vendor.name, riskLevel: vendor.riskLevel, legalEntityId: entity.id },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "vendor.created", payload: { vendorId: vendor.id } },
+      });
+      return vendor;
+    });
+  },
+
+  async setBankAccount(ctx: RequestContext, vendorId: string, body: {
+    last4: string; routingMasked: string; changeReason?: string;
+  }) {
+    const last4 = body.last4.replace(/\D/g, "").slice(-4);
+    if (last4.length !== 4) throw new AppError("INVALID_ACCOUNT", "Bank account last4 must be 4 digits", 400);
+    const routingMasked = body.routingMasked.trim();
+    if (routingMasked.length < 4) throw new AppError("INVALID_ROUTING", "Routing mask is required", 400);
+    return prisma.$transaction(async (tx) => {
+      const vendor = await tx.vendor.findFirst({ where: { id: vendorId, organizationId: ctx.organizationId } });
+      if (!vendor) throw new AppError("NOT_FOUND", "Vendor not found", 404);
+      if (vendor.legalEntityId) assertEntityPermission(ctx, "vendor.bank_details.manage", vendor.legalEntityId);
+      else if (!ctx.permissions.includes("*") && !ctx.permissions.includes("vendor.bank_details.manage")) {
+        throw new AppError("FORBIDDEN", "Missing vendor.bank_details.manage", 403);
+      }
+      await tx.vendorBankAccount.updateMany({
+        where: { organizationId: ctx.organizationId, vendorId, isCurrent: true },
+        data: { isCurrent: false, supersededAt: new Date(), status: "SUPERSEDED" },
+      });
+      const account = await tx.vendorBankAccount.create({
+        data: {
+          organizationId: ctx.organizationId,
+          vendorId,
+          last4,
+          routingMasked,
+          status: "PENDING_VERIFICATION",
+          changedBy: ctx.userId,
+          changeReason: (body.changeReason ?? "").trim(),
+          isCurrent: true,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "vendor.bank_changed",
+          objectType: "Vendor", objectId: vendorId,
+          newValue: { bankAccountId: account.id, last4, routingMasked },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId, type: "vendor.bank_changed",
+          payload: { vendorId, bankAccountId: account.id },
+        },
+      });
+      return account;
+    });
+  },
+
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "vendors");
+    const vendor = await prisma.vendor.findFirst({ where: { ...scope, id } });
+    if (!vendor) throw new AppError("NOT_FOUND", "Vendor not found", 404);
+    const [bankAccounts, bills, payments] = await Promise.all([
+      prisma.vendorBankAccount.findMany({
+        where: { organizationId: ctx.organizationId, vendorId: id },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      }),
+      prisma.bill.findMany({
+        where: { organizationId: ctx.organizationId, vendorId: id },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+      prisma.payment.findMany({
+        where: { organizationId: ctx.organizationId, billId: { in: (await prisma.bill.findMany({
+          where: { organizationId: ctx.organizationId, vendorId: id }, select: { id: true },
+        })).map((b) => b.id) } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    ]);
+    const openBills = bills.filter((b) => ["APPROVED", "PARTIAL", "PENDING_APPROVAL", "DRAFT"].includes(b.status));
+    const spend = bills.reduce((sum, b) => sum + Number(b.amount), 0);
+    return {
+      vendor,
+      bankAccounts,
+      bills,
+      payments,
+      summary: {
+        billCount: bills.length,
+        openBillCount: openBills.length,
+        lifetimeSpend: spend,
+        currentBankLast4: bankAccounts.find((a) => a.isCurrent)?.last4 ?? null,
+        riskLevel: vendor.riskLevel,
+      },
+    };
+  },
+};
+
+export const bills = {
+  async create(ctx: RequestContext, body: {
+    vendorId: string; legalEntityId: string; invoiceNumber: string; amount: string; currency: string;
+    dueDate?: string; memo?: string; attachmentId?: string; purchaseOrderId?: string;
+    lines?: Array<{ description: string; amount: string; category?: string }>;
+  }) {
+    const money = requireMoney(body.amount, body.currency);
+    assertEntityPermission(ctx, "bill.create", body.legalEntityId);
+    return prisma.$transaction(async (tx) => {
+      const [vendor, entity] = await Promise.all([
+        tx.vendor.findFirst({ where: { id: body.vendorId, organizationId: ctx.organizationId } }),
+        tx.legalEntity.findFirst({ where: { id: body.legalEntityId, organizationId: ctx.organizationId } }),
+      ]);
+      if (!vendor || !entity || (vendor.legalEntityId && vendor.legalEntityId !== entity.id)) {
+        throw new AppError("INVALID_REFERENCE", "Vendor or entity is unavailable", 400);
+      }
+      requireCurrencyMatch(entity.currency, money.currency);
+      const invoiceNumber = body.invoiceNumber.trim();
+      const duplicate = await tx.bill.findFirst({
+        where: { organizationId: ctx.organizationId, vendorId: vendor.id, invoiceNumber },
+      });
+      if (duplicate) throw new AppError("DUPLICATE_INVOICE", "This vendor invoice number already exists", 409);
+
+      if (body.attachmentId) {
+        const attachment = await tx.attachment.findFirst({
+          where: { id: body.attachmentId, organizationId: ctx.organizationId },
+        });
+        if (!attachment) throw new AppError("ATTACHMENT_NOT_FOUND", "Invoice document not found", 404);
+      }
+      if (body.purchaseOrderId) {
+        const po = await tx.purchaseOrder.findFirst({
+          where: { id: body.purchaseOrderId, organizationId: ctx.organizationId, legalEntityId: entity.id },
+        });
+        if (!po) throw new AppError("PO_NOT_FOUND", "Purchase order not found", 404);
+      }
+
+      const lines = body.lines ?? [];
+      if (lines.length) {
+        const lineTotal = lines.reduce((sum, line) => sum + Number(requireMoney(line.amount, money.currency).amount), 0);
+        if (Math.abs(lineTotal - Number(money.amount)) > 0.001) {
+          throw new AppError("LINE_TOTAL_MISMATCH", "Bill line totals must equal the invoice amount", 400);
+        }
+      }
+
+      const bill = await tx.bill.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: body.legalEntityId,
+          vendorId: body.vendorId,
+          invoiceNumber,
+          amount: dec(money.amount),
+          remainingAmount: dec(money.amount),
+          currency: money.currency,
+          dueDate: body.dueDate ? new Date(body.dueDate) : null,
+          memo: (body.memo ?? "").trim(),
+          attachmentId: body.attachmentId ?? null,
+          purchaseOrderId: body.purchaseOrderId ?? null,
+          status: "PENDING_APPROVAL",
+          createdBy: ctx.userId,
+        },
+      });
+      if (lines.length) {
+        await tx.billLine.createMany({
+          data: lines.map((line) => ({
+            organizationId: ctx.organizationId,
+            billId: bill.id,
+            description: line.description.trim() || "Line",
+            amount: dec(requireMoney(line.amount, money.currency).amount),
+            category: (line.category ?? "").trim(),
+          })),
+        });
+      } else {
+        await tx.billLine.create({
+          data: {
+            organizationId: ctx.organizationId,
+            billId: bill.id,
+            description: body.memo?.trim() || `Invoice ${invoiceNumber}`,
+            amount: dec(money.amount),
+            category: vendor.category || "",
+          },
+        });
+      }
+      await startApproval({
+        organizationId: ctx.organizationId,
+        objectType: "bill",
+        objectId: bill.id,
+        requesterId: ctx.userId,
+        title: `Invoice ${bill.invoiceNumber}`,
+        amount: money.amount,
+        currency: money.currency,
+        legalEntityId: body.legalEntityId,
+      }, tx);
+      await queueAccounting(ctx, "BILL", bill.id, body.legalEntityId, tx, {
+        amount: money.amount,
+        currency: money.currency,
+        memo: `Invoice ${invoiceNumber}`,
+      });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "bill.create",
+        objectType: "Bill", objectId: bill.id,
+        newValue: {
+          invoiceNumber: bill.invoiceNumber, amount: money.amount, currency: money.currency,
+          status: bill.status, lineCount: lines.length || 1, attachmentId: body.attachmentId ?? null,
+        },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "bill.created", payload: { objectType: "Bill", objectId: bill.id } } });
+      return bill;
+    });
+  },
+  async approve(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const bill = await tx.bill.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!bill) throw new AppError("NOT_FOUND", "Bill not found", 404);
+      if (bill.status !== "PENDING_APPROVAL") throw new AppError("INVALID_STATE", "Bill is not pending approval", 409);
+      assertEntityPermission(ctx, "bill.approve", bill.legalEntityId);
+      if (bill.createdBy === ctx.userId) {
+        throw new AppError("SOD_VIOLATION", "Bill creator cannot be the sole approver", 403);
+      }
+      const instance = await tx.approvalInstance.findFirst({ where: { organizationId: ctx.organizationId, objectType: "bill", objectId: id, status: "IN_REVIEW" }, orderBy: { createdAt: "desc" } });
+      if (!instance) throw new AppError("NOT_FOUND", "Approval was not started", 404);
+      const decision = await actOnApproval({ instanceId: instance.id, actorId: ctx.userId, action: "approve" }, tx);
+      if (decision.status !== "APPROVED") return { bill, approval: decision };
+      const claim = await tx.bill.updateMany({ where: { id, organizationId: ctx.organizationId, status: "PENDING_APPROVAL" }, data: { status: "APPROVED" } });
+      if (claim.count !== 1) throw new AppError("BILL_CONFLICT", "Bill changed; refresh and try again", 409);
+      const updated = await tx.bill.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "bill.approve",
+        objectType: "Bill", objectId: id, oldValue: { status: bill.status }, newValue: { status: updated.status },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "bill.approved", payload: { objectType: "Bill", objectId: id } } });
+      return updated;
+    });
+  },
+  async submit(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const bill = await tx.bill.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!bill) throw new AppError("NOT_FOUND", "Bill not found", 404);
+      if (bill.status !== "DRAFT") throw new AppError("INVALID_STATE", "Only draft bills can be submitted", 409);
+      assertEntityPermission(ctx, "bill.create", bill.legalEntityId);
+      const claim = await tx.bill.updateMany({ where: { id, organizationId: ctx.organizationId, status: "DRAFT" }, data: { status: "PENDING_APPROVAL" } });
+      if (claim.count !== 1) throw new AppError("BILL_CONFLICT", "Bill changed; refresh and try again", 409);
+      await startApproval({
+        organizationId: ctx.organizationId,
+        objectType: "bill",
+        objectId: id,
+        requesterId: bill.createdBy,
+        title: `Invoice ${bill.invoiceNumber}`,
+        amount: String(bill.amount),
+        currency: bill.currency,
+        legalEntityId: bill.legalEntityId,
+      }, tx);
+      const updated = await tx.bill.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "bill.submit",
+        objectType: "Bill", objectId: id, oldValue: { status: "DRAFT" }, newValue: { status: updated.status },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "bill.submitted", payload: { objectType: "Bill", objectId: id } } });
+      return updated;
+    });
+  },
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "bills");
+    const bill = await prisma.bill.findFirst({ where: { ...scope, id } });
+    if (!bill) throw new AppError("NOT_FOUND", "Bill not found", 404);
+    const [vendor, lines, payments, attachment, accounting] = await Promise.all([
+      prisma.vendor.findFirst({ where: { id: bill.vendorId, organizationId: ctx.organizationId } }),
+      prisma.billLine.findMany({ where: { organizationId: ctx.organizationId, billId: id } }),
+      prisma.payment.findMany({ where: { organizationId: ctx.organizationId, billId: id }, orderBy: { createdAt: "desc" } }),
+      bill.attachmentId
+        ? prisma.attachment.findFirst({ where: { id: bill.attachmentId, organizationId: ctx.organizationId } })
+        : Promise.resolve(null),
+      prisma.accountingEntry.findFirst({
+        where: { organizationId: ctx.organizationId, sourceType: "BILL", sourceId: id },
+      }),
+    ]);
+    return { bill, vendor, lines, payments, attachment, accounting };
+  },
+};
+
+export const payments = {
+  async schedule(ctx: RequestContext, body: { billId: string; amount: string; rail?: string; idempotencyKey: string; paymentRunId?: string }) {
+    const amount = dec(body.amount);
+    if (!amount.greaterThan(0)) throw new AppError("INVALID_AMOUNT", "Payment amount must be positive", 400);
+    const scopedBill = await prisma.bill.findFirst({ where: { id: body.billId, organizationId: ctx.organizationId }, select: { legalEntityId: true } });
+    if (!scopedBill) throw new AppError("NOT_FOUND", "Bill not found", 404);
+    assertEntityPermission(ctx, "payment.create", scopedBill.legalEntityId);
+    return withIdempotency({
+      organizationId: ctx.organizationId, operation: "payment.schedule", key: body.idempotencyKey,
+      requestHash: hashRequest({ actorId: ctx.userId, billId: body.billId, amount: amount.toFixed(2), rail: body.rail ?? "ACH", paymentRunId: body.paymentRunId ?? null }),
+    }, async (tx) => {
+      const bill = await tx.bill.findFirst({ where: { id: body.billId, organizationId: ctx.organizationId } });
+      if (!bill) throw new AppError("NOT_FOUND", "Bill not found", 404);
+      assertEntityPermission(ctx, "payment.create", bill.legalEntityId);
+      if (bill.status !== "APPROVED" && bill.status !== "PARTIAL") throw new AppError("BILL_NOT_APPROVED", "Bill must be approved before payment setup", 400);
+      if (body.paymentRunId) {
+        const run = await tx.paymentRun.findFirst({
+          where: { id: body.paymentRunId, organizationId: ctx.organizationId, status: "OPEN", legalEntityId: bill.legalEntityId },
+        });
+        if (!run) throw new AppError("RUN_UNAVAILABLE", "Payment run is not open for this entity", 400);
+      }
+      const pending = await tx.payment.aggregate({ where: { organizationId: ctx.organizationId, billId: bill.id, status: { in: ["SCHEDULED", "PROCESSING"] } }, _sum: { amount: true } });
+      const available = bill.remainingAmount.minus(pending._sum.amount ?? 0);
+      if (available.lessThan(amount)) throw new AppError("PAYMENT_EXCEEDS_BALANCE", "Payment exceeds the uncommitted bill balance", 400);
+      const entity = await tx.legalEntity.findFirst({ where: { id: bill.legalEntityId, organizationId: ctx.organizationId } });
+      const capabilities = entity ? await tx.countryCapability.findFirst({ where: { organizationId: ctx.organizationId, country: entity.country } }) : null;
+      const rail = body.rail ?? "ACH";
+      if (!entity || !capabilities?.billPaySupported || !Array.isArray(capabilities.rails) || !capabilities.rails.includes(rail)) {
+        throw new AppError("RAIL_UNAVAILABLE", "Payment method is unavailable for this entity", 400);
+      }
+      const payment = await tx.payment.create({ data: {
+        organizationId: ctx.organizationId, legalEntityId: bill.legalEntityId, billId: bill.id,
+        amount, currency: bill.currency, rail, status: "SCHEDULED", createdBy: ctx.userId,
+        paymentRunId: body.paymentRunId ?? null,
+      } });
+      await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: "payment.schedule", objectType: "Payment", objectId: payment.id, newValue: { billId: bill.id, amount: body.amount, rail, paymentRunId: body.paymentRunId ?? null }, correlationId: ctx.correlationId } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "payment.scheduled", payload: { paymentId: payment.id, objectId: payment.id } } });
+      return payment;
+    });
+  },
+  async release(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!payment) throw new AppError("NOT_FOUND", "Payment not found", 404);
+      assertEntityPermission(ctx, "payment.release", payment.legalEntityId);
+      if (payment.status !== "SCHEDULED") throw new AppError("INVALID_STATE", "Payment is not scheduled", 409);
+      if (payment.createdBy === ctx.userId) throw new AppError("SOD_VIOLATION", "Payment creator cannot release payment", 403);
+      const accepted = paymentRail.release({
+        paymentId: payment.id,
+        amount: String(payment.amount),
+        currency: payment.currency,
+        rail: payment.rail,
+      });
+      if (accepted.status !== "ACCEPTED") throw new AppError("RAIL_REJECTED", "Payment rail rejected release", 409);
+      const claim = await tx.payment.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "SCHEDULED" },
+        data: { status: "PROCESSING", releasedBy: ctx.userId, providerRef: accepted.providerRef },
+      });
+      if (claim.count !== 1) throw new AppError("PAYMENT_CONFLICT", "Payment changed; refresh and try again", 409);
+      const updated = await tx.payment.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "payment.release",
+        objectType: "Payment", objectId: id, oldValue: { status: payment.status },
+        newValue: { status: updated.status, releasedBy: ctx.userId, providerRef: accepted.providerRef }, correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: {
+        organizationId: ctx.organizationId, type: "payment.released",
+        payload: { paymentId: id, objectType: "Payment", objectId: id, providerRef: accepted.providerRef },
+      } });
+      return updated;
+    });
+  },
+
+  /** Sandbox-only settlement confirmation. Production must use provider callbacks / worker. */
+  async confirmSettlement(ctx: RequestContext, id: string) {
+    if (env.nodeEnv === "production") {
+      throw new AppError("PROVIDER_REQUIRED", "Settlement must come from the payment rail provider", 403);
+    }
+    return settlePaymentRecord(ctx, id);
+  },
+
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "payments");
+    const payment = await prisma.payment.findFirst({ where: { ...scope, id } });
+    if (!payment) throw new AppError("NOT_FOUND", "Payment not found", 404);
+    const [bill, accounting] = await Promise.all([
+      prisma.bill.findFirst({ where: { id: payment.billId, organizationId: ctx.organizationId } }),
+      prisma.accountingEntry.findFirst({
+        where: { organizationId: ctx.organizationId, sourceType: "PAYMENT", sourceId: id },
+      }),
+    ]);
+    return { payment, bill, accounting };
+  },
+};
+
+async function settlePaymentRecord(ctx: RequestContext, paymentId: string) {
+  return prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.findFirst({ where: { id: paymentId, organizationId: ctx.organizationId } });
+    if (!payment) throw new AppError("NOT_FOUND", "Payment not found", 404);
+    assertEntityPermission(ctx, "payment.release", payment.legalEntityId);
+    if (payment.status === "COMPLETED") {
+      const accounting = await tx.accountingEntry.findFirst({
+        where: { organizationId: ctx.organizationId, sourceType: "PAYMENT", sourceId: paymentId },
+      });
+      return { payment, accounting, bill: await tx.bill.findUnique({ where: { id: payment.billId } }) };
+    }
+    if (payment.status !== "PROCESSING") throw new AppError("INVALID_STATE", "Only processing payments can settle", 409);
+    if (!payment.providerRef) throw new AppError("MISSING_PROVIDER_REF", "Payment was not released to a rail", 409);
+    if (payment.settlementId) throw new AppError("ALREADY_SETTLED", "Payment already has a settlement id", 409);
+
+    const settled = paymentRail.settle({ providerRef: payment.providerRef });
+    if (settled.status !== "COMPLETED") {
+      await tx.payment.updateMany({
+        where: { id: paymentId, status: "PROCESSING" },
+        data: { status: "FAILED", failureReason: settled.failureReason ?? "Rail declined settlement" },
+      });
+      throw new AppError("SETTLEMENT_FAILED", settled.failureReason ?? "Settlement failed", 409);
+    }
+
+    const bill = await tx.bill.findFirst({ where: { id: payment.billId, organizationId: ctx.organizationId } });
+    if (!bill) throw new AppError("BILL_NOT_FOUND", "Bill missing for payment", 404);
+    if (bill.remainingAmount.lessThan(payment.amount)) {
+      throw new AppError("INSUFFICIENT_REMAINING", "Bill remaining balance cannot cover settlement", 409);
+    }
+
+    const claim = await tx.payment.updateMany({
+      where: { id: paymentId, organizationId: ctx.organizationId, status: "PROCESSING", settlementId: null },
+      data: { status: "COMPLETED", settlementId: settled.settlementId, settledAt: new Date() },
+    });
+    if (claim.count !== 1) throw new AppError("PAYMENT_CONFLICT", "Payment changed before settlement", 409);
+
+    const billClaim = await tx.bill.updateMany({
+      where: { id: bill.id, remainingAmount: { gte: payment.amount } },
+      data: { remainingAmount: { decrement: payment.amount } },
+    });
+    if (billClaim.count !== 1) throw new AppError("BILL_BALANCE_CHANGED", "Bill balance changed before settlement", 409);
+    const updatedBill = await tx.bill.findUniqueOrThrow({ where: { id: bill.id } });
+    await tx.bill.update({
+      where: { id: bill.id },
+      data: { status: updatedBill.remainingAmount.lessThanOrEqualTo(0) ? "PAID" : "PARTIAL" },
+    });
+
+    const accounting = await queueAccounting(ctx, "PAYMENT", paymentId, payment.legalEntityId, tx, {
+      amount: payment.amount,
+      currency: payment.currency,
+      memo: `Payment ${payment.rail}`,
+    });
+    const updatedPayment = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    await tx.auditEvent.create({
+      data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "payment.settled",
+        objectType: "Payment", objectId: paymentId,
+        oldValue: { status: "PROCESSING" },
+        newValue: { status: "COMPLETED", settlementId: settled.settlementId },
+        correlationId: ctx.correlationId,
+      },
+    });
+    await tx.outboxEvent.create({
+      data: {
+        organizationId: ctx.organizationId, type: "payment.completed",
+        payload: { paymentId, settlementId: settled.settlementId },
+      },
+    });
+    return { payment: updatedPayment, accounting, bill: await tx.bill.findUniqueOrThrow({ where: { id: bill.id } }) };
+  });
+}
+
+export const paymentRuns = {
+  async create(ctx: RequestContext, body: { legalEntityId: string; name: string }) {
+    assertEntityPermission(ctx, "payment_run.manage", body.legalEntityId);
+    const name = body.name.trim();
+    if (name.length < 2) throw new AppError("INVALID_NAME", "Payment run name is required", 400);
+    return prisma.$transaction(async (tx) => {
+      const entity = await tx.legalEntity.findFirst({ where: { id: body.legalEntityId, organizationId: ctx.organizationId } });
+      if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
+      const run = await tx.paymentRun.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: entity.id,
+          name,
+          status: "OPEN",
+          createdBy: ctx.userId,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "payment_run.create",
+          objectType: "PaymentRun", objectId: run.id, newValue: { name, legalEntityId: entity.id },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "payment_run.created", payload: { paymentRunId: run.id } },
+      });
+      return run;
+    });
+  },
+
+  async addPayments(ctx: RequestContext, id: string, body: { paymentIds: string[] }) {
+    const ids = [...new Set(body.paymentIds ?? [])];
+    if (!ids.length) throw new AppError("EMPTY_RUN", "Select at least one payment", 400);
+    return prisma.$transaction(async (tx) => {
+      const run = await tx.paymentRun.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!run) throw new AppError("NOT_FOUND", "Payment run not found", 404);
+      assertEntityPermission(ctx, "payment_run.manage", run.legalEntityId);
+      if (run.status !== "OPEN") throw new AppError("INVALID_STATE", "Only open runs can accept payments", 409);
+      const payments = await tx.payment.findMany({
+        where: { id: { in: ids }, organizationId: ctx.organizationId, legalEntityId: run.legalEntityId },
+      });
+      if (payments.length !== ids.length) throw new AppError("PAYMENT_NOT_FOUND", "One or more payments are unavailable", 404);
+      for (const payment of payments) {
+        if (payment.status !== "SCHEDULED") throw new AppError("INVALID_PAYMENT_STATE", "Only scheduled payments can join a run", 409);
+        if (payment.paymentRunId && payment.paymentRunId !== id) {
+          throw new AppError("PAYMENT_IN_OTHER_RUN", "Payment already belongs to another run", 409);
+        }
+      }
+      await tx.payment.updateMany({
+        where: { id: { in: ids }, organizationId: ctx.organizationId, status: "SCHEDULED" },
+        data: { paymentRunId: id },
+      });
+      const items = await tx.payment.findMany({ where: { paymentRunId: id, organizationId: ctx.organizationId } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "payment_run.add_payments",
+          objectType: "PaymentRun", objectId: id, newValue: { paymentIds: ids },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return { run, items };
+    });
+  },
+
+  async release(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const run = await tx.paymentRun.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!run) throw new AppError("NOT_FOUND", "Payment run not found", 404);
+      assertEntityPermission(ctx, "payment_run.manage", run.legalEntityId);
+      if (run.status === "RELEASED") {
+        const items = await tx.payment.findMany({ where: { paymentRunId: id, organizationId: ctx.organizationId } });
+        return { run, items };
+      }
+      if (run.status !== "OPEN") throw new AppError("INVALID_STATE", "Payment run cannot be released", 409);
+      if (run.createdBy === ctx.userId) {
+        throw new AppError("SOD_VIOLATION", "Run creator cannot release the run", 403);
+      }
+      const items = await tx.payment.findMany({
+        where: { paymentRunId: id, organizationId: ctx.organizationId, status: "SCHEDULED" },
+      });
+      if (!items.length) throw new AppError("EMPTY_RUN", "Add scheduled payments before releasing the run", 400);
+
+      const released = [];
+      for (const payment of items) {
+        if (payment.createdBy === ctx.userId) {
+          throw new AppError("SOD_VIOLATION", "Cannot release a payment you scheduled", 403);
+        }
+        const accepted = paymentRail.release({
+          paymentId: payment.id,
+          amount: String(payment.amount),
+          currency: payment.currency,
+          rail: payment.rail,
+        });
+        if (accepted.status !== "ACCEPTED") throw new AppError("RAIL_REJECTED", "Payment rail rejected release", 409);
+        const claim = await tx.payment.updateMany({
+          where: { id: payment.id, organizationId: ctx.organizationId, status: "SCHEDULED" },
+          data: { status: "PROCESSING", releasedBy: ctx.userId, providerRef: accepted.providerRef },
+        });
+        if (claim.count !== 1) throw new AppError("PAYMENT_CONFLICT", "Payment changed; refresh and try again", 409);
+        await tx.auditEvent.create({
+          data: {
+            organizationId: ctx.organizationId, actorId: ctx.userId, action: "payment.release",
+            objectType: "Payment", objectId: payment.id,
+            oldValue: { status: "SCHEDULED" },
+            newValue: { status: "PROCESSING", releasedBy: ctx.userId, providerRef: accepted.providerRef, paymentRunId: id },
+            correlationId: ctx.correlationId,
+          },
+        });
+        await tx.outboxEvent.create({
+          data: {
+            organizationId: ctx.organizationId, type: "payment.released",
+            payload: { paymentId: payment.id, objectId: payment.id, paymentRunId: id, providerRef: accepted.providerRef },
+          },
+        });
+        released.push(payment.id);
+      }
+
+      const claim = await tx.paymentRun.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "OPEN" },
+        data: { status: "RELEASED", releasedBy: ctx.userId },
+      });
+      if (claim.count !== 1) throw new AppError("RUN_CONFLICT", "Payment run changed; refresh and try again", 409);
+      const updated = await tx.paymentRun.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "payment_run.release",
+          objectType: "PaymentRun", objectId: id,
+          newValue: { status: "RELEASED", paymentIds: released },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "payment_run.released", payload: { paymentRunId: id } },
+      });
+      return {
+        run: updated,
+        items: await tx.payment.findMany({ where: { paymentRunId: id, organizationId: ctx.organizationId } }),
+      };
+    });
+  },
+
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "payment-runs");
+    const run = await prisma.paymentRun.findFirst({ where: { ...scope, id } });
+    if (!run) throw new AppError("NOT_FOUND", "Payment run not found", 404);
+    const items = await prisma.payment.findMany({
+      where: { paymentRunId: id, organizationId: ctx.organizationId },
+      orderBy: { createdAt: "desc" },
+    });
+    return { run, items };
+  },
+};
+
+export const procurement = {
+  async create(ctx: RequestContext, body: {
+    name: string;
+    legalEntityId: string;
+    programId: string;
+    amount: string;
+    currency: string;
+    outcomeType?: "PURCHASE_ORDER" | "VIRTUAL_CARD" | "VENDOR_SETUP";
+    vendorId?: string;
+    memo?: string;
+    formAnswers?: Record<string, unknown>;
+    lines?: Array<{ description: string; quantity?: string | number; unitAmount?: string | number; amount?: string | number; category?: string }>;
+  }) {
+    const money = requireMoney(body.amount, body.currency);
+    assertEntityPermission(ctx, "procurement.request", body.legalEntityId);
+    let lines;
+    try {
+      lines = normalizeProcurementLines(body.lines, {
+        description: body.name.trim(),
+        amount: money.amount,
+      });
+    } catch {
+      throw new AppError("INVALID_LINES", "Procurement lines must have positive amounts", 400);
+    }
+    if (Math.abs(sumLineAmounts(lines) - Number(money.amount)) > 0.001) {
+      throw new AppError("LINE_TOTAL_MISMATCH", "Line totals must equal the request amount", 400);
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const [entity, program] = await Promise.all([
+        tx.legalEntity.findFirst({ where: { id: body.legalEntityId, organizationId: ctx.organizationId } }),
+        tx.procurementProgram.findFirst({ where: { id: body.programId, organizationId: ctx.organizationId, status: "ACTIVE" } }),
+      ]);
+      if (!entity || !program) throw new AppError("INVALID_REFERENCE", "Entity or program is unavailable", 400);
+      requireCurrencyMatch(entity.currency, money.currency);
+
+      let vendorId = body.vendorId ?? null;
+      if (vendorId) {
+        const vendor = await tx.vendor.findFirst({ where: { id: vendorId, organizationId: ctx.organizationId } });
+        if (!vendor || (vendor.legalEntityId && vendor.legalEntityId !== entity.id)) {
+          throw new AppError("INVALID_VENDOR", "Vendor is unavailable for this entity", 400);
+        }
+      }
+
+      const outcomeType = body.outcomeType ?? (program.defaultOutcomeType as "PURCHASE_ORDER" | "VIRTUAL_CARD" | "VENDOR_SETUP") ?? "PURCHASE_ORDER";
+      if (!["PURCHASE_ORDER", "VIRTUAL_CARD", "VENDOR_SETUP"].includes(outcomeType)) {
+        throw new AppError("INVALID_OUTCOME", "Unsupported procurement outcome", 400);
+      }
+
+      const formAnswers = {
+        ...(body.formAnswers ?? {}),
+        lines,
+      };
+
+      const request = await tx.purchaseRequest.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: entity.id,
+          programId: program.id,
+          requesterId: ctx.userId,
+          vendorId,
+          name: body.name.trim(),
+          amount: dec(money.amount),
+          currency: money.currency,
+          outcomeType,
+          formAnswers: formAnswers as Prisma.InputJsonValue,
+          memo: (body.memo ?? "").trim(),
+          status: "DRAFT",
+          approvalProgress: "0 of 0",
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "procurement.create",
+          objectType: "PurchaseRequest", objectId: request.id,
+          newValue: { name: request.name, amount: money.amount, outcomeType, lineCount: lines.length },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "procurement.created", payload: { requestId: request.id } },
+      });
+      return request;
+    });
+  },
+
+  async submit(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const request = await tx.purchaseRequest.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!request) throw new AppError("NOT_FOUND", "Purchase request not found", 404);
+      if (request.status !== "DRAFT") throw new AppError("INVALID_STATE", "Only draft requests can be submitted", 409);
+      assertEntityPermission(ctx, "procurement.request", request.legalEntityId);
+      if (request.requesterId !== ctx.userId && !ctx.permissions.includes("*") && !ctx.roles.includes("Owner")) {
+        throw new AppError("FORBIDDEN", "Only the requester can submit this draft", 403);
+      }
+
+      // Guard: never create a PO from submit
+      const existingPo = await tx.purchaseOrder.findFirst({ where: { organizationId: ctx.organizationId, requestId: id } });
+      if (existingPo) throw new AppError("PO_EXISTS_EARLY", "Purchase order already exists before approval", 409);
+
+      const program = await tx.procurementProgram.findFirst({ where: { id: request.programId, organizationId: ctx.organizationId } });
+      const workflow = program?.workflowId
+        ? await tx.approvalWorkflow.findFirst({ where: { id: program.workflowId, organizationId: ctx.organizationId } })
+        : await tx.approvalWorkflow.findFirst({ where: { organizationId: ctx.organizationId, objectType: "procurement" } });
+      const steps = Array.isArray(workflow?.steps) ? (workflow.steps as unknown[]).length : 1;
+
+      const claim = await tx.purchaseRequest.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "DRAFT" },
+        data: { status: "IN_REVIEW", approvalProgress: `0 of ${steps} approvals` },
+      });
+      if (claim.count !== 1) throw new AppError("PROCUREMENT_CONFLICT", "Request changed; refresh and try again", 409);
+
+      await startApproval({
+        organizationId: ctx.organizationId,
+        workflowId: workflow?.id,
+        objectType: "procurement",
+        objectId: id,
+        requesterId: request.requesterId,
+        steps,
+        title: request.name || "Purchase request",
+        amount: String(request.amount ?? 0),
+        currency: request.currency || "USD",
+        legalEntityId: request.legalEntityId,
+      }, tx);
+
+      const updated = await tx.purchaseRequest.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "procurement.submit",
+          objectType: "PurchaseRequest", objectId: id,
+          oldValue: { status: "DRAFT" }, newValue: { status: updated.status, steps },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "procurement.submitted", payload: { objectType: "PurchaseRequest", objectId: id } },
+      });
+      return updated;
+    });
+  },
+
+  async approve(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const request = await tx.purchaseRequest.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!request) throw new AppError("NOT_FOUND", "Purchase request not found", 404);
+      if (!["IN_REVIEW", "SUBMITTED"].includes(request.status)) {
+        throw new AppError("INVALID_STATE", "Request is not awaiting approval", 409);
+      }
+      assertEntityPermission(ctx, "procurement.review", request.legalEntityId);
+      if (request.requesterId === ctx.userId) {
+        throw new AppError("SOD_VIOLATION", "Requester cannot approve their own procurement request", 403);
+      }
+
+      const instance = await tx.approvalInstance.findFirst({
+        where: { organizationId: ctx.organizationId, objectId: id, objectType: "procurement", status: "IN_REVIEW" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!instance) throw new AppError("NOT_FOUND", "Approval not started", 404);
+
+      const workflow = instance.workflowId === "default"
+        ? null
+        : await tx.approvalWorkflow.findFirst({ where: { id: instance.workflowId, organizationId: ctx.organizationId } });
+      const totalSteps = Array.isArray(workflow?.steps) ? (workflow.steps as unknown[]).length : 1;
+      const updatedInstance = await actOnApproval({ instanceId: instance.id, actorId: ctx.userId, action: "approve" }, tx);
+      const progress = progressLabel(updatedInstance.currentStep, totalSteps, updatedInstance.status);
+
+      let po = await tx.purchaseOrder.findFirst({ where: { organizationId: ctx.organizationId, requestId: request.id } });
+      let outcomeId = request.outcomeId;
+
+      // Critical invariant: PO / outcome only after FINAL approval.
+      if (updatedInstance.status === "APPROVED") {
+        if (request.outcomeType === "PURCHASE_ORDER") {
+          if (!po) {
+            const answers = (request.formAnswers ?? {}) as { lines?: Array<{ description: string; quantity?: string; unitAmount?: string; amount?: string; category?: string }> };
+            let lines;
+            try {
+              lines = normalizeProcurementLines(answers.lines, {
+                description: request.name,
+                amount: String(request.amount),
+              });
+            } catch {
+              throw new AppError("INVALID_LINES", "Cannot fulfill PO with invalid lines", 400);
+            }
+            if (Math.abs(sumLineAmounts(lines) - Number(request.amount)) > 0.001) {
+              throw new AppError("LINE_TOTAL_MISMATCH", "Stored lines no longer match request amount", 409);
+            }
+
+            try {
+              po = await tx.purchaseOrder.create({
+                data: {
+                  organizationId: ctx.organizationId,
+                  legalEntityId: request.legalEntityId,
+                  requestId: request.id,
+                  vendorId: request.vendorId,
+                  number: `PO-${Date.now().toString(36).toUpperCase()}-${request.id.slice(0, 4).toUpperCase()}`,
+                  amount: request.amount,
+                  commitmentAmount: request.amount,
+                  currency: request.currency,
+                  status: "OPEN",
+                  matchStatus: "UNMATCHED",
+                },
+              });
+            } catch (error) {
+              if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+                po = await tx.purchaseOrder.findFirstOrThrow({ where: { organizationId: ctx.organizationId, requestId: request.id } });
+              } else {
+                throw error;
+              }
+            }
+
+            const existingLines = await tx.purchaseOrderLine.count({ where: { purchaseOrderId: po.id } });
+            if (existingLines === 0) {
+              await tx.purchaseOrderLine.createMany({
+                data: lines.map((line) => ({
+                  organizationId: ctx.organizationId,
+                  purchaseOrderId: po!.id,
+                  description: line.description,
+                  quantity: dec(line.quantity),
+                  unitAmount: dec(line.unitAmount),
+                  amount: dec(line.amount),
+                  category: line.category,
+                })),
+              });
+            }
+            outcomeId = po.id;
+          } else {
+            outcomeId = po.id;
+          }
+        } else {
+          // Non-PO outcomes: record a deterministic outcome reference without creating a PO.
+          outcomeId = outcomeId ?? `${request.outcomeType.toLowerCase()}_${request.id}`;
+          if (po) throw new AppError("UNEXPECTED_PO", "Non-PO outcome cannot have a purchase order", 409);
+        }
+      } else if (po) {
+        throw new AppError("PO_BEFORE_FINAL", "Purchase order exists before final approval", 409);
+      }
+
+      const claim = await tx.purchaseRequest.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: { in: ["IN_REVIEW", "SUBMITTED"] } },
+        data: {
+          status: updatedInstance.status === "APPROVED" ? "APPROVED" : "IN_REVIEW",
+          approvalProgress: progress,
+          ...(updatedInstance.status === "APPROVED" && outcomeId ? { outcomeId } : {}),
+        },
+      });
+      if (claim.count !== 1 && updatedInstance.status === "APPROVED") {
+        throw new AppError("PROCUREMENT_CONFLICT", "Request changed; refresh and try again", 409);
+      }
+
+      const updated = await tx.purchaseRequest.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "procurement.approve",
+          objectType: "PurchaseRequest", objectId: id,
+          newValue: {
+            status: updated.status,
+            approvalProgress: progress,
+            purchaseOrderId: po?.id ?? null,
+            outcomeId: updated.outcomeId,
+            final: updatedInstance.status === "APPROVED",
+          },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId,
+          type: updatedInstance.status === "APPROVED" ? "procurement.approved" : "procurement.step_approved",
+          payload: { objectType: "PurchaseRequest", objectId: id, purchaseOrderId: po?.id, outcomeId: updated.outcomeId },
+        },
+      });
+      return { request: updated, purchaseOrder: po, approval: updatedInstance };
+    });
+  },
+
+  async receive(ctx: RequestContext, purchaseOrderId: string, amount: string, memo?: string) {
+    return prisma.$transaction(async (tx) => {
+      const po = await tx.purchaseOrder.findFirst({ where: { id: purchaseOrderId, organizationId: ctx.organizationId } });
+      if (!po) throw new AppError("NOT_FOUND", "PO not found", 404);
+      if (!["OPEN", "PARTIALLY_RECEIVED"].includes(po.status)) {
+        throw new AppError("INVALID_STATE", "PO cannot accept receiving in this status", 409);
+      }
+      assertEntityPermission(ctx, "procurement.review", po.legalEntityId);
+      const receiveAmount = requireMoney(amount, po.currency);
+      const remaining = po.amount.minus(po.receivedAmount);
+      if (remaining.lessThan(dec(receiveAmount.amount))) {
+        throw new AppError("RECEIVE_EXCEEDS_PO", "Receiving exceeds remaining PO commitment", 400);
+      }
+
+      const record = await tx.receivingRecord.create({
+        data: {
+          organizationId: ctx.organizationId,
+          purchaseOrderId,
+          amount: dec(receiveAmount.amount),
+          memo: (memo ?? "").trim(),
+          receivedBy: ctx.userId,
+        },
+      });
+      const nextReceived = po.receivedAmount.plus(dec(receiveAmount.amount));
+      const fullyReceived = nextReceived.greaterThanOrEqualTo(po.amount);
+      await tx.purchaseOrder.update({
+        where: { id: purchaseOrderId },
+        data: {
+          receivedAmount: nextReceived,
+          status: fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED",
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "procurement.receive",
+          objectType: "PurchaseOrder", objectId: purchaseOrderId,
+          newValue: { receivingRecordId: record.id, amount: receiveAmount.amount, status: fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED" },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId, type: "receiving.recorded",
+          payload: { purchaseOrderId, receivingRecordId: record.id, amount: receiveAmount.amount },
+        },
+      });
+      return record;
+    });
+  },
+
+  async match(ctx: RequestContext, purchaseOrderId: string, body: { billId: string }) {
+    return prisma.$transaction(async (tx) => {
+      const po = await tx.purchaseOrder.findFirst({ where: { id: purchaseOrderId, organizationId: ctx.organizationId } });
+      if (!po) throw new AppError("NOT_FOUND", "PO not found", 404);
+      assertEntityPermission(ctx, "procurement.review", po.legalEntityId);
+      const bill = await tx.bill.findFirst({ where: { id: body.billId, organizationId: ctx.organizationId } });
+      if (!bill) throw new AppError("BILL_NOT_FOUND", "Bill not found", 404);
+      if (bill.purchaseOrderId && bill.purchaseOrderId !== purchaseOrderId) {
+        throw new AppError("BILL_OTHER_PO", "Bill is linked to a different PO", 409);
+      }
+      if (bill.legalEntityId !== po.legalEntityId) {
+        throw new AppError("ENTITY_MISMATCH", "Bill and PO must share an entity", 400);
+      }
+      requireCurrencyMatch(po.currency, bill.currency);
+
+      if (!bill.purchaseOrderId) {
+        await tx.bill.update({ where: { id: bill.id }, data: { purchaseOrderId } });
+      }
+
+      // Apply bill amount to PO billed commitment once per bill via match idempotency check
+      const prior = await tx.matchRecord.findFirst({
+        where: { organizationId: ctx.organizationId, purchaseOrderId, billId: bill.id },
+      });
+      if (prior) return prior;
+
+      const billedDelta = bill.amount;
+      const nextBilled = po.billedAmount.plus(billedDelta);
+      if (nextBilled.greaterThan(po.amount.plus(dec("0.01")))) {
+        // Allow recording exception match even when over-billed
+      }
+
+      const evaluation = evaluateMatch({
+        poAmount: Number(po.amount),
+        receivedAmount: Number(po.receivedAmount),
+        billedAmount: Number(nextBilled),
+      });
+
+      const match = await tx.matchRecord.create({
+        data: {
+          organizationId: ctx.organizationId,
+          purchaseOrderId,
+          billId: bill.id,
+          matchType: evaluation.matchType,
+          status: evaluation.status,
+          poAmount: po.amount,
+          receivedAmount: po.receivedAmount,
+          billedAmount: nextBilled,
+          variance: dec(evaluation.variance),
+          explanation: evaluation.explanation,
+          createdBy: ctx.userId,
+        },
+      });
+
+      await tx.purchaseOrder.update({
+        where: { id: purchaseOrderId },
+        data: {
+          billedAmount: nextBilled,
+          matchedAmount: evaluation.status === "MATCHED" ? po.amount : po.matchedAmount,
+          matchStatus: evaluation.status === "MATCHED"
+            ? (Number(po.receivedAmount) > 0 ? "THREE_WAY_MATCHED" : "TWO_WAY_MATCHED")
+            : "EXCEPTION",
+          status: evaluation.status === "MATCHED" && Number(po.receivedAmount) >= Number(po.amount) ? "CLOSED" : po.status,
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "procurement.match",
+          objectType: "PurchaseOrder", objectId: purchaseOrderId,
+          newValue: { matchId: match.id, billId: bill.id, status: evaluation.status, matchType: evaluation.matchType },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId, type: "procurement.matched",
+          payload: { purchaseOrderId, matchId: match.id, status: evaluation.status },
+        },
+      });
+      return match;
+    });
+  },
+
+  async getRequestDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "procurement");
+    const request = await prisma.purchaseRequest.findFirst({ where: { ...scope, id } });
+    if (!request) throw new AppError("NOT_FOUND", "Purchase request not found", 404);
+    const [program, vendor, po, approval] = await Promise.all([
+      prisma.procurementProgram.findFirst({ where: { id: request.programId, organizationId: ctx.organizationId } }),
+      request.vendorId ? prisma.vendor.findFirst({ where: { id: request.vendorId, organizationId: ctx.organizationId } }) : null,
+      prisma.purchaseOrder.findFirst({ where: { organizationId: ctx.organizationId, requestId: id } }),
+      prisma.approvalInstance.findFirst({
+        where: { organizationId: ctx.organizationId, objectType: "procurement", objectId: id },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+    return { request, program, vendor, purchaseOrder: po, approval };
+  },
+
+  async getPoDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "purchase-orders");
+    const po = await prisma.purchaseOrder.findFirst({ where: { ...scope, id } });
+    if (!po) throw new AppError("NOT_FOUND", "Purchase order not found", 404);
+    const [lines, receiving, matches, request, bills] = await Promise.all([
+      prisma.purchaseOrderLine.findMany({ where: { organizationId: ctx.organizationId, purchaseOrderId: id } }),
+      prisma.receivingRecord.findMany({ where: { organizationId: ctx.organizationId, purchaseOrderId: id }, orderBy: { createdAt: "desc" } }),
+      prisma.matchRecord.findMany({ where: { organizationId: ctx.organizationId, purchaseOrderId: id }, orderBy: { createdAt: "desc" } }),
+      prisma.purchaseRequest.findFirst({ where: { id: po.requestId, organizationId: ctx.organizationId } }),
+      prisma.bill.findMany({ where: { organizationId: ctx.organizationId, purchaseOrderId: id } }),
+    ]);
+    return { purchaseOrder: po, lines, receiving, matches, request, bills };
+  },
+};
+
+export const accounting = {
+  async code(ctx: RequestContext, id: string, body: { category?: string; memo?: string; coding?: Record<string, string> }) {
+    const category = body.category?.trim() ?? "";
+    const memo = body.memo?.trim() ?? "";
+    const coding = body.coding ?? {};
+    if (!category && !Object.values(coding).some((value) => value.trim())) {
+      throw new AppError("CODING_REQUIRED", "Add a category or an accounting code", 400);
+    }
+    if (category.length > 120 || memo.length > 500 || Object.entries(coding).some(([key, value]) => key.length > 80 || value.length > 120)) {
+      throw new AppError("INVALID_CODING", "Accounting fields are too long", 400);
+    }
+    return prisma.$transaction(async (tx) => {
+      const entry = await tx.accountingEntry.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!entry) throw new AppError("NOT_FOUND", "Accounting entry not found", 404);
+      if (!["NEEDS_REVIEW", "SYNC_ERROR", "READY_TO_SYNC"].includes(entry.status)) {
+        throw new AppError("INVALID_STATE", "Entry cannot be changed during or after sync", 409);
+      }
+      const claimed = await tx.accountingEntry.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: entry.status, updatedAt: entry.updatedAt },
+        data: { category, memo, coding, status: "NEEDS_REVIEW", syncError: null },
+      });
+      if (claimed.count !== 1) throw new AppError("CODING_CONFLICT", "Entry changed; refresh and try again", 409);
+      const updated = await tx.accountingEntry.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting.code",
+        objectType: "AccountingEntry", objectId: id,
+        oldValue: { category: entry.category, memo: entry.memo, coding: entry.coding },
+        newValue: { category, memo, coding }, correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "accounting.coded", payload: { entryId: id } } });
+      return updated;
+    });
+  },
+
+  async markReady(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const entry = await tx.accountingEntry.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!entry) throw new AppError("NOT_FOUND", "Accounting entry not found", 404);
+      if (!["NEEDS_REVIEW", "SYNC_ERROR"].includes(entry.status)) throw new AppError("INVALID_STATE", "Entry cannot be marked ready from this state", 409);
+      if (!entry.category && !Object.values(entry.coding as Record<string, string>).some(Boolean)) {
+        throw new AppError("CODING_REQUIRED", "Assign a category or accounting code first", 400);
+      }
+      const claimed = await tx.accountingEntry.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: entry.status, updatedAt: entry.updatedAt },
+        data: { status: "READY_TO_SYNC", syncError: null },
+      });
+      if (claimed.count !== 1) throw new AppError("CODING_CONFLICT", "Entry changed; refresh and try again", 409);
+      const updated = await tx.accountingEntry.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting.ready",
+          objectType: "AccountingEntry", objectId: id,
+          oldValue: { status: entry.status }, newValue: { status: updated.status },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "accounting.ready", payload: { entryId: id } } });
+      return updated;
+    });
+  },
+
+  async undoReady(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const entry = await tx.accountingEntry.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!entry) throw new AppError("NOT_FOUND", "Accounting entry not found", 404);
+      if (entry.status !== "READY_TO_SYNC") throw new AppError("INVALID_STATE", "Only ready entries can be returned to review", 409);
+      const claimed = await tx.accountingEntry.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "READY_TO_SYNC" },
+        data: { status: "NEEDS_REVIEW" },
+      });
+      if (claimed.count !== 1) throw new AppError("CODING_CONFLICT", "Entry changed; refresh and try again", 409);
+      const updated = await tx.accountingEntry.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting.undo_ready",
+          objectType: "AccountingEntry", objectId: id,
+          oldValue: { status: "READY_TO_SYNC" }, newValue: { status: "NEEDS_REVIEW" },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return updated;
+    });
+  },
+
+  async bulkReady(ctx: RequestContext, ids: string[]) {
+    const unique = [...new Set(ids)];
+    if (!unique.length) throw new AppError("EMPTY_SELECTION", "Select at least one entry", 400);
+    const results = [];
+    for (const id of unique) {
+      results.push(await accounting.markReady(ctx, id));
+    }
+    return { count: results.length, entries: results };
+  },
+
+  async retry(ctx: RequestContext, id: string) {
+    return prisma.$transaction(async (tx) => {
+      const entry = await tx.accountingEntry.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!entry) throw new AppError("NOT_FOUND", "Accounting entry not found", 404);
+      if (entry.status !== "SYNC_ERROR") throw new AppError("INVALID_STATE", "Only sync errors can be retried", 409);
+      if (!entry.category && !Object.values(entry.coding as Record<string, string>).some(Boolean)) {
+        throw new AppError("CODING_REQUIRED", "Assign a category or accounting code before retry", 400);
+      }
+      const claimed = await tx.accountingEntry.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "SYNC_ERROR" },
+        data: { status: "READY_TO_SYNC", syncError: null },
+      });
+      if (claimed.count !== 1) throw new AppError("CODING_CONFLICT", "Entry changed; refresh and try again", 409);
+      const updated = await tx.accountingEntry.findUniqueOrThrow({ where: { id } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting.retry",
+          objectType: "AccountingEntry", objectId: id,
+          oldValue: { status: "SYNC_ERROR", externalId: entry.externalId },
+          newValue: { status: "READY_TO_SYNC", externalId: entry.externalId },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return updated;
+    });
+  },
+
+  async sync(ctx: RequestContext, ids?: string[]) {
+    return prisma.$transaction(async (tx) => {
+      const entries = await tx.accountingEntry.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          status: "READY_TO_SYNC",
+          ...(ids ? { id: { in: ids } } : {}),
+        },
+      });
+      if (!entries.length) throw new AppError("NOTHING_TO_SYNC", "No ready accounting entries were selected", 400);
+      const connection = await tx.integrationConnection.findFirst({
+        where: { organizationId: ctx.organizationId, family: "AccountingProvider", status: "CONNECTED" },
+      });
+      if (!connection) throw new AppError("ERP_NOT_CONNECTED", "Connect an accounting provider first", 400);
+      const entryIds = entries.map((entry) => entry.id);
+      const job = await tx.syncJob.create({
+        data: {
+          organizationId: ctx.organizationId,
+          provider: connection.provider,
+          status: "PENDING",
+          itemCount: entries.length,
+          entryIds,
+        },
+      });
+      const claim = await tx.accountingEntry.updateMany({
+        where: { organizationId: ctx.organizationId, status: "READY_TO_SYNC", id: { in: entryIds } },
+        data: { status: "SYNCING" },
+      });
+      if (claim.count !== entries.length) throw new AppError("SYNC_CONFLICT", "Accounting entries changed; refresh and try again", 409);
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting.sync_requested",
+          objectType: "SyncJob", objectId: job.id,
+          newValue: { count: entries.length, provider: connection.provider },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId, type: "accounting.sync_requested",
+          payload: { jobId: job.id, entryIds },
+        },
+      });
+      return { job, count: entries.length };
+    });
+  },
+
+  /** Sandbox-only: apply mock ERP ack. Production uses the worker + provider callback. */
+  async confirmSync(ctx: RequestContext, jobId: string) {
+    if (env.nodeEnv === "production") {
+      throw new AppError("PROVIDER_REQUIRED", "ERP sync confirmation must come from the provider worker", 403);
+    }
+    return executeAccountingSyncJob(prisma, { jobId, actorId: ctx.userId, organizationId: ctx.organizationId });
+  },
+
+  async createRule(ctx: RequestContext, body: {
+    name: string;
+    match?: Record<string, unknown>;
+    coding: Record<string, unknown>;
+    priority?: number;
+  }) {
+    if (!ctx.permissions.includes("*") && !ctx.permissions.includes("accounting.code") && !ctx.roles.includes("Owner")) {
+      throw new AppError("FORBIDDEN", "Missing accounting.code", 403);
+    }
+    const name = body.name.trim();
+    if (name.length < 2) throw new AppError("INVALID_NAME", "Rule name is required", 400);
+    const rule = await prisma.accountingRule.create({
+      data: {
+        organizationId: ctx.organizationId,
+        name,
+        match: (body.match ?? {}) as Prisma.InputJsonValue,
+        coding: body.coding as Prisma.InputJsonValue,
+        priority: body.priority ?? 100,
+        enabled: true,
+      },
+    });
+    await prisma.auditEvent.create({
+      data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting.rule_create",
+        objectType: "AccountingRule", objectId: rule.id,
+        newValue: { name, match: body.match ?? {}, coding: body.coding, priority: rule.priority } as Prisma.InputJsonValue,
+        correlationId: ctx.correlationId,
+      },
+    });
+    return rule;
+  },
+
+  async refreshDimensions(ctx: RequestContext) {
+    if (!ctx.permissions.includes("*") && !ctx.permissions.includes("accounting.code") && !ctx.roles.includes("Owner")) {
+      throw new AppError("FORBIDDEN", "Missing accounting.code", 403);
+    }
+    const dims = accountingProvider.listDimensions();
+    const rows = [];
+    for (const dim of dims) {
+      rows.push(await prisma.accountingDimension.upsert({
+        where: { organizationId_key: { organizationId: ctx.organizationId, key: dim.key } },
+        update: { label: dim.label, values: dim.values, providerSynced: true },
+        create: {
+          organizationId: ctx.organizationId,
+          key: dim.key,
+          label: dim.label,
+          values: dim.values,
+          providerSynced: true,
+        },
+      }));
+    }
+    await prisma.auditEvent.create({
+      data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting.dimensions_refresh",
+        objectType: "AccountingDimension", objectId: ctx.organizationId,
+        newValue: { keys: dims.map((d) => d.key) },
+        correlationId: ctx.correlationId,
+      },
+    });
+    return rows;
+  },
+
+  async getQueueSummary(ctx: RequestContext) {
+    const scope = await scopedWhere(ctx, "accounting");
+    const [needsReview, ready, syncing, synced, errors, bySource] = await Promise.all([
+      prisma.accountingEntry.count({ where: { ...scope, status: "NEEDS_REVIEW" } }),
+      prisma.accountingEntry.count({ where: { ...scope, status: "READY_TO_SYNC" } }),
+      prisma.accountingEntry.count({ where: { ...scope, status: "SYNCING" } }),
+      prisma.accountingEntry.count({ where: { ...scope, status: "SYNCED" } }),
+      prisma.accountingEntry.count({ where: { ...scope, status: "SYNC_ERROR" } }),
+      prisma.accountingEntry.groupBy({
+        by: ["sourceType"],
+        where: scope as never,
+        _count: { _all: true },
+      }),
+    ]);
+    return {
+      needsReview, ready, syncing, synced, errors,
+      bySource: Object.fromEntries(bySource.map((row) => [row.sourceType, row._count._all])),
+    };
+  },
+
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "accounting");
+    const entry = await prisma.accountingEntry.findFirst({ where: { ...scope, id } });
+    if (!entry) throw new AppError("NOT_FOUND", "Accounting entry not found", 404);
+    const attempts = await prisma.syncAttempt.findMany({
+      where: { organizationId: ctx.organizationId, entryId: id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    return { entry, attempts };
+  },
+};
+
+/** Shared sync executor used by sandbox confirmSync and mirrored by the worker. */
+export async function executeAccountingSyncJob(
+  db: typeof prisma,
+  args: { jobId: string; organizationId?: string; actorId?: string | null },
+) {
+  const job = await db.syncJob.findUnique({ where: { id: args.jobId } });
+  if (!job) throw new AppError("NOT_FOUND", "Sync job not found", 404);
+  if (args.organizationId && job.organizationId !== args.organizationId) {
+    throw new AppError("NOT_FOUND", "Sync job not found", 404);
+  }
+  if (job.status === "COMPLETED") {
+    return { job, reused: true };
+  }
+  if (job.provider !== "MOCK_QBO" && process.env.NODE_ENV === "production") {
+    throw new AppError("PROVIDER_REQUIRED", `Accounting adapter ${job.provider} is not configured`, 403);
+  }
+
+  const entryIds = Array.isArray(job.entryIds) ? job.entryIds.map(String) : [];
+  if (!entryIds.length) throw new AppError("EMPTY_JOB", "Sync job has no entries", 400);
+
+  const claim = await db.syncJob.updateMany({
+    where: { id: job.id, status: { in: ["PENDING", "PROCESSING"] } },
+    data: { status: "PROCESSING" },
+  });
+  if (claim.count !== 1 && job.status !== "PROCESSING") {
+    const latest = await db.syncJob.findUniqueOrThrow({ where: { id: job.id } });
+    return { job: latest, reused: true };
+  }
+
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const entryId of entryIds) {
+    const entry = await db.accountingEntry.findFirst({
+      where: { id: entryId, organizationId: job.organizationId },
+    });
+    if (!entry) {
+      failureCount += 1;
+      continue;
+    }
+
+    try {
+      if (entry.status === "SYNCED" && entry.externalId) {
+        await db.syncAttempt.create({
+          data: {
+            organizationId: job.organizationId,
+            syncJobId: job.id,
+            entryId,
+            status: "SKIPPED",
+            externalId: entry.externalId,
+          },
+        });
+        successCount += 1;
+        continue;
+      }
+
+      const result = await accountingProvider.post({
+        id: entry.id,
+        organizationId: entry.organizationId,
+        sourceType: entry.sourceType,
+        sourceId: entry.sourceId,
+        category: entry.category,
+        memo: entry.memo,
+        coding: (entry.coding ?? {}) as Record<string, string>,
+        amount: entry.amount != null ? String(entry.amount) : null,
+        currency: entry.currency,
+        externalId: entry.externalId,
+      });
+
+      const updated = await db.accountingEntry.updateMany({
+        where: {
+          id: entryId,
+          organizationId: job.organizationId,
+          status: { in: ["SYNCING", "SYNC_ERROR", "READY_TO_SYNC"] },
+          OR: [{ externalId: null }, { externalId: result.externalId }],
+        },
+        data: {
+          status: "SYNCED",
+          externalId: result.externalId,
+          syncedAt: new Date(),
+          syncError: null,
+          syncAttemptCount: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) {
+        // Already synced with same external id — treat as success (no duplicate).
+        const current = await db.accountingEntry.findUniqueOrThrow({ where: { id: entryId } });
+        if (current.externalId === result.externalId && current.status === "SYNCED") {
+          successCount += 1;
+          await db.syncAttempt.create({
+            data: {
+              organizationId: job.organizationId,
+              syncJobId: job.id,
+              entryId,
+              status: "REUSED",
+              externalId: result.externalId,
+            },
+          });
+          continue;
+        }
+        throw new Error("Entry changed during sync");
+      }
+
+      await db.syncAttempt.create({
+        data: {
+          organizationId: job.organizationId,
+          syncJobId: job.id,
+          entryId,
+          status: result.reused ? "REUSED" : "SUCCEEDED",
+          externalId: result.externalId,
+        },
+      });
+      successCount += 1;
+    } catch (error) {
+      failureCount += 1;
+      const message = error instanceof Error ? error.message : "Sync failed";
+      await db.accountingEntry.updateMany({
+        where: { id: entryId, organizationId: job.organizationId, status: { in: ["SYNCING", "READY_TO_SYNC"] } },
+        data: {
+          status: "SYNC_ERROR",
+          syncError: message,
+          syncAttemptCount: { increment: 1 },
+        },
+      });
+      await db.syncAttempt.create({
+        data: {
+          organizationId: job.organizationId,
+          syncJobId: job.id,
+          entryId,
+          status: "FAILED",
+          error: message,
+        },
+      });
+    }
+  }
+
+  const finalStatus = failureCount === 0 ? "COMPLETED" : successCount === 0 ? "FAILED" : "COMPLETED_WITH_ERRORS";
+  const updatedJob = await db.syncJob.update({
+    where: { id: job.id },
+    data: {
+      status: finalStatus,
+      successCount,
+      failureCount,
+      completedAt: new Date(),
+      error: failureCount ? `${failureCount} entr${failureCount === 1 ? "y" : "ies"} failed` : null,
+    },
+  });
+  await db.outboxEvent.create({
+    data: {
+      organizationId: job.organizationId,
+      type: "accounting.synced",
+      payload: { jobId: job.id, successCount, failureCount, actorId: args.actorId ?? null },
+    },
+  });
+  return { job: updatedJob, successCount, failureCount };
+}
+
+export const travel = {
+  async createTrip(ctx: RequestContext, body: {
+    name: string;
+    legalEntityId: string;
+    travelerId?: string;
+    destination: string;
+    purpose?: string;
+    startDate: string;
+    endDate: string;
+    estimatedAmount: string;
+    currency?: string;
+  }) {
+    const currency = (body.currency ?? "USD").toUpperCase();
+    const money = requireMoney(body.estimatedAmount, currency);
+    assertEntityPermission(ctx, "travel.book", body.legalEntityId);
+    const travelerId = body.travelerId ?? ctx.userId;
+    const start = new Date(body.startDate);
+    const end = new Date(body.endDate);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
+      throw new AppError("INVALID_DATES", "Trip end date must be on or after the start date", 400);
+    }
+    if (!body.destination.trim()) throw new AppError("INVALID_DESTINATION", "Destination is required", 400);
+
+    return prisma.$transaction(async (tx) => {
+      const [entity, traveler] = await Promise.all([
+        tx.legalEntity.findFirst({ where: { id: body.legalEntityId, organizationId: ctx.organizationId } }),
+        tx.user.findFirst({ where: { id: travelerId, organizationId: ctx.organizationId, status: "ACTIVE" } }),
+      ]);
+      if (!entity || !traveler) throw new AppError("INVALID_REFERENCE", "Entity or traveler is unavailable", 400);
+      requireCurrencyMatch(entity.currency, money.currency);
+
+      const { rules } = await loadPolicyRules(
+        (args) => tx.policy.findMany(args as never),
+        ctx.organizationId,
+        "travel",
+      );
+      const policy = evaluatePolicy({
+        objectType: "travel",
+        amount: Number(money.amount),
+        outOfPolicy: false,
+        rules: rules.length ? rules : [
+          { type: "travel_max_amount", threshold: 2500 },
+          { type: "travel_out_of_policy" },
+        ],
+      });
+
+      const trip = await tx.travelTrip.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: entity.id,
+          travelerId,
+          name: body.name.trim(),
+          destination: body.destination.trim(),
+          purpose: (body.purpose ?? "").trim(),
+          startDate: start,
+          endDate: end,
+          estimatedAmount: dec(money.amount),
+          currency: money.currency,
+          status: "DRAFT",
+          policyResult: policy.result,
+          policyExplanation: policy.explanation,
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.trip_create",
+          objectType: "TravelTrip", objectId: trip.id,
+          newValue: {
+            destination: trip.destination, startDate: start.toISOString(), endDate: end.toISOString(),
+            estimatedAmount: money.amount, policyResult: policy.result,
+          },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "travel.trip_created", payload: { tripId: trip.id } },
+      });
+      return trip;
+    });
+  },
+
+  async search(ctx: RequestContext, tripId: string, body: { type: "FLIGHT" | "HOTEL" | "CAR" }) {
+    const trip = await prisma.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
+    if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+    assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+    if (!trip.startDate || !trip.endDate) throw new AppError("MISSING_DATES", "Trip dates are required before search", 400);
+    if (!["DRAFT", "APPROVED", "PENDING_APPROVAL"].includes(trip.status)) {
+      throw new AppError("INVALID_STATE", "Trip cannot search in this status", 409);
+    }
+    const quotes = travelProvider.search({
+      destination: trip.destination,
+      startDate: trip.startDate.toISOString(),
+      endDate: trip.endDate.toISOString(),
+      type: body.type,
+      currency: trip.currency,
+      maxAmount: trip.estimatedAmount != null ? Number(trip.estimatedAmount) : undefined,
+    });
+    await prisma.auditEvent.create({
+      data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.search",
+        objectType: "TravelTrip", objectId: tripId,
+        newValue: { type: body.type, quoteCount: quotes.length },
+        correlationId: ctx.correlationId,
+      },
+    });
+    return { trip, quotes };
+  },
+
+  async selectQuote(ctx: RequestContext, tripId: string, body: {
+    quoteId: string;
+    type: "FLIGHT" | "HOTEL" | "CAR";
+    supplier: string;
+    description?: string;
+    amount: string;
+    currency: string;
+    outOfPolicy?: boolean;
+    itinerary?: Record<string, unknown>;
+    startsAt?: string;
+    endsAt?: string;
+  }) {
+    const money = requireMoney(body.amount, body.currency);
+    return prisma.$transaction(async (tx) => {
+      const trip = await tx.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+      if (!["DRAFT", "APPROVED", "PENDING_APPROVAL"].includes(trip.status)) {
+        throw new AppError("INVALID_STATE", "Cannot add quotes in this trip status", 409);
+      }
+      requireCurrencyMatch(trip.currency, money.currency);
+
+      const outOfPolicy = Boolean(body.outOfPolicy);
+      const { rules } = await loadPolicyRules(
+        (args) => tx.policy.findMany(args as never),
+        ctx.organizationId,
+        "travel",
+      );
+      const policy = evaluatePolicy({
+        objectType: "travel",
+        amount: Number(money.amount),
+        outOfPolicy,
+        rules: rules.length ? rules : [
+          { type: "travel_max_amount", threshold: 2500 },
+          { type: "travel_out_of_policy" },
+        ],
+      });
+
+      const booking = await tx.travelBooking.create({
+        data: {
+          organizationId: ctx.organizationId,
+          tripId,
+          type: body.type,
+          supplier: body.supplier.trim(),
+          description: (body.description ?? `${body.type} option`).trim(),
+          amount: dec(money.amount),
+          currency: money.currency,
+          status: "QUOTED",
+          outOfPolicy,
+          providerStatus: "NONE",
+          itinerary: (body.itinerary ?? { quoteId: body.quoteId, mock: true }) as Prisma.InputJsonValue,
+          startsAt: body.startsAt ? new Date(body.startsAt) : trip.startDate,
+          endsAt: body.endsAt ? new Date(body.endsAt) : trip.endDate,
+        },
+      });
+
+      await tx.travelTrip.update({
+        where: { id: tripId },
+        data: {
+          policyResult: policy.result,
+          policyExplanation: policy.explanation,
+          estimatedAmount: dec(money.amount),
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.quote_selected",
+          objectType: "TravelBooking", objectId: booking.id,
+          newValue: { tripId, outOfPolicy, amount: money.amount, policyResult: policy.result },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return { booking, policy };
+    });
+  },
+
+  async submit(ctx: RequestContext, tripId: string) {
+    return prisma.$transaction(async (tx) => {
+      const trip = await tx.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+      if (trip.status !== "DRAFT") throw new AppError("INVALID_STATE", "Only draft trips can be submitted", 409);
+
+      const bookings = await tx.travelBooking.findMany({ where: { organizationId: ctx.organizationId, tripId } });
+      const anyOop = bookings.some((b) => b.outOfPolicy);
+      const amount = Number(trip.estimatedAmount ?? 0);
+      const { rules } = await loadPolicyRules(
+        (args) => tx.policy.findMany(args as never),
+        ctx.organizationId,
+        "travel",
+      );
+      const policy = evaluatePolicy({
+        objectType: "travel",
+        amount,
+        outOfPolicy: anyOop,
+        rules: rules.length ? rules : [
+          { type: "travel_max_amount", threshold: 2500 },
+          { type: "travel_out_of_policy" },
+        ],
+      });
+
+      // In-policy trips can skip approval and stay DRAFT→APPROVED for mock booking.
+      // Out-of-policy or REVIEW/BLOCK must go through approval — never book first.
+      if (policy.result === "PASS" && !anyOop) {
+        const claim = await tx.travelTrip.updateMany({
+          where: { id: tripId, organizationId: ctx.organizationId, status: "DRAFT" },
+          data: {
+            status: "APPROVED",
+            policyResult: policy.result,
+            policyExplanation: policy.explanation || "In-policy trip approved for mock booking",
+          },
+        });
+        if (claim.count !== 1) throw new AppError("TRAVEL_CONFLICT", "Trip changed; refresh and try again", 409);
+        const updated = await tx.travelTrip.findUniqueOrThrow({ where: { id: tripId } });
+        await tx.auditEvent.create({
+          data: {
+            organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.submit_in_policy",
+            objectType: "TravelTrip", objectId: tripId,
+            newValue: { status: "APPROVED", policyResult: policy.result },
+            correlationId: ctx.correlationId,
+          },
+        });
+        return { trip: updated, requiresApproval: false, policy };
+      }
+
+      if (policy.result === "BLOCK") {
+        throw new AppError("TRAVEL_POLICY_BLOCK", policy.explanation, 400);
+      }
+
+      const claim = await tx.travelTrip.updateMany({
+        where: { id: tripId, organizationId: ctx.organizationId, status: "DRAFT" },
+        data: {
+          status: "PENDING_APPROVAL",
+          policyResult: policy.result,
+          policyExplanation: policy.explanation,
+        },
+      });
+      if (claim.count !== 1) throw new AppError("TRAVEL_CONFLICT", "Trip changed; refresh and try again", 409);
+
+      await startApproval({
+        organizationId: ctx.organizationId,
+        objectType: "travel",
+        objectId: tripId,
+        requesterId: trip.travelerId,
+        title: trip.name || `Travel to ${trip.destination}`,
+        amount: String(trip.estimatedAmount ?? 0),
+        currency: trip.currency,
+        legalEntityId: trip.legalEntityId,
+        policySummary: `Policy ${policy.result}: ${policy.explanation}`,
+      }, tx);
+
+      const updated = await tx.travelTrip.findUniqueOrThrow({ where: { id: tripId } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.submit",
+          objectType: "TravelTrip", objectId: tripId,
+          newValue: { status: "PENDING_APPROVAL", policyResult: policy.result, outOfPolicy: anyOop },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "travel.submitted", payload: { tripId } },
+      });
+      return { trip: updated, requiresApproval: true, policy };
+    });
+  },
+
+  async approve(ctx: RequestContext, tripId: string) {
+    return prisma.$transaction(async (tx) => {
+      const trip = await tx.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      if (trip.status !== "PENDING_APPROVAL") throw new AppError("INVALID_STATE", "Trip is not pending approval", 409);
+      assertEntityPermission(ctx, "travel.approve", trip.legalEntityId);
+      if (trip.travelerId === ctx.userId) {
+        throw new AppError("SOD_VIOLATION", "Traveler cannot approve their own trip", 403);
+      }
+
+      const instance = await tx.approvalInstance.findFirst({
+        where: { organizationId: ctx.organizationId, objectType: "travel", objectId: tripId, status: "IN_REVIEW" },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!instance) throw new AppError("NOT_FOUND", "Approval was not started", 404);
+      const decision = await actOnApproval({ instanceId: instance.id, actorId: ctx.userId, action: "approve" }, tx);
+      if (decision.status !== "APPROVED") return { trip, approval: decision };
+
+      const claim = await tx.travelTrip.updateMany({
+        where: { id: tripId, organizationId: ctx.organizationId, status: "PENDING_APPROVAL" },
+        data: { status: "APPROVED" },
+      });
+      if (claim.count !== 1) throw new AppError("TRAVEL_CONFLICT", "Trip changed; refresh and try again", 409);
+      const updated = await tx.travelTrip.findUniqueOrThrow({ where: { id: tripId } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.approve",
+          objectType: "TravelTrip", objectId: tripId,
+          oldValue: { status: "PENDING_APPROVAL" }, newValue: { status: "APPROVED" },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "travel.approved", payload: { tripId } },
+      });
+      return { trip: updated, approval: decision };
+    });
+  },
+
+  /** Places a mock hold only. Never marks the booking as provider-confirmed. */
+  async bookMock(ctx: RequestContext, bookingId: string) {
+    return prisma.$transaction(async (tx) => {
+      const booking = await tx.travelBooking.findFirst({ where: { id: bookingId, organizationId: ctx.organizationId } });
+      if (!booking) throw new AppError("NOT_FOUND", "Booking not found", 404);
+      const trip = await tx.travelTrip.findFirst({ where: { id: booking.tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+
+      if (trip.status !== "APPROVED") {
+        throw new AppError("APPROVAL_REQUIRED", "Trip must be approved before mock booking", 409);
+      }
+      if (booking.outOfPolicy && trip.policyResult !== "PASS" && trip.status !== "APPROVED") {
+        throw new AppError("OUT_OF_POLICY", "Out-of-policy booking requires an approved trip", 409);
+      }
+      if (!["QUOTED", "PENDING_APPROVAL"].includes(booking.status)) {
+        throw new AppError("INVALID_STATE", "Booking is not available to hold", 409);
+      }
+
+      const hold = travelProvider.hold({
+        quoteId: String((booking.itinerary as { quoteId?: string })?.quoteId ?? booking.id),
+        tripId: trip.id,
+        amount: String(booking.amount),
+        currency: booking.currency,
+      });
+      if (hold.providerStatus !== "MOCK_HOLD" || hold.status !== "BOOKED_MOCK") {
+        throw new AppError("PROVIDER_INVALID", "Travel adapter returned a non-mock hold", 500);
+      }
+
+      const claim = await tx.travelBooking.updateMany({
+        where: { id: bookingId, organizationId: ctx.organizationId, status: { in: ["QUOTED", "PENDING_APPROVAL"] } },
+        data: {
+          status: "BOOKED_MOCK",
+          providerRef: hold.providerRef,
+          providerStatus: "MOCK_HOLD",
+        },
+      });
+      if (claim.count !== 1) throw new AppError("BOOKING_CONFLICT", "Booking changed; refresh and try again", 409);
+
+      await tx.travelTrip.update({
+        where: { id: trip.id },
+        data: { status: "BOOKING" },
+      });
+
+      const updated = await tx.travelBooking.findUniqueOrThrow({ where: { id: bookingId } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.book_mock",
+          objectType: "TravelBooking", objectId: bookingId,
+          newValue: {
+            status: "BOOKED_MOCK",
+            providerStatus: "MOCK_HOLD",
+            providerRef: hold.providerRef,
+            note: "Mock hold only — not a confirmed live booking",
+          },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId, type: "travel.booked_mock",
+          payload: { bookingId, tripId: trip.id, providerRef: hold.providerRef },
+        },
+      });
+      return updated;
+    });
+  },
+
+  /** Sandbox-only explicit confirmation. Production must use provider callbacks. */
+  async confirmBooking(ctx: RequestContext, bookingId: string) {
+    if (env.nodeEnv === "production") {
+      throw new AppError("PROVIDER_REQUIRED", "Booking confirmation must come from the travel provider", 403);
+    }
+    return prisma.$transaction(async (tx) => {
+      const booking = await tx.travelBooking.findFirst({ where: { id: bookingId, organizationId: ctx.organizationId } });
+      if (!booking) throw new AppError("NOT_FOUND", "Booking not found", 404);
+      const trip = await tx.travelTrip.findFirst({ where: { id: booking.tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+
+      if (booking.status === "CONFIRMED") return booking;
+      if (booking.status !== "BOOKED_MOCK") {
+        throw new AppError("INVALID_STATE", "Only mock holds can be confirmed in sandbox", 409);
+      }
+      if (booking.providerStatus !== "MOCK_HOLD" || !booking.providerRef) {
+        throw new AppError("NOT_MOCK_HOLD", "Booking is not a mock hold", 409);
+      }
+
+      const confirmed = travelProvider.confirm({ providerRef: booking.providerRef });
+      if (confirmed.status !== "CONFIRMED") {
+        await tx.travelBooking.updateMany({
+          where: { id: bookingId, status: "BOOKED_MOCK" },
+          data: { status: "FAILED", providerStatus: "FAILED" },
+        });
+        throw new AppError("CONFIRM_FAILED", "Travel provider declined confirmation", 409);
+      }
+
+      const claim = await tx.travelBooking.updateMany({
+        where: { id: bookingId, organizationId: ctx.organizationId, status: "BOOKED_MOCK" },
+        data: {
+          status: "CONFIRMED",
+          providerStatus: "CONFIRMED",
+          providerRef: confirmed.providerRef,
+        },
+      });
+      if (claim.count !== 1) throw new AppError("BOOKING_CONFLICT", "Booking changed; refresh and try again", 409);
+
+      await tx.travelTrip.update({
+        where: { id: trip.id },
+        data: { status: "CONFIRMED" },
+      });
+
+      const updated = await tx.travelBooking.findUniqueOrThrow({ where: { id: bookingId } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.confirm",
+          objectType: "TravelBooking", objectId: bookingId,
+          oldValue: { status: "BOOKED_MOCK", providerStatus: "MOCK_HOLD" },
+          newValue: { status: "CONFIRMED", providerStatus: "CONFIRMED", providerRef: confirmed.providerRef },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: ctx.organizationId, type: "travel.confirmed",
+          payload: { bookingId, tripId: trip.id, providerRef: confirmed.providerRef },
+        },
+      });
+      return updated;
+    });
+  },
+
+  async linkFund(ctx: RequestContext, tripId: string, fundId: string) {
+    return prisma.$transaction(async (tx) => {
+      const trip = await tx.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+      const fund = await tx.fund.findFirst({
+        where: { id: fundId, organizationId: ctx.organizationId, legalEntityId: trip.legalEntityId },
+      });
+      if (!fund) throw new AppError("FUND_NOT_FOUND", "Fund is unavailable for this trip entity", 404);
+      const updated = await tx.travelTrip.update({
+        where: { id: tripId },
+        data: { fundId: fund.id },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.link_fund",
+          objectType: "TravelTrip", objectId: tripId,
+          newValue: { fundId: fund.id },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return updated;
+    });
+  },
+
+  async linkExpense(ctx: RequestContext, tripId: string, expenseId: string) {
+    return prisma.$transaction(async (tx) => {
+      const trip = await tx.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+      const expense = await tx.expense.findFirst({
+        where: { id: expenseId, organizationId: ctx.organizationId, legalEntityId: trip.legalEntityId },
+      });
+      if (!expense) throw new AppError("EXPENSE_NOT_FOUND", "Expense is unavailable for this trip entity", 404);
+      const updated = await tx.travelTrip.update({
+        where: { id: tripId },
+        data: { expenseId: expense.id },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.link_expense",
+          objectType: "TravelTrip", objectId: tripId,
+          newValue: { expenseId: expense.id },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return updated;
+    });
+  },
+
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "travel");
+    const trip = await prisma.travelTrip.findFirst({ where: { ...scope, id } });
+    if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+    const [bookings, fund, expense, approval] = await Promise.all([
+      prisma.travelBooking.findMany({
+        where: { organizationId: ctx.organizationId, tripId: id },
+        orderBy: { createdAt: "asc" },
+      }),
+      trip.fundId
+        ? prisma.fund.findFirst({ where: { id: trip.fundId, organizationId: ctx.organizationId } })
+        : null,
+      trip.expenseId
+        ? prisma.expense.findFirst({ where: { id: trip.expenseId, organizationId: ctx.organizationId } })
+        : null,
+      prisma.approvalInstance.findFirst({
+        where: { organizationId: ctx.organizationId, objectType: "travel", objectId: id },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+    return { trip, bookings, fund, expense, approval };
+  },
+};
+
+export const treasury = {
+  async createTransfer(ctx: RequestContext, body: { fromAccountId: string; toAccountId: string; amount: string; currency: string }) {
+    const money = requireMoney(body.amount, body.currency);
+    return prisma.$transaction(async (tx) => {
+      const [from, to] = await Promise.all([
+        tx.bankAccount.findFirst({ where: { id: body.fromAccountId, organizationId: ctx.organizationId } }),
+        tx.bankAccount.findFirst({ where: { id: body.toAccountId, organizationId: ctx.organizationId } }),
+      ]);
+      if (!from || !to) throw new AppError("INVALID_ACCOUNT", "Bank account is unavailable", 400);
+      if (from.id === to.id) throw new AppError("INVALID_TRANSFER", "Source and destination must differ", 400);
+      requireCurrencyMatch(from.currency, money.currency);
+      requireCurrencyMatch(to.currency, money.currency);
+      const transfer = await tx.bankTransfer.create({
+        data: {
+          organizationId: ctx.organizationId,
+          fromAccountId: from.id,
+          toAccountId: to.id,
+          amount: dec(money.amount),
+          currency: money.currency,
+          status: "CREATED",
+          createdBy: ctx.userId,
+        },
+      });
+      await tx.auditEvent.create({ data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: "transfer.create",
+        objectType: "BankTransfer", objectId: transfer.id,
+        newValue: { amount: money.amount, currency: money.currency, status: transfer.status },
+        correlationId: ctx.correlationId,
+      } });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "transfer.created", payload: { objectType: "BankTransfer", objectId: transfer.id } } });
+      return transfer;
+    });
+  },
+  async approve(ctx: RequestContext, id: string) {
+    return auditedCommand(ctx, { action: "transfer.approve", objectType: "BankTransfer", objectId: id, event: "transfer.approved" }, async (tx) => {
+      const transfer = await tx.bankTransfer.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!transfer) throw new AppError("NOT_FOUND", "Transfer not found", 404);
+      if (transfer.status !== "CREATED") throw new AppError("INVALID_STATE", "Transfer is not awaiting approval", 409);
+      if (transfer.createdBy === ctx.userId) {
+        throw new AppError("SOD_VIOLATION", "Transfer creator cannot approve", 403);
+      }
+      const claim = await tx.bankTransfer.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "CREATED" },
+        data: { status: "APPROVED", approvedBy: ctx.userId },
+      });
+      if (claim.count !== 1) throw new AppError("TRANSFER_CONFLICT", "Transfer changed; refresh and try again", 409);
+      const updated = await tx.bankTransfer.findUniqueOrThrow({ where: { id } });
+      return { result: updated, oldValue: { status: transfer.status }, newValue: { status: updated.status, approvedBy: ctx.userId } };
+    });
+  },
+  async release(ctx: RequestContext, id: string) {
+    return auditedCommand(ctx, { action: "transfer.release", objectType: "BankTransfer", objectId: id, event: "transfer.completed" }, async (tx) => {
+      const transfer = await tx.bankTransfer.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!transfer) throw new AppError("NOT_FOUND", "Transfer not found", 404);
+      if (transfer.status !== "APPROVED") throw new AppError("INVALID_STATE", "Transfer must be approved before release", 409);
+      if (transfer.createdBy === ctx.userId || transfer.approvedBy === ctx.userId) {
+        throw new AppError("SOD_VIOLATION", "Creator/approver cannot release transfer", 403);
+      }
+      const claim = await tx.bankTransfer.updateMany({
+        where: { id, organizationId: ctx.organizationId, status: "APPROVED" },
+        data: { status: "COMPLETED", releasedBy: ctx.userId },
+      });
+      if (claim.count !== 1) throw new AppError("TRANSFER_CONFLICT", "Transfer changed; refresh and try again", 409);
+      const updated = await tx.bankTransfer.findUniqueOrThrow({ where: { id } });
+      return { result: updated, oldValue: { status: transfer.status }, newValue: { status: updated.status, releasedBy: ctx.userId } };
+    });
+  },
+};
+
+export const receivables = {
+  async applyCash(ctx: RequestContext, incomingPaymentId: string, invoiceId: string, amount: string) {
+    const payment = await prisma.incomingPayment.findFirst({
+      where: { id: incomingPaymentId, organizationId: ctx.organizationId },
+    });
+    const invoice = await prisma.invoice.findFirst({ where: { id: invoiceId, organizationId: ctx.organizationId } });
+    if (!payment || !invoice) throw new AppError("NOT_FOUND", "Payment or invoice not found", 404);
+    if (n(payment.unapplied) < Number(amount)) {
+      throw new AppError("CASH_EXCEEDS_UNAPPLIED", "Amount exceeds unapplied cash", 400);
+    }
+    const application = await prisma.cashApplication.create({
+      data: { incomingPaymentId, invoiceId, amount: dec(amount) },
+    });
+    const unapplied = n(payment.unapplied) - Number(amount);
+    await prisma.incomingPayment.update({
+      where: { id: incomingPaymentId },
+      data: { unapplied: dec(unapplied), status: unapplied <= 0 ? "APPLIED" : "PARTIAL" },
+    });
+    const balance = n(invoice.balance) - Number(amount);
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { balance: dec(balance), status: balance <= 0 ? "PAID" : "PARTIAL" },
+    });
+    return application;
+  },
+};
+
+export const reporting = {
+  async dashboard(ctx: RequestContext) {
+    const orgId = ctx.organizationId;
+    const asOf = new Date();
+    const [
+      spend, payables, peopleCount, pendingBills, accountingReview, pendingRequests,
+      budgets, openPos, travelPending, integrations, unreadNotifications,
+    ] = await Promise.all([
+      prisma.txn.groupBy({ by: ["currency"], where: { organizationId: orgId, status: "CLEARED" }, _sum: { amount: true } }),
+      prisma.bill.groupBy({ by: ["currency"], where: { organizationId: orgId, NOT: { status: "PAID" } }, _sum: { remainingAmount: true } }),
+      prisma.user.count({ where: { organizationId: orgId, status: "ACTIVE" } }),
+      prisma.bill.count({ where: { organizationId: orgId, status: "PENDING_APPROVAL" } }),
+      prisma.accountingEntry.count({ where: { organizationId: orgId, status: "NEEDS_REVIEW" } }),
+      prisma.spendRequest.count({ where: { organizationId: orgId, status: { in: ["SUBMITTED", "IN_REVIEW"] } } }),
+      prisma.budget.findMany({ where: { organizationId: orgId }, take: 200 }),
+      prisma.purchaseOrder.findMany({
+        where: { organizationId: orgId, status: { in: ["OPEN", "PARTIALLY_RECEIVED"] } },
+        select: { currency: true, amount: true, billedAmount: true },
+        take: 500,
+      }),
+      prisma.travelTrip.count({ where: { organizationId: orgId, status: { in: ["PENDING_APPROVAL", "APPROVED", "BOOKING"] } } }),
+      prisma.integrationConnection.findMany({ where: { organizationId: orgId }, take: 50 }),
+      prisma.notification.count({ where: { organizationId: orgId, userId: ctx.userId, readAt: null } }),
+    ]);
+
+    const budgetRows = budgets.map((budget) => {
+      const capacity = budgetCapacity({
+        amount: budget.amount,
+        actualAmount: budget.actualAmount,
+        committedAmount: budget.committedAmount,
+      });
+      return {
+        id: budget.id,
+        name: budget.name,
+        currency: budget.currency,
+        legalEntityId: budget.legalEntityId,
+        period: budget.period,
+        freshness: budget.freshness.toISOString(),
+        ...capacity,
+      };
+    });
+
+    return {
+      clearedSpendByCurrency: spend.map((item) => ({ currency: item.currency, amount: String(item._sum.amount ?? 0) })),
+      openPayablesByCurrency: payables.map((item) => ({ currency: item.currency, amount: String(item._sum.remainingAmount ?? 0) })),
+      budgetCapacityByCurrency: sumByCurrency(budgetRows.map((row) => ({ currency: row.currency, amount: row.remainingAmount }))),
+      budgetUsedByCurrency: sumByCurrency(budgetRows.map((row) => ({ currency: row.currency, amount: row.usedAmount }))),
+      openPoCommitmentsByCurrency: sumByCurrency(openPos.map((po) => ({
+        currency: po.currency,
+        amount: Number(po.amount) - Number(po.billedAmount),
+      }))),
+      budgets: budgetRows,
+      activePeople: peopleCount,
+      pendingBills,
+      accountingReview,
+      pendingRequests,
+      travelPending,
+      unreadNotifications,
+      integrations: {
+        total: integrations.length,
+        healthy: integrations.filter((item) => item.health === "HEALTHY" || item.status === "CONNECTED").length,
+        degraded: integrations.filter((item) => item.health === "DEGRADED" || item.status === "ERROR").length,
+        items: integrations.map((item) => ({
+          id: item.id,
+          family: item.family,
+          provider: item.provider,
+          status: item.status,
+          health: item.health,
+          cursor: item.cursor,
+          lastSyncAt: item.lastSyncAt?.toISOString() ?? null,
+          lastError: item.lastError,
+        })),
+      },
+      freshness: {
+        asOf: asOf.toISOString(),
+        budgetFreshness: budgetRows.length
+          ? new Date(Math.min(...budgetRows.map((row) => new Date(row.freshness).getTime()))).toISOString()
+          : asOf.toISOString(),
+      },
+      asOf: asOf.toISOString(),
+    };
+  },
+};
+
+export const budgets = {
+  present(budget: {
+    id: string; name: string; legalEntityId: string; ownerId: string | null;
+    amount: Prisma.Decimal; actualAmount: Prisma.Decimal; committedAmount: Prisma.Decimal;
+    currency: string; period: string; freshness: Date; updatedAt?: Date;
+  }) {
+    const capacity = budgetCapacity({
+      amount: budget.amount,
+      actualAmount: budget.actualAmount,
+      committedAmount: budget.committedAmount,
+    });
+    return {
+      ...budget,
+      amount: String(budget.amount),
+      actualAmount: capacity.actualAmount,
+      committedAmount: capacity.committedAmount,
+      usedAmount: capacity.usedAmount,
+      remainingAmount: capacity.remainingAmount,
+      utilizationPct: capacity.utilizationPct,
+      overBudget: capacity.overBudget,
+      freshness: budget.freshness.toISOString(),
+      updatedAt: budget.updatedAt?.toISOString(),
+    };
+  },
+
+  async list(ctx: RequestContext) {
+    const scope = await scopedWhere(ctx, "budgets");
+    const rows = await prisma.budget.findMany({ where: scope, take: 100, orderBy: { name: "asc" } });
+    return rows.map((row) => budgets.present(row));
+  },
+
+  async getDetail(ctx: RequestContext, id: string) {
+    const scope = await scopedWhere(ctx, "budgets");
+    const budget = await prisma.budget.findFirst({ where: { ...scope, id } });
+    if (!budget) throw new AppError("NOT_FOUND", "Budget not found", 404);
+    const programs = await prisma.spendProgram.findMany({
+      where: { organizationId: ctx.organizationId, budgetId: id },
+      select: { id: true, name: true, maxAmount: true, currency: true, status: true },
+    });
+    return { budget: budgets.present(budget), programs, currencyNote: "Totals are server-side by currency; actual and committed never double-count the same dollars." };
+  },
+
+  async create(ctx: RequestContext, body: {
+    name: string; legalEntityId: string; amount: string | number; currency: string; period?: string;
+  }) {
+    const currency = String(body.currency ?? "USD").toUpperCase();
+    const money = requireMoney(String(body.amount), currency);
+    assertEntityPermission(ctx, "budget.manage", body.legalEntityId);
+    return prisma.$transaction(async (tx) => {
+      const entity = await tx.legalEntity.findFirst({ where: { id: body.legalEntityId, organizationId: ctx.organizationId } });
+      if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
+      requireCurrencyMatch(entity.currency, money.currency);
+      const budget = await tx.budget.create({
+        data: {
+          organizationId: ctx.organizationId,
+          legalEntityId: entity.id,
+          ownerId: ctx.userId,
+          name: body.name.trim(),
+          amount: dec(money.amount),
+          currency: money.currency,
+          period: body.period ?? "ANNUAL",
+          freshness: new Date(),
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "budget.create",
+          objectType: "Budget", objectId: budget.id,
+          newValue: { amount: money.amount, currency: money.currency },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return budgets.present(budget);
+    });
+  },
+};
+
+export const notifications = {
+  async listMine(ctx: RequestContext) {
+    return prisma.notification.findMany({
+      where: { organizationId: ctx.organizationId, userId: ctx.userId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+  },
+
+  async markRead(ctx: RequestContext, id: string) {
+    const claim = await prisma.notification.updateMany({
+      where: { id, organizationId: ctx.organizationId, userId: ctx.userId, readAt: null },
+      data: { readAt: new Date() },
+    });
+    if (claim.count !== 1) {
+      const existing = await prisma.notification.findFirst({
+        where: { id, organizationId: ctx.organizationId, userId: ctx.userId },
+      });
+      if (!existing) throw new AppError("NOT_FOUND", "Notification not found", 404);
+      return existing;
+    }
+    return prisma.notification.findUniqueOrThrow({ where: { id } });
+  },
+
+  async markAllRead(ctx: RequestContext) {
+    await prisma.notification.updateMany({
+      where: { organizationId: ctx.organizationId, userId: ctx.userId, readAt: null },
+      data: { readAt: new Date() },
+    });
+    return { ok: true };
+  },
+
+  async create(ctx: RequestContext, input: {
+    userId: string; type: string; title: string; body: string; href?: string; objectType?: string; objectId?: string;
+  }) {
+    return prisma.notification.create({
+      data: {
+        organizationId: ctx.organizationId,
+        userId: input.userId,
+        type: input.type,
+        title: input.title,
+        body: input.body,
+        href: input.href ?? "",
+        objectType: input.objectType,
+        objectId: input.objectId,
+      },
+    });
+  },
+};
+
+export const integrations = {
+  async listHealth(ctx: RequestContext) {
+    const rows = await prisma.integrationConnection.findMany({
+      where: { organizationId: ctx.organizationId },
+      orderBy: [{ family: "asc" }, { provider: "asc" }],
+      take: 100,
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      family: row.family,
+      provider: row.provider,
+      status: row.status,
+      health: row.health,
+      cursor: row.cursor,
+      lastSyncAt: row.lastSyncAt?.toISOString() ?? null,
+      lastError: row.lastError,
+      updatedAt: row.updatedAt.toISOString(),
+    }));
+  },
+
+  /** Sandbox health check: advances cursor and marks HEALTHY without claiming live provider success. */
+  async ping(ctx: RequestContext, id: string) {
+    if (env.nodeEnv === "production") {
+      throw new AppError("PROVIDER_REQUIRED", "Integration sync must use the live provider in production", 403);
+    }
+    return prisma.$transaction(async (tx) => {
+      const connection = await tx.integrationConnection.findFirst({
+        where: { id, organizationId: ctx.organizationId },
+      });
+      if (!connection) throw new AppError("NOT_FOUND", "Integration not found", 404);
+      const cursor = `mock_${Date.now().toString(36)}`;
+      const updated = await tx.integrationConnection.update({
+        where: { id },
+        data: {
+          status: "CONNECTED",
+          health: "HEALTHY",
+          cursor,
+          lastSyncAt: new Date(),
+          lastError: "",
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "integration.ping",
+          objectType: "IntegrationConnection", objectId: id,
+          newValue: { cursor, health: "HEALTHY", sandbox: true },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return {
+        id: updated.id,
+        family: updated.family,
+        provider: updated.provider,
+        status: updated.status,
+        health: updated.health,
+        cursor: updated.cursor,
+        lastSyncAt: updated.lastSyncAt?.toISOString() ?? null,
+        lastError: updated.lastError,
+      };
+    });
+  },
+};
+
+export const savedViews = {
+  async list(ctx: RequestContext, resource?: string) {
+    return prisma.savedView.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        ...(resource ? { resource } : {}),
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+    });
+  },
+
+  async create(ctx: RequestContext, body: {
+    resource: string; name: string; filters?: Record<string, unknown>; columns?: string[];
+  }) {
+    const resource = body.resource.trim();
+    const name = body.name.trim();
+    if (!resource || !name) throw new AppError("INVALID_VIEW", "Resource and name are required", 400);
+    return prisma.savedView.create({
+      data: {
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        resource,
+        name,
+        filters: (body.filters ?? {}) as Prisma.InputJsonValue,
+        columns: (body.columns ?? []) as Prisma.InputJsonValue,
+      },
+    });
+  },
+
+  async remove(ctx: RequestContext, id: string) {
+    const claim = await prisma.savedView.deleteMany({
+      where: { id, organizationId: ctx.organizationId, userId: ctx.userId },
+    });
+    if (claim.count !== 1) throw new AppError("NOT_FOUND", "Saved view not found", 404);
+    return { ok: true };
+  },
+};
+
+export const specialist = {
+  async openDispute(ctx: RequestContext, transactionId: string, reason: string) {
+    const txn = await prisma.txn.findFirst({ where: { id: transactionId, organizationId: ctx.organizationId } });
+    if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
+    return prisma.disputeCase.create({
+      data: {
+        organizationId: ctx.organizationId,
+        transactionId,
+        reason,
+        createdBy: ctx.userId,
+      },
+    });
+  },
+  async routeModel(ctx: RequestContext, requestedModel: string) {
+    const routedModel = requestedModel.includes("gpt") ? requestedModel : "gpt-4.1-mini";
+    return prisma.routerLog.create({
+      data: {
+        organizationId: ctx.organizationId,
+        requestedModel,
+        routedModel,
+        provider: "mock-openai",
+        tokens: 1200,
+        latencyMs: 180,
+        cost: dec("0.0120"),
+        fallback: routedModel !== requestedModel,
+      },
+    });
+  },
+};

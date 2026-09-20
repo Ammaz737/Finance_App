@@ -1,0 +1,2 @@
+/** Versioned prompts / skills */
+export {};

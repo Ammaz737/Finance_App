@@ -1,0 +1,2 @@
+/** Mobile feature: notifications. */
+export {};

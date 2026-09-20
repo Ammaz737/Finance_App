@@ -1,0 +1,8 @@
+{
+  "expo": {
+    "name": "Finance",
+    "slug": "finance",
+    "scheme": "financeapp",
+    "orientation": "portrait"
+  }
+}

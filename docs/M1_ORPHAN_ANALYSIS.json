@@ -1,0 +1,44 @@
+{
+  "generatedAt": "2026-09-16T14:10:39.722Z",
+  "unsafeUniques": [
+    {
+      "model": "AccountingEntry",
+      "unique": "[sourceType, sourceId]",
+      "risk": "global; should include organizationId"
+    },
+    {
+      "model": "CardAuthorization",
+      "unique": "idempotencyKey",
+      "risk": "global; should be [organizationId, idempotencyKey]"
+    },
+    {
+      "model": "Fund.spendRequestId",
+      "unique": "none",
+      "risk": "duplicate fulfillment possible; add unique where not null"
+    }
+  ],
+  "foreignKeysInMigration": 0,
+  "prismaRelations": 0,
+  "counts": {
+    "organizations": 1,
+    "users": 5,
+    "funds": 1,
+    "cards": 1,
+    "spendRequests": 0,
+    "bills": 2,
+    "payments": 0,
+    "accountingEntries": 3,
+    "approvalInstances": 3
+  },
+  "orphans": {
+    "fundsMissingOrg": [],
+    "fundsMissingOwner": [],
+    "fundsMissingEntity": [],
+    "fundsMissingSpendRequest": [],
+    "cardsMissingFund": [],
+    "cardsMissingHolder": [],
+    "cardsMissingEntity": [],
+    "duplicateSpendRequestFunds": [],
+    "accountingSourceKeyCollisionsAcrossOrgs": []
+  }
+}

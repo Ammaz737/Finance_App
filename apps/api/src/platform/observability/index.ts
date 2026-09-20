@@ -1,0 +1,2 @@
+/** Platform capability: observability. */
+export {};

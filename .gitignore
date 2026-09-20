@@ -1,0 +1,8 @@
+node_modules
+dist
+.next
+.expo
+.env
+*.log
+coverage
+data/uploads

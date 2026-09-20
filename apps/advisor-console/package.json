@@ -1,0 +1,30 @@
+{
+  "name": "@finance/advisor-console",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@finance/api-client": "workspace:*",
+    "@finance/design-system": "workspace:*",
+    "@finance/feature-flags": "workspace:*",
+    "@finance/permissions": "workspace:*",
+    "@tanstack/react-query": "^5.87.4",
+    "next": "^15.5.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-hook-form": "^7.62.0",
+    "zod": "^3.25.76",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "typescript": "^5.9.2"
+  }
+}

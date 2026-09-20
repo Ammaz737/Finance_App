@@ -1,0 +1,25 @@
+{
+  "name": "@finance/worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "outbox:drain": "tsx --env-file=.env src/drain.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "tsc -p tsconfig.json && node --test dist/event-catalog.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.0",
+    "@finance/config": "workspace:*",
+    "@finance/logger": "workspace:*",
+    "bullmq": "^5.58.5",
+    "ioredis": "^5.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

@@ -86,12 +86,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 8788,
+                  "duration": 25603,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-09-20T11:11:48.195Z",
+                  "startTime": "2026-09-21T06:40:10.424Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -101,7 +101,41 @@
           ],
           "id": "08c379e98cfaebda2019-c4ca5850e9cae140b55a",
           "file": "golden-flows.spec.ts",
-          "line": 25,
+          "line": 34,
+          "column": 5
+        },
+        {
+          "title": "A2: declined authorization + tenant isolation negatives",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1863,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-21T06:40:36.985Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-c1a2e98c71b403fc36cd",
+          "file": "golden-flows.spec.ts",
+          "line": 93,
           "column": 5
         },
         {
@@ -120,12 +154,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 5557,
+                  "duration": 16621,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-09-20T11:11:57.442Z",
+                  "startTime": "2026-09-21T06:40:38.910Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -135,7 +169,75 @@
           ],
           "id": "08c379e98cfaebda2019-79f3feef32469f48d171",
           "file": "golden-flows.spec.ts",
-          "line": 58,
+          "line": 118,
+          "column": 5
+        },
+        {
+          "title": "B2: partial payment then settle remaining",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2338,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-21T06:40:55.564Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-01d5918504268fa9a271",
+          "file": "golden-flows.spec.ts",
+          "line": 168,
+          "column": 5
+        },
+        {
+          "title": "B3: AP negatives — duplicate, creator SoD, tenant isolation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1214,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-21T06:40:57.931Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-c18fed6469fa26e1e554",
+          "file": "golden-flows.spec.ts",
+          "line": 202,
           "column": 5
         }
       ]
@@ -143,9 +245,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-09-20T11:10:34.966Z",
-    "duration": 88337.59499999999,
-    "expected": 2,
+    "startTime": "2026-09-21T06:40:08.718Z",
+    "duration": 60641.882,
+    "expected": 5,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

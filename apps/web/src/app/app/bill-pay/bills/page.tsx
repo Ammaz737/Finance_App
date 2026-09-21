@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ResourcePage } from "@/components/ResourcePage";
@@ -11,14 +11,14 @@ type Stage = "Overview" | "Drafts" | "For approval" | "For payment" | "History" 
 
 const stages: Stage[] = ["Overview", "Drafts", "For approval", "For payment", "History", "Urgent"];
 const statusGroups: Partial<Record<Stage, string[]>> = {
-  Drafts: ["DRAFT"],
+  Drafts: ["DRAFT", "NEEDS_REVIEW"],
   "For approval": ["PENDING_APPROVAL", "IN_REVIEW"],
   "For payment": ["APPROVED", "PARTIAL"],
   History: ["PAID", "REJECTED", "CANCELLED"],
 };
 
 function isUrgent(bill: { status?: string; dueDate?: unknown }) {
-  if (!["DRAFT", "PENDING_APPROVAL", "IN_REVIEW", "APPROVED", "PARTIAL"].includes(bill.status ?? "")) return false;
+  if (!["DRAFT", "NEEDS_REVIEW", "PENDING_APPROVAL", "IN_REVIEW", "APPROVED", "PARTIAL"].includes(bill.status ?? "")) return false;
   if (!bill.dueDate) return false;
   const due = new Date(String(bill.dueDate)).getTime();
   return Number.isFinite(due) && due <= Date.now() + 7 * 24 * 60 * 60 * 1000;
@@ -26,7 +26,12 @@ function isUrgent(bill: { status?: string; dueDate?: unknown }) {
 
 export default function Page() {
   const router = useRouter();
-  const [stage, setStage] = useState<Stage>("Overview");
+  const search = useSearchParams();
+  const initial = (search.get("stage") as Stage | null) ?? "Overview";
+  const [stage, setStage] = useState<Stage>(stages.includes(initial) ? initial : "Overview");
+  useEffect(() => {
+    if (stages.includes(initial)) setStage(initial);
+  }, [initial]);
   const bills = useQuery({ queryKey: ["resource", "bills", ""], queryFn: () => api.get<Bill[]>("/bills") });
   const rows = bills.data ?? [];
   const counts: Record<Stage, number> = {

@@ -177,7 +177,7 @@ describe.runIf(runDb)("M6 vendor AP payments", () => {
     expect(released.providerRef).toMatch(/^mock_rail_/);
 
     const settled = await payments.confirmSettlement(releaser, first.id);
-    expect(settled.payment.status).toBe("COMPLETED");
+    expect(settled.payment.status).toBe("SETTLED");
     expect(settled.payment.settlementId).toMatch(/^mock_settle_/);
     expect(Number(settled.bill?.remainingAmount)).toBe(70);
     expect(settled.bill?.status).toBe("PARTIAL");

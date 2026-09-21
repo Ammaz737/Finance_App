@@ -20,6 +20,8 @@ type ExpenseDetail = {
   attachment: { id: string; originalName: string; mimeType: string; malwareStatus: string } | null;
   splits: Array<{ id: string; amount: string | number; category: string; department: string }>;
   transaction: { id: string; status: string; merchant: string; amount: string | number } | null;
+  requirements?: { requirements: Array<{ key: string; label: string; status: string }>; complete: boolean; missing: string[] };
+  timeline?: Array<{ id: string; action: string; createdAt: string }>;
 };
 
 function money(currency: string, value: string | number) {
@@ -154,6 +156,22 @@ export default function ExpenseDetailPage() {
     </div>
 
     <div className="work-panels">
+      <section className="work-panel">
+        <h2>Requirements</h2>
+        <ul className="stack gap-sm">
+          {(data.requirements?.requirements ?? [
+            { key: "receipt", label: "Receipt", status: data.receipt ? "Complete" : "Missing" },
+            { key: "memo", label: "Business purpose", status: data.expense.memo?.trim() ? "Complete" : "Missing" },
+            { key: "category", label: "Category", status: data.expense.merchant ? "Complete" : "Missing" },
+          ]).map((row) => (
+            <li key={row.key} className="row between">
+              <span>{row.label}</span>
+              <span>{row.status === "Complete" ? "✓ Complete" : "! Missing"}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <section className="work-panel">
         <h2>Completion</h2>
         {canEdit ? <form className="record-form" onSubmit={(event) => { event.preventDefault(); saveMemo.mutate(); }}>

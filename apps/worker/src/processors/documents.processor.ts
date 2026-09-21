@@ -60,5 +60,14 @@ export async function processDocumentQuarantineJob(
         },
       });
     }
+    if (malwareStatus === "CLEAN" && attachment.classification === "INVOICE") {
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: attachment.organizationId,
+          type: "invoice.ocr_requested",
+          payload: { attachmentId: attachment.id },
+        },
+      });
+    }
   });
 }

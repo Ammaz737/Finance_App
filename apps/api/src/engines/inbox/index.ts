@@ -30,6 +30,10 @@ export type InboxTask = {
   availableActions: string[];
   createdAt: string;
   approvalInstanceId?: string;
+  invoiceNumber?: string;
+  duplicateStatus?: string;
+  vendorId?: string;
+  approvalProgress?: string;
 };
 
 function amountOf(object: { amount?: Prisma.Decimal | number | string }): string {
@@ -111,7 +115,7 @@ export async function listInboxTasks(ctx: RequestContext): Promise<InboxTask[]> 
 
     tasks.push({
       id: instance.id,
-      type: "APPROVAL",
+      type: instance.objectType === "bill" ? "BILL_APPROVAL" : "APPROVAL",
       objectType: instance.objectType,
       objectId: instance.objectId,
       name,
@@ -129,6 +133,14 @@ export async function listInboxTasks(ctx: RequestContext): Promise<InboxTask[]> 
       availableActions,
       createdAt: instance.createdAt.toISOString(),
       approvalInstanceId: instance.id,
+      ...(instance.objectType === "bill" && "invoiceNumber" in object
+        ? {
+            invoiceNumber: String((object as { invoiceNumber: string }).invoiceNumber),
+            duplicateStatus: "duplicateStatus" in object ? String((object as { duplicateStatus?: string }).duplicateStatus ?? "CLEAR") : "CLEAR",
+            vendorId: "vendorId" in object ? String((object as { vendorId: string }).vendorId) : undefined,
+            approvalProgress: progressLabel(instance.currentStep, steps.length, instance.status),
+          }
+        : {}),
     });
   }
 

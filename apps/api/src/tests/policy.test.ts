@@ -6,6 +6,9 @@ describe("policy engine", () => {
     const result = evaluatePolicy({ objectType: "expense", amount: 80, hasReceipt: false });
     expect(result.result).toBe("BLOCK");
     expect(result.matchedRules).toContain("receipt_required");
+    expect(result.reason).toContain("Receipt is required");
+    expect(result.requiredActions).toContain("Attach receipt");
+    expect(result.evidence.length).toBeGreaterThan(0);
   });
 
   it("uses supplied DB-style rules for memo and category thresholds", () => {
@@ -22,6 +25,19 @@ describe("policy engine", () => {
     });
     expect(result.result).toBe("REVIEW");
     expect(result.matchedRules).toEqual(expect.arrayContaining(["memo_required", "category_amount"]));
+    expect(result.requiredActions.length).toBeGreaterThan(0);
+  });
+
+  it("classifies PASS WARN REVIEW BLOCK deterministically", () => {
+    expect(evaluatePolicy({ objectType: "expense", amount: 10, hasReceipt: true }).result).toBe("PASS");
+    expect(evaluatePolicy({
+      objectType: "expense", amount: 12000, hasReceipt: true, rules: [{ type: "high_value", threshold: 10000 }],
+    }).result).toBe("WARN");
+    expect(evaluatePolicy({
+      objectType: "expense", amount: 100, hasReceipt: true, hasMemo: false,
+      rules: [{ type: "memo_required", threshold: 0 }],
+    }).result).toBe("REVIEW");
+    expect(evaluatePolicy({ objectType: "card", amount: 10, outOfPolicy: true }).result).toBe("BLOCK");
   });
 
   it("never lets AI-style flags override a hard block", () => {

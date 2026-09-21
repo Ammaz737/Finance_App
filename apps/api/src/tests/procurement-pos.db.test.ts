@@ -12,6 +12,7 @@ let orgId = "";
 let entityId = "";
 let requesterId = "";
 let approverId = "";
+let approver2Id = "";
 let programId = "";
 let vendorId = "";
 
@@ -40,16 +41,20 @@ describe.runIf(runDb)("M8 procurement POs", () => {
       data: { organizationId: org.id, name: "M8 US", country: "US", currency: "USD" },
     });
     entityId = entity.id;
-    const [requester, approver] = await Promise.all([
+    const [requester, approver, approver2] = await Promise.all([
       prisma.user.create({
         data: { organizationId: org.id, email: `req.${suffix}@m8.test`, passwordHash, firstName: "Req", lastName: "User", status: "ACTIVE" },
       }),
       prisma.user.create({
         data: { organizationId: org.id, email: `apr.${suffix}@m8.test`, passwordHash, firstName: "Apr", lastName: "User", status: "ACTIVE" },
       }),
+      prisma.user.create({
+        data: { organizationId: org.id, email: `apr2.${suffix}@m8.test`, passwordHash, firstName: "Apr2", lastName: "User", status: "ACTIVE" },
+      }),
     ]);
     requesterId = requester.id;
     approverId = approver.id;
+    approver2Id = approver2.id;
     const role = await prisma.role.create({ data: { organizationId: org.id, name: "Owner" } });
     let star = await prisma.permission.findUnique({ where: { key: "*" } });
     if (!star) star = await prisma.permission.create({ data: { key: "*", label: "*" } });
@@ -58,6 +63,7 @@ describe.runIf(runDb)("M8 procurement POs", () => {
       data: [
         { organizationId: org.id, userId: requester.id, roleId: role.id },
         { organizationId: org.id, userId: approver.id, roleId: role.id },
+        { organizationId: org.id, userId: approver2.id, roleId: role.id },
       ],
     });
     const workflow = await prisma.approvalWorkflow.create({
@@ -143,7 +149,7 @@ describe.runIf(runDb)("M8 procurement POs", () => {
     expect(step1.purchaseOrder).toBeNull();
     expect(await prisma.purchaseOrder.count({ where: { requestId: draft.id } })).toBe(0);
 
-    const step2 = await procurement.approve(approver, draft.id);
+    const step2 = await procurement.approve(ctx({ userId: approver2Id, organizationId: orgId }), draft.id);
     expect(step2.approval.status).toBe("APPROVED");
     expect(step2.purchaseOrder?.id).toBeTruthy();
     expect(step2.request.outcomeId).toBe(step2.purchaseOrder?.id);
@@ -180,6 +186,7 @@ describe.runIf(runDb)("M8 procurement POs", () => {
   it("does not create PO for non-PO outcomes", async () => {
     const requester = ctx({ userId: requesterId, organizationId: orgId });
     const approver = ctx({ userId: approverId, organizationId: orgId });
+    const approver2 = ctx({ userId: approver2Id, organizationId: orgId });
     const draft = await procurement.create(requester, {
       name: `Vendor setup ${suffix}`,
       legalEntityId: entityId,
@@ -190,7 +197,7 @@ describe.runIf(runDb)("M8 procurement POs", () => {
     });
     await procurement.submit(requester, draft.id);
     await procurement.approve(approver, draft.id);
-    const final = await procurement.approve(approver, draft.id);
+    const final = await procurement.approve(approver2, draft.id);
     expect(final.request.status).toBe("APPROVED");
     expect(final.purchaseOrder).toBeNull();
     expect(final.request.outcomeId).toMatch(/^vendor_setup_/);

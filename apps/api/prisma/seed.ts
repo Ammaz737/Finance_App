@@ -235,12 +235,23 @@ async function main() {
       status: "ACTIVE",
     },
   });
+  const apApprover = await prisma.user.create({
+    data: {
+      organizationId: org.id,
+      email: "ap@acme.test",
+      passwordHash,
+      firstName: "Aiden",
+      lastName: "Payable",
+      status: "ACTIVE",
+    },
+  });
   await prisma.userRole.createMany({
     data: [
       { organizationId: org.id, userId: admin.id, roleId: owner.id, entityId: us.id },
       { organizationId: org.id, userId: mgr.id, roleId: manager.id, entityId: us.id },
       { organizationId: org.id, userId: emp.id, roleId: employee.id, entityId: us.id },
       { organizationId: org.id, userId: releaser.id, roleId: finance.id, entityId: us.id },
+      { organizationId: org.id, userId: apApprover.id, roleId: finance.id, entityId: us.id },
     ],
   });
   await prisma.entitlement.createMany({

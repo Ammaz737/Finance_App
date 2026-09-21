@@ -127,7 +127,7 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
     expect(request.expiresAt).toBeTruthy();
 
     const first = await spend.approveRequest(approver, request.id);
-    expect(first.request.status).toBe("APPROVED");
+    expect(first.request.status).toBe("FULFILLED");
     expect(first.fund).toBeTruthy();
     expect(first.card?.providerRef).toMatch(/^mock_/);
     expect(first.card?.merchantLock?.toLowerCase()).toBe("amazon");
@@ -140,7 +140,12 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
     const budget = await prisma.budget.findUniqueOrThrow({ where: { id: budgetId } });
     expect(Number(budget.committedAmount)).toBeGreaterThanOrEqual(100);
 
-    await expect(spend.approveRequest(approver, request.id)).rejects.toMatchObject({ code: "INVALID_STATE" });
+    const again = await spend.approveRequest(approver, request.id);
+    expect(again.request.status).toBe("FULFILLED");
+    expect(again.fund?.id).toBe(first.fund!.id);
+    expect(again.card?.id).toBe(first.card!.id);
+    expect(await prisma.fund.count({ where: { organizationId: orgId, spendRequestId: request.id } })).toBe(1);
+    expect(await prisma.card.count({ where: { organizationId: orgId, fundId: first.fund!.id } })).toBe(1);
   });
 
   it("fulfills FUND_ONLY without issuing a card", async () => {

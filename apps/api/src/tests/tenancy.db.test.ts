@@ -153,6 +153,31 @@ describe.runIf(runDb)("two-tenant postgres matrix", () => {
     expect(() => assertEntityPermission(betaCtx, "payment.create", acmeEntityId)).toThrow(/this entity/);
   });
 
+  it("prevents Tenant B from updating, deleting, or referencing Tenant A objects", async () => {
+    const betaUpdate = await prisma.bill.updateMany({
+      where: { id: acmeBillId, organizationId: betaOrgId },
+      data: { memo: "hacked" },
+    });
+    expect(betaUpdate.count).toBe(0);
+    const betaDelete = await prisma.bill.deleteMany({
+      where: { id: acmeBillId, organizationId: betaOrgId },
+    });
+    expect(betaDelete.count).toBe(0);
+    await expect(prisma.payment.create({
+      data: {
+        organizationId: betaOrgId,
+        legalEntityId: betaEntityId,
+        billId: acmeBillId,
+        amount: 1,
+        currency: "USD",
+        status: "SCHEDULED",
+        createdBy: betaOwnerId,
+      },
+    })).rejects.toThrow();
+    const stillAcme = await prisma.bill.findFirst({ where: { id: acmeBillId, organizationId: acmeOrgId } });
+    expect(stillAcme?.memo ?? "").not.toBe("hacked");
+  });
+
   it("rejects self-approval on an approval instance", async () => {
     const instance = await prisma.approvalInstance.create({
       data: {

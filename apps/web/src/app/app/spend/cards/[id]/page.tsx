@@ -67,6 +67,22 @@ export default function CardDetailPage() {
     },
   });
 
+  const unfreeze = useMutation({
+    mutationFn: () => api.post(`/cards/${params.id}/unfreeze`, {}),
+    onSuccess: () => {
+      setMessage("Card unfrozen.");
+      void queryClient.invalidateQueries({ queryKey: ["card-detail", params.id] });
+    },
+  });
+
+  const terminate = useMutation({
+    mutationFn: () => api.post(`/cards/${params.id}/terminate`, {}),
+    onSuccess: () => {
+      setMessage("Card terminated.");
+      void queryClient.invalidateQueries({ queryKey: ["card-detail", params.id] });
+    },
+  });
+
   const saveControls = useMutation({
     mutationFn: () => api.post(`/cards/${params.id}/set-controls`, {
       merchantLock: controls.merchantLock || null,
@@ -146,16 +162,18 @@ export default function CardDetailPage() {
       <div className="detail-actions-top">
         <Link className="btn btn-ghost" href="/app/spend/cards">Back to cards</Link>
         {canFreeze && data.card.status === "ACTIVE" && <button type="button" className="btn btn-danger" disabled={freeze.isPending} onClick={() => { if (window.confirm("Freeze this card?")) freeze.mutate(); }}>Freeze</button>}
+        {canFreeze && data.card.status === "FROZEN" && <button type="button" className="btn" disabled={unfreeze.isPending} onClick={() => unfreeze.mutate()}>Unfreeze</button>}
+        {canFreeze && data.card.status !== "TERMINATED" && <button type="button" className="btn btn-danger" disabled={terminate.isPending} onClick={() => { if (window.confirm("Terminate this card permanently?")) terminate.mutate(); }}>Terminate</button>}
       </div>
     </div>
 
     {message && <p className="notice" role="status">{message}</p>}
-    {(freeze.isError || saveControls.isError || authorize.isError || txnAction.isError) && (
-      <p className="error" role="alert">{(freeze.error ?? saveControls.error ?? authorize.error ?? txnAction.error)?.message}</p>
+    {(freeze.isError || unfreeze.isError || terminate.isError || saveControls.isError || authorize.isError || txnAction.isError) && (
+      <p className="error" role="alert">{(freeze.error ?? unfreeze.error ?? terminate.error ?? saveControls.error ?? authorize.error ?? txnAction.error)?.message}</p>
     )}
 
     <div className="kpi-grid">
-      <article className="kpi-card"><span>Status</span><strong><StatusBadge status={data.card.status} /></strong><small>{data.card.providerRef ?? "No provider ref"}</small></article>
+      <article className="kpi-card"><span>Status</span><strong><StatusBadge status={data.card.status} /></strong><small>{sandbox ? "SANDBOX / MOCK CARD" : (data.card.providerRef ?? "No provider ref")}</small></article>
       <article className="kpi-card"><span>Available</span><strong>{money(data.totals.currency, data.totals.available)}</strong><small>Fund {data.fund?.name ?? "—"}</small></article>
       <article className="kpi-card"><span>Pending / cleared</span><strong>{money(data.totals.currency, data.totals.pending)} · {money(data.totals.currency, data.totals.cleared)}</strong><small>Holds vs captured</small></article>
     </div>
@@ -166,7 +184,7 @@ export default function CardDetailPage() {
         <dl className="detail-list">
           <div><dt>Holder</dt><dd>{holderName}{data.holder?.email ? ` · ${data.holder.email}` : ""}</dd></div>
           <div><dt>Fund</dt><dd>{data.fund ? <Link className="detail-link" href={`/app/spend/funds/${data.fund.id}`}>{data.fund.name}</Link> : "—"}</dd></div>
-          <div><dt>Spend request</dt><dd>{data.spendRequest ? `${data.spendRequest.name} (${data.spendRequest.status})` : "—"}</dd></div>
+          <div><dt>Spend request</dt><dd>{data.spendRequest ? <Link className="detail-link" href={`/app/spend/requests/${data.spendRequest.id}`}>{data.spendRequest.name}</Link> : "—"}</dd></div>
           <div><dt>Created</dt><dd>{new Date(data.card.createdAt).toLocaleString()}</dd></div>
         </dl>
       </section>

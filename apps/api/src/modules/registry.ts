@@ -219,6 +219,8 @@ export const routers = {
     get: (ctx, id) => actions.cards.getDetail(ctx, id),
     actions: {
       freeze: (ctx, id) => actions.cards.freeze(ctx, id),
+      unfreeze: (ctx, id) => actions.cards.unfreeze(ctx, id),
+      terminate: (ctx, id) => actions.cards.terminate(ctx, id),
       "set-controls": (ctx, id, body) => actions.cards.setControls(ctx, id, {
         merchantLock: body.merchantLock === null ? null : body.merchantLock != null ? String(body.merchantLock) : undefined,
         allowedMccs: body.allowedMccs === null ? null : body.allowedMccs != null ? String(body.allowedMccs) : undefined,
@@ -293,10 +295,14 @@ export const routers = {
         },
       });
     },
+    actions: {
+      deactivate: (ctx, id) => actions.spend.deactivateProgram(ctx, id),
+    },
   }),
   "spend-requests": createResourceRouter({
     getDelegate: () => prisma.spendRequest as never,
     searchField: "name",
+    get: (ctx, id) => actions.spend.getRequestDetail(ctx, id),
     create: (ctx, body) =>
       actions.spend.createRequest(ctx, {
         programId: String(body.programId),
@@ -311,6 +317,9 @@ export const routers = {
           : undefined,
         recurrence: body.recurrence != null ? String(body.recurrence) : undefined,
         expiresAt: body.expiresAt ? String(body.expiresAt) : undefined,
+        category: body.category != null ? String(body.category) : undefined,
+        attachmentId: body.attachmentId ? String(body.attachmentId) : undefined,
+        comments: body.comments != null ? String(body.comments) : undefined,
       }),
     actions: { approve: (ctx, id) => actions.spend.approveRequest(ctx, id) },
   }),
@@ -463,6 +472,8 @@ export const routers = {
     searchField: "name",
     create: (ctx, body) => actions.vendors.create(ctx, {
       name: String(body.name ?? ""),
+      legalName: body.legalName != null ? String(body.legalName) : undefined,
+      displayName: body.displayName != null ? String(body.displayName) : undefined,
       category: body.category != null ? String(body.category) : undefined,
       legalEntityId: String(body.legalEntityId),
       taxId: body.taxId != null ? String(body.taxId) : undefined,
@@ -475,7 +486,12 @@ export const routers = {
         last4: String(body.last4 ?? ""),
         routingMasked: String(body.routingMasked ?? ""),
         changeReason: body.changeReason != null ? String(body.changeReason) : undefined,
+        paymentMethod: body.paymentMethod != null ? String(body.paymentMethod) : undefined,
+        beneficiaryName: body.beneficiaryName != null ? String(body.beneficiaryName) : undefined,
+        currency: body.currency != null ? String(body.currency) : undefined,
+        country: body.country != null ? String(body.country) : undefined,
       }),
+      "verify-bank": (ctx, id, body) => actions.vendors.verifyBankAccount(ctx, id, String(body.bankAccountId ?? "")),
     },
   }),
   contracts: createResourceRouter({ getDelegate: () => prisma.contract as never, searchField: "name" }),
@@ -486,16 +502,33 @@ export const routers = {
   bills: createResourceRouter({
     getDelegate: () => prisma.bill as never,
     create: (ctx, body) =>
-      actions.bills.create(ctx, {
-        vendorId: String(body.vendorId),
+      body.attachmentId && body.fromDocument
+        ? actions.bills.createFromDocument(ctx, {
+            attachmentId: String(body.attachmentId),
+            legalEntityId: String(body.legalEntityId),
+            vendorId: body.vendorId != null ? String(body.vendorId) : undefined,
+            draft: body.draft === true || body.draft === "true",
+            allowPossibleDuplicate: body.allowPossibleDuplicate === true || body.allowPossibleDuplicate === "true",
+          })
+        : actions.bills.create(ctx, {
+        vendorId: body.vendorId != null ? String(body.vendorId) : undefined,
+        vendorName: body.vendorName != null ? String(body.vendorName) : undefined,
         legalEntityId: String(body.legalEntityId),
         invoiceNumber: String(body.invoiceNumber),
         amount: String(body.amount),
         currency: String(body.currency ?? "USD"),
         dueDate: body.dueDate != null ? String(body.dueDate) : undefined,
+        invoiceDate: body.invoiceDate != null ? String(body.invoiceDate) : undefined,
         memo: body.memo != null ? String(body.memo) : undefined,
         attachmentId: body.attachmentId != null ? String(body.attachmentId) : undefined,
         purchaseOrderId: body.purchaseOrderId != null ? String(body.purchaseOrderId) : undefined,
+        taxAmount: body.taxAmount != null ? String(body.taxAmount) : undefined,
+        subtotal: body.subtotal != null ? String(body.subtotal) : undefined,
+        departmentId: body.departmentId != null ? String(body.departmentId) : undefined,
+        businessOwnerId: body.businessOwnerId != null ? String(body.businessOwnerId) : undefined,
+        paymentMethod: body.paymentMethod != null ? String(body.paymentMethod) : undefined,
+        draft: body.draft === true || body.draft === "true",
+        allowPossibleDuplicate: body.allowPossibleDuplicate === true || body.allowPossibleDuplicate === "true",
         lines: Array.isArray(body.lines)
           ? body.lines.map((line) => {
               const row = line as Record<string, unknown>;
@@ -503,12 +536,37 @@ export const routers = {
                 description: String(row.description ?? ""),
                 amount: String(row.amount ?? ""),
                 category: row.category != null ? String(row.category) : undefined,
+                glAccount: row.glAccount != null ? String(row.glAccount) : undefined,
+                department: row.department != null ? String(row.department) : undefined,
+                location: row.location != null ? String(row.location) : undefined,
+                project: row.project != null ? String(row.project) : undefined,
               };
             })
           : undefined,
       }),
     get: (ctx, id) => actions.bills.getDetail(ctx, id),
-    actions: { submit: (ctx, id) => actions.bills.submit(ctx, id), approve: (ctx, id) => actions.bills.approve(ctx, id) },
+    actions: {
+      submit: (ctx, id) => actions.bills.submit(ctx, id),
+      approve: (ctx, id) => actions.bills.approve(ctx, id),
+      "update-coding": (ctx, id, body) => actions.bills.updateCoding(ctx, id, {
+        codingSource: body.codingSource != null ? String(body.codingSource) : undefined,
+        lines: Array.isArray(body.lines)
+          ? body.lines.map((line) => {
+              const row = line as Record<string, unknown>;
+              return {
+                id: row.id != null ? String(row.id) : undefined,
+                description: String(row.description ?? ""),
+                amount: String(row.amount ?? ""),
+                category: row.category != null ? String(row.category) : undefined,
+                glAccount: row.glAccount != null ? String(row.glAccount) : undefined,
+                department: row.department != null ? String(row.department) : undefined,
+                location: row.location != null ? String(row.location) : undefined,
+                project: row.project != null ? String(row.project) : undefined,
+              };
+            })
+          : undefined,
+      }),
+    },
   }),
   payments: createResourceRouter({
     getDelegate: () => prisma.payment as never,
@@ -596,6 +654,7 @@ export const routers = {
     actions: {
       approve: (ctx, id) => actions.treasury.approve(ctx, id),
       release: (ctx, id) => actions.treasury.release(ctx, id),
+      "confirm-settlement": (ctx, id) => actions.treasury.confirmSettlement(ctx, id),
     },
   }),
   accounting: createResourceRouter({

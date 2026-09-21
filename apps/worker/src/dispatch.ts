@@ -36,6 +36,10 @@ export async function processSupportedEvent(
     await processOcrJob(prisma, data as { attachmentId?: string; receiptId?: string; objectId?: string });
     return;
   }
+  if (type === "invoice.ocr_requested") {
+    await processOcrJob(prisma, { ...(data as { attachmentId?: string; objectId?: string }), purpose: "invoice" });
+    return;
+  }
 
   const definition = eventDefinition(type);
   if (definition?.classification === "informational" || definition?.classification === "deprecated") return;

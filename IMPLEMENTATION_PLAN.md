@@ -1,11 +1,49 @@
 # Implementation Plan — Company Web Portal
 
-**Updated:** 2026-09-17  
+**Updated:** 2026-09-21 (P0-GF2 AP vertical)  
 **Authoritative refs:** `RAMP_VERIFIED_PRODUCT_DESIGN_V3_OPTIMIZED.md`, `ON_PREMISES_MODULAR_ARCHITECTURE_GUIDE.md`  
-**Baseline:** `IMPLEMENTATION_AUDIT.md`  
+**Baseline:** `IMPLEMENTATION_AUDIT.md` + `CURRENT_FOUNDATION_AUDIT.md` + `P0_GF1_SPEND_AUDIT.md` + `P0_GF2_AP_AUDIT.md`  
 **Delivery target:** Company web portal + API/DB/worker needed for real workflows. Mobile and specialist portals are excluded from this execution scope.
 
 A rendered page is never a completion gate.
+
+---
+
+## P0-GF2 — Vendor → Bill → Approval → Payment → Settlement → Accounting (2026-09-21)
+
+**DONE:**
+
+- Audit: `P0_GF2_AP_AUDIT.md`; report: `P0_GF2_TEST_REPORT.md`.
+- Vendor legal/display name + paymentStatus; bank verify with changer SoD; Vendor 360 timeline/POs.
+- Bill intake: vendor match + duplicate tiers + draft/NEEDS_REVIEW/submit; coding update; detail approval progress + timeline.
+- Invoice sandbox OCR (`INVOICE` → `invoice.ocr_requested` → mock extraction → `createFromDocument`).
+- Inbox `BILL_APPROVAL`; bill.approve ≠ payment.release preserved.
+- Payment detail + AP reporting KPIs (overdue/partial/paid/failures/upcoming).
+- Migration `20260921120000_p0_gf2_ap_hardening`.
+- Vitest **96** tests; Playwright **5/5** (A, A2, B, B2, B3); typecheck green.
+
+**REMAINING / deferred:** live rail/ERP certification; RETURNED full model; shared settle package extract; email intake.
+
+**NEXT:** Stop — do not start P0-GF3 from this pass.
+
+---
+
+## P0-GF1 — Spend → Card/Fund → Expense → Accounting (2026-09-20)
+
+**DONE:**
+
+- Audit: `P0_GF1_SPEND_AUDIT.md`; report: `P0_GF1_TEST_REPORT.md`.
+- Spend submit persists policy snapshot (PASS/WARN/REVIEW/BLOCK + reason/rules/actions/version/evaluatedAt); program eligibility; BLOCKED path.
+- Approval → fund/card fulfillment ends in `FULFILLED` (idempotent replay).
+- Card unfreeze/terminate; CARD_FROZEN decline; SANDBOX label on card UI.
+- Request detail page: policy panel, approval progress, fulfillment links, timeline.
+- Expense requirements checklist API + UI; receipt match scoring helper; merchant→vendor normalize on capture.
+- Dashboard: missingReceipts + policyExceptions.
+- Migration `20260920230000_p0_gf1_spend_policy`.
+- Vitest **91** tests; API/Web/Worker typecheck green.
+- Playwright golden A + A2 negatives green (regression under GF2).
+
+**REMAINING / deferred:** FUND_ONLY spend UI; DRAFT-only save; full eligibility admin UI; certified issuer/OCR/scanner.
 
 ---
 
@@ -73,11 +111,20 @@ P1/P2 V3 routes stay out of primary nav until genuine workflows exist. Real issu
 - **People activation:** invite creates DRAFT + one-time activation token (no client-supplied temp password); `POST /identity/activate`; `reset-credentials` revokes sessions and re-issues token; web People form updated.
 - **Document worker path:** `document.quarantined` → documents queue; quarantine-only scan keeps `QUARANTINED`.
 - **Postgres tenancy matrix** (`tenancy.db.test.ts`): shared-email workspace login, cross-tenant bill denial, self-approval SoD, activation flow, concurrent fund auth, idempotency conflict.
-- Unit/DB tests: **10 files / 24 assertions**.
+- **2026-09-20 foundation hardening (M0/M1 gate):**
+  - `CURRENT_FOUNDATION_AUDIT.md` — every gap-analysis claim classified CONFIRMED / ALREADY FIXED / PARTIAL / NOT APPLICABLE against live code.
+  - DEPARTMENT scope in `scopedWhere`; Owner/Finance Admin/Manager/Employee auth matrix tests; route matrix module.
+  - Approval engine: eligible resolvers, parallel steps, amount/dept/entity routing, reassignment, escalation, workflow version pin, distinct-control SoD.
+  - Policy evaluation returns `result` / `reason` / `matchedRules` / `evidence` / `requiredActions`; card auth loads DB rules; active cardholder check.
+  - Settlement: payments/transfers terminal success is `SETTLED` (not schedule/release); treasury `SENT` → sandbox `confirm-settlement`.
+  - Idempotency on payment.release, bill.create (optional key), reimbursement.schedule (optional key).
+  - Worker diagnostics: queueDepth, oldestJobAgeMs, retryCount, deadLetterCount, consumerLag.
+  - Migration `20260920220000_m0_m1_foundation_hardening`.
+  - Vitest: **27 files / 87 tests pass**; API/web/worker typecheck green. See `FOUNDATION_TEST_REPORT.md`.
 
 **REMAINING:**
 
-- None for M1 acceptance gates. Optional later: Owner-only outbox replay HTTP API; full browser Playwright smoke (not blocking M1).
+- None for M0/M1 foundation acceptance gates. Optional later: audit DB append-only triggers; unmount P1/P2 list stubs; Owner-only outbox replay HTTP API; browser Playwright (not blocking).
 
 **BLOCKERS:**
 
@@ -86,11 +133,11 @@ P1/P2 V3 routes stay out of primary nav until genuine workflows exist. Real issu
 
 **TEST RESULTS:**
 
-- Vitest: 10 files, **24 tests pass** (includes live Postgres tenancy suite).
-- API/web/worker typecheck green (prior run).
-- Migrations applied through `20260916193000_people_activation`.
+- Vitest: 27 files, **87 tests pass** (unit + live Postgres).
+- API/web/worker typecheck green.
+- Migrations applied through `20260920220000_m0_m1_foundation_hardening`.
 
-**NEXT MILESTONE:** **M2 — Approvals, policy, Universal Inbox.** M1 acceptance checklist is complete.
+**NEXT MILESTONE:** Product verticals only after foundation gate — do not expand P1/P2 from this pass. Prior plan pointed at M2 Inbox polish; follow product priority separately.
 
 ---
 

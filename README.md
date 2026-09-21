@@ -100,7 +100,7 @@ Open **http://localhost:3000/login**
 | Email | `admin@acme.test` |
 | Password | `password123` (or your `SEED_PASSWORD`) |
 
-Other seeded users (same password): `manager@acme.test`, `employee@acme.test`, `treasury@acme.test`.
+Other seeded users (same password): `manager@acme.test`, `employee@acme.test`, `treasury@acme.test`, `ap@acme.test`.
 
 If Next.js reports port 3000 in use, it may bind **3002** — check the terminal output.
 

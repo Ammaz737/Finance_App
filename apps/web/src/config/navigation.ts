@@ -38,8 +38,11 @@ export const navigation: NavigationSection[] = [
   { label: "Vendors & Bill Pay", items: [
     { href: "/app/vendors", label: "Vendors", permission: "vendor.read", feature: "procurement" },
     { href: "/app/bill-pay/bills", label: "Bills", permission: "bill.create", feature: "bill_pay" },
+    { href: "/app/bill-pay/bills?stage=For%20approval", label: "For approval", permission: "bill.approve", feature: "bill_pay" },
+    { href: "/app/bill-pay/bills?stage=For%20payment", label: "For payment", permission: "payment.create", feature: "bill_pay" },
     { href: "/app/bill-pay/payments", label: "Payments", permission: "payment.create", feature: "bill_pay" },
     { href: "/app/bill-pay/payment-runs", label: "Payment runs", permission: "payment_run.manage", feature: "bill_pay" },
+    { href: "/app/bill-pay/bills?stage=History", label: "History", permission: "bill.create", feature: "bill_pay" },
   ] },
   { label: "Accounting", items: [
     { href: "/app/accounting/overview", label: "Overview", permission: "accounting.read", feature: "accounting" },

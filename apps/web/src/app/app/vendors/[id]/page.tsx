@@ -9,11 +9,24 @@ import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
 
 type Detail = {
-  vendor: { id: string; name: string; category: string; status: string; riskLevel: string; notes: string; ownerId: string | null };
-  bankAccounts: Array<{ id: string; last4: string; routingMasked: string; status: string; isCurrent: boolean; changeReason: string; createdAt: string }>;
+  vendor: {
+    id: string; name: string; legalName?: string; displayName?: string; category: string; status: string;
+    paymentStatus?: string; riskLevel: string; notes: string; ownerId: string | null;
+  };
+  owner?: { firstName: string; lastName: string; email: string } | null;
+  bankAccounts: Array<{
+    id: string; last4: string; routingMasked: string; status: string; isCurrent: boolean;
+    changeReason: string; createdAt: string; paymentMethod?: string; beneficiaryName?: string; changedBy?: string;
+  }>;
   bills: Array<{ id: string; invoiceNumber: string; amount: string | number; remainingAmount: string | number; currency: string; status: string }>;
   payments: Array<{ id: string; amount: string | number; currency: string; status: string; settlementId: string | null }>;
-  summary: { billCount: number; openBillCount: number; lifetimeSpend: number; currentBankLast4: string | null; riskLevel: string };
+  purchaseOrders?: Array<{ id: string; number: string; status: string; amount: string | number; currency: string }>;
+  timeline?: Array<{ action: string; createdAt: string }>;
+  summary: {
+    billCount: number; openBillCount: number; lifetimeSpend: number; currentBankLast4: string | null;
+    riskLevel: string; paymentStatus?: string;
+  };
+  sandbox?: boolean;
 };
 
 export default function VendorDetailPage() {
@@ -33,8 +46,16 @@ export default function VendorDetailPage() {
   const setBank = useMutation({
     mutationFn: () => api.post(`/vendors/${params.id}/set-bank`, { last4, routingMasked: routing, changeReason: reason }),
     onSuccess: () => {
-      setMessage("Bank details updated. Prior account kept in history.");
+      setMessage("Bank details updated. Prior account kept in history. Verification required.");
       setLast4(""); setRouting(""); setReason("");
+      void queryClient.invalidateQueries({ queryKey: ["vendor-detail", params.id] });
+    },
+  });
+
+  const verifyBank = useMutation({
+    mutationFn: (bankAccountId: string) => api.post(`/vendors/${params.id}/verify-bank`, { bankAccountId }),
+    onSuccess: () => {
+      setMessage("Bank details verified.");
       void queryClient.invalidateQueries({ queryKey: ["vendor-detail", params.id] });
     },
   });
@@ -44,31 +65,37 @@ export default function VendorDetailPage() {
   }
   if (detail.isPending || !detail.data) return <p className="muted">Loading vendor…</p>;
 
-  const { vendor, bankAccounts, bills, payments, summary } = detail.data;
+  const { vendor, bankAccounts, bills, payments, summary, owner, purchaseOrders, timeline } = detail.data;
   const canBank = session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes("vendor.bank_details.manage");
+  const title = vendor.displayName || vendor.name;
 
   return <div className="spend-detail">
     <div className="resource-heading">
-      <PageHeader title={vendor.name} subtitle={`${vendor.category || "Vendor"} · risk ${summary.riskLevel}`} />
+      <PageHeader title={title} subtitle={`${vendor.legalName || vendor.name} · ${vendor.category || "Vendor"} · risk ${summary.riskLevel}`} />
       <Link className="btn btn-ghost" href="/app/vendors">Back</Link>
     </div>
     {message && <p className="notice" role="status">{message}</p>}
-    {setBank.isError && <p className="error" role="alert">{setBank.error.message}</p>}
+    {(setBank.isError || verifyBank.isError) && <p className="error" role="alert">{(setBank.error ?? verifyBank.error)?.message}</p>}
+    {detail.data.sandbox && <p className="muted">SANDBOX vendor banking — masked details only.</p>}
 
     <div className="kpi-grid">
       <article className="kpi-card"><span>Status</span><strong><StatusBadge status={vendor.status} /></strong><small>{summary.openBillCount} open bills</small></article>
+      <article className="kpi-card"><span>Payment readiness</span><strong><StatusBadge status={vendor.paymentStatus ?? summary.paymentStatus ?? "NEEDS_BANK"} /></strong><small>Owner {owner ? `${owner.firstName} ${owner.lastName}` : "—"}</small></article>
       <article className="kpi-card"><span>Lifetime spend</span><strong>{summary.lifetimeSpend.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong><small>{summary.billCount} invoices</small></article>
       <article className="kpi-card"><span>Bank</span><strong>{summary.currentBankLast4 ? `•••• ${summary.currentBankLast4}` : "None"}</strong><small>{bankAccounts.length} history rows</small></article>
     </div>
 
     <div className="work-panels">
       <section className="work-panel">
-        <h2>Bank change control</h2>
+        <h2>Banking / payment details</h2>
         <ul className="plain-list">
           {bankAccounts.map((account) => (
             <li key={account.id}>
-              •••• {account.last4} / {account.routingMasked} · <StatusBadge status={account.status} />
+              •••• {account.last4} / {account.routingMasked} · {account.paymentMethod ?? "ACH"} · <StatusBadge status={account.status} />
               {account.isCurrent ? " (current)" : ""} {account.changeReason ? `— ${account.changeReason}` : ""}
+              {canBank && account.isCurrent && account.status === "PENDING_VERIFICATION" && account.changedBy !== session?.userId && (
+                <button className="btn btn-ghost" type="button" disabled={verifyBank.isPending} onClick={() => verifyBank.mutate(account.id)}>Verify</button>
+              )}
             </li>
           ))}
           {!bankAccounts.length && <li className="muted">No bank accounts yet.</li>}
@@ -94,11 +121,29 @@ export default function VendorDetailPage() {
         <h2>Payments</h2>
         <ul className="plain-list">
           {payments.slice(0, 10).map((payment) => (
-            <li key={payment.id}>{payment.currency} {String(payment.amount)} · <StatusBadge status={payment.status} />{payment.settlementId ? ` · ${payment.settlementId}` : ""}</li>
+            <li key={payment.id}>
+              <Link href={`/app/bill-pay/payments/${payment.id}`}>{payment.currency} {String(payment.amount)}</Link>
+              {" "}· <StatusBadge status={payment.status} />{payment.settlementId ? ` · ${payment.settlementId}` : ""}
+            </li>
           ))}
           {!payments.length && <li className="muted">No payments.</li>}
         </ul>
-        {vendor.notes && <p className="muted">{vendor.notes}</p>}
+        <h2>Purchase orders</h2>
+        <ul className="plain-list">
+          {(purchaseOrders ?? []).map((po) => (
+            <li key={po.id}>{po.number} · {po.currency} {String(po.amount)} · <StatusBadge status={po.status} /></li>
+          ))}
+          {!(purchaseOrders ?? []).length && <li className="muted">No purchase orders.</li>}
+        </ul>
+      </section>
+      <section className="work-panel">
+        <h2>Activity</h2>
+        <ul className="plain-list">
+          {(timeline ?? []).map((event, index) => (
+            <li key={`${event.action}-${index}`}>{event.action} · {new Date(event.createdAt).toLocaleString()}</li>
+          ))}
+          {!(timeline ?? []).length && <li className="muted">No timeline events yet.</li>}
+        </ul>
       </section>
     </div>
   </div>;

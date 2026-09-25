@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { DataTable, PageHeader, StatusBadge, type Column } from "@finance/design-system";
@@ -34,6 +34,7 @@ function money(currency: string, value: string | number) {
 
 export default function CardDetailPage() {
   const params = useParams<{ id: string }>();
+  const pathname = usePathname();
   const router = useRouter();
   const session = useSession();
   const queryClient = useQueryClient();
@@ -140,7 +141,7 @@ export default function CardDetailPage() {
     { key: "merchant", header: "Merchant", render: (row) => row.merchant ?? "—" },
     { key: "amount", header: "Amount", render: (row) => money(data?.totals.currency ?? "USD", row.amount) },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={String(row.status ?? "—")} /> },
-    { key: "id", header: "Actions", render: (row) => sandbox && canIssue ? <div className="inline-actions">
+    { key: "id", header: "Actions", render: (row) => sandbox && canIssue ? <div className="inline-actions" onClick={(event) => event.stopPropagation()}>
       {row.status === "PENDING" && <>
         <button type="button" className="text-button" disabled={txnAction.isPending} onClick={() => txnAction.mutate({ id: row.id, action: "capture" })}>Capture</button>
         <button type="button" className="text-button" disabled={txnAction.isPending} onClick={() => txnAction.mutate({ id: row.id, action: "void" })}>Void</button>
@@ -155,12 +156,13 @@ export default function CardDetailPage() {
   if (detail.isPending || !data) return <p className="muted">Loading card…</p>;
 
   const holderName = data.holder ? `${data.holder.firstName} ${data.holder.lastName}`.trim() : "—";
+  const backHref = pathname.startsWith("/app/me/cards/") ? "/app/me/cards" : "/app/cards";
 
   return <div className="spend-detail">
     <div className="resource-heading">
       <PageHeader title={`Card ···${data.card.last4}`} subtitle={`${data.card.type} · ${data.card.network} · ${holderName}`} />
       <div className="detail-actions-top">
-        <Link className="btn btn-ghost" href="/app/spend/cards">Back to cards</Link>
+        <Link className="btn btn-ghost" href={backHref}>Back to cards</Link>
         {canFreeze && data.card.status === "ACTIVE" && <button type="button" className="btn btn-danger" disabled={freeze.isPending} onClick={() => { if (window.confirm("Freeze this card?")) freeze.mutate(); }}>Freeze</button>}
         {canFreeze && data.card.status === "FROZEN" && <button type="button" className="btn" disabled={unfreeze.isPending} onClick={() => unfreeze.mutate()}>Unfreeze</button>}
         {canFreeze && data.card.status !== "TERMINATED" && <button type="button" className="btn btn-danger" disabled={terminate.isPending} onClick={() => { if (window.confirm("Terminate this card permanently?")) terminate.mutate(); }}>Terminate</button>}

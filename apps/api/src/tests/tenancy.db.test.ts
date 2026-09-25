@@ -4,7 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { hashPassword, login } from "../platform/auth";
 import { assertEntityPermission, scopedWhere } from "../platform/resource-access";
 import { actOnApproval } from "../engines/workflow";
-import { people, cards } from "../application/actions";
+import { people, cards, credentials } from "../application/actions";
 import type { RequestContext } from "../platform/auth/context";
 import { AppError } from "../platform/http";
 
@@ -218,6 +218,15 @@ describe.runIf(runDb)("two-tenant postgres matrix", () => {
     expect(activated.status).toBe("ACTIVE");
     const session = await login(`invite.${suffix}@tenancy.test`, "Activated12345", `acme-${suffix}`);
     expect(session.user.id).toBe(invited.id);
+    const reset = await credentials.forgotPassword({ email: invited.email, workspace: `acme-${suffix}` });
+    expect(reset.accepted).toBe(true);
+    expect(reset.sandboxResetPath).toContain("/reset-password?");
+    const query = new URL(reset.sandboxResetPath!, "http://localhost").searchParams;
+    await credentials.resetPassword({ email: invited.email, workspace: `acme-${suffix}`, token: query.get("token")!, password: "ResetPassword123" });
+    const resetSession = await login(invited.email, "ResetPassword123", `acme-${suffix}`);
+    await credentials.changePassword(ctx({ userId: invited.id, organizationId: acmeOrgId, sessionId: resetSession.sessionId }), { currentPassword: "ResetPassword123", newPassword: "ChangedPassword123" });
+    await expect(login(invited.email, "ResetPassword123", `acme-${suffix}`)).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
+    await expect(login(invited.email, "ChangedPassword123", `acme-${suffix}`)).resolves.toBeTruthy();
   });
 
   it("allows only one concurrent authorization against a limited fund", async () => {

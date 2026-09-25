@@ -14,10 +14,19 @@ type Detail = {
     status: string; policyResult: string; distanceMiles: string | number | null; mileageRate: string | number | null;
     perDiemNights: number | null; perDiemRate: string | number | null; calcBreakdown: { formula?: string } | null;
     payoutRail: string | null; providerRef: string | null; scheduledAt: string | null; paidAt: string | null; userId: string;
+    failureReason?: string; payoutStatus?: string; destination?: string; category?: string;
   };
+  employee: { firstName: string; lastName: string; email: string } | null;
   receipt: { id: string; merchantGuess: string | null; matchStatus: string; ocrStatus: string } | null;
   attachment: { originalName: string; malwareStatus: string } | null;
   accounting: { id: string; status: string } | null;
+  approvalProgress: Array<{ label: string; status: string }>;
+  approvalLabel: string;
+  requirements: { requirements: Array<{ label: string; status: string }>; complete: boolean };
+  policy: { result: string | null; reason: string | null; version: number | null };
+  duplicate: { status: string; ofId: string | null };
+  timeline: Array<{ id: string; action: string; createdAt: string }>;
+  sandboxLabel: string;
 };
 
 function money(currency: string, value: string | number) {
@@ -53,46 +62,91 @@ export default function ReimbursementDetailPage() {
   if (detail.isPending || !detail.data) return <p className="muted">Loading reimbursement…</p>;
 
   const data = detail.data.reimbursement;
+  const canSubmit = data.status === "DRAFT" && (session?.userId === data.userId || session?.roles.includes("Owner") || session?.permissions.includes("*"));
   const canApprove = data.status === "IN_REVIEW"
     && (session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes("reimbursement.approve"))
     && session?.userId !== data.userId;
   const canPay = session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes("reimbursement.pay");
+  const approvedSteps = detail.data.approvalProgress.filter((step) => step.status === "Approved").length;
 
   return <div className="spend-detail">
     <div className="resource-heading">
-      <PageHeader title={data.memo || `${data.type} reimbursement`} subtitle={money(data.currency, data.amount)} />
+      <PageHeader
+        title={data.memo || `${data.type} reimbursement`}
+        subtitle={`${detail.data.employee ? `${detail.data.employee.firstName} ${detail.data.employee.lastName}` : "Employee"} · ${money(data.currency, data.amount)}`}
+      />
       <Link className="btn btn-ghost" href="/app/expenses/reimbursements">Back</Link>
     </div>
     {message && <p className="notice" role="status">{message}</p>}
     {run.isError && <p className="error" role="alert">{run.error.message}</p>}
 
     <div className="kpi-grid">
-      <article className="kpi-card"><span>Status</span><strong><StatusBadge status={data.status} /></strong><small>Policy {data.policyResult}</small></article>
+      <article className="kpi-card"><span>Status</span><strong><StatusBadge status={data.status} /></strong><small>{detail.data.approvalLabel || data.payoutStatus || "—"}</small></article>
       <article className="kpi-card"><span>Type</span><strong>{data.type}</strong><small>{data.calcBreakdown?.formula ?? "Server calculated"}</small></article>
+      <article className="kpi-card"><span>Policy</span><strong>{detail.data.policy.result ?? data.policyResult}</strong><small>{detail.data.policy.reason || "—"}</small></article>
       <article className="kpi-card"><span>Accounting</span><strong>{detail.data.accounting ? <StatusBadge status={detail.data.accounting.status} /> : "Not yet"}</strong><small>Created only after payout</small></article>
     </div>
 
     <div className="work-panels">
       <section className="work-panel">
-        <h2>Details</h2>
+        <h2>Overview</h2>
         <dl className="detail-list">
-          <div><dt>Merchant</dt><dd>{data.merchant || "—"}</dd></div>
+          <div><dt>Merchant / destination</dt><dd>{data.merchant || data.destination || "—"}</dd></div>
+          <div><dt>Category</dt><dd>{data.category || "—"}</dd></div>
           {data.distanceMiles != null && <div><dt>Distance</dt><dd>{String(data.distanceMiles)} mi @ {String(data.mileageRate)}</dd></div>}
-          {data.perDiemNights != null && <div><dt>Per diem</dt><dd>{data.perDiemNights} nights @ {String(data.perDiemRate)}</dd></div>}
-          <div><dt>Receipt</dt><dd>{detail.data.receipt ? `${detail.data.receipt.matchStatus} · ${detail.data.attachment?.originalName ?? "linked"}` : "None"}</dd></div>
-          <div><dt>Payout</dt><dd>{data.payoutRail ?? "—"}{data.providerRef ? ` · ${data.providerRef}` : ""}</dd></div>
-          {data.scheduledAt && <div><dt>Scheduled</dt><dd>{new Date(data.scheduledAt).toLocaleString()}</dd></div>}
-          {data.paidAt && <div><dt>Paid</dt><dd>{new Date(data.paidAt).toLocaleString()}</dd></div>}
+          {data.perDiemNights != null && <div><dt>Per diem</dt><dd>{data.perDiemNights} days @ {String(data.perDiemRate)}</dd></div>}
+          <div><dt>Duplicate check</dt><dd>{detail.data.duplicate.status}</dd></div>
         </dl>
         <div className="detail-actions">
+          {canSubmit && <button className="btn btn-primary" type="button" disabled={run.isPending} onClick={() => run.mutate("submit")}>Submit</button>}
           {canApprove && <button className="btn btn-primary" type="button" disabled={run.isPending} onClick={() => run.mutate("approve")}>Approve</button>}
-          {canPay && data.status === "APPROVED" && <button className="btn btn-primary" type="button" disabled={run.isPending} onClick={() => run.mutate("schedule")}>Schedule payout</button>}
+          {canPay && ["APPROVED", "FAILED"].includes(data.status) && <button className="btn btn-primary" type="button" disabled={run.isPending} onClick={() => run.mutate("schedule")}>Schedule payout</button>}
           {canPay && sandbox && data.status === "SCHEDULED" && <button className="btn btn-primary" type="button" disabled={run.isPending} onClick={() => run.mutate("confirm-payout")}>Confirm payout</button>}
         </div>
+        <p className="muted">{detail.data.sandboxLabel}</p>
       </section>
+
       <section className="work-panel">
-        <h2>Lifecycle</h2>
-        <p className="muted">IN_REVIEW → APPROVED → SCHEDULED → PAID. Accounting appears only when payout is confirmed.</p>
+        <h2>Requirements</h2>
+        <ul className="plain-list">
+          {detail.data.requirements.requirements.map((row) => (
+            <li key={row.label}>{row.label}{" "}<StatusBadge status={row.status} /></li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="work-panel">
+        <h2>Approvals</h2>
+        <p className="muted">{approvedSteps} of {detail.data.approvalProgress.length || 0} approvals completed</p>
+        <ul className="plain-list">
+          {detail.data.approvalProgress.map((step) => (
+            <li key={`${step.label}-${step.status}`}>{step.label}{" "}<StatusBadge status={step.status} /></li>
+          ))}
+          {!detail.data.approvalProgress.length && <li className="muted">No approval steps yet.</li>}
+        </ul>
+      </section>
+
+      <section className="work-panel">
+        <h2>Receipt / Evidence</h2>
+        <p>{detail.data.receipt ? `${detail.data.receipt.matchStatus} · ${detail.data.attachment?.originalName ?? "linked"}` : "None"}</p>
+        <h2>Payout</h2>
+        <dl className="detail-list">
+          <div><dt>Rail</dt><dd>{data.payoutRail ?? "—"}</dd></div>
+          <div><dt>Provider</dt><dd>{data.providerRef ?? "—"}</dd></div>
+          {data.scheduledAt && <div><dt>Scheduled</dt><dd>{new Date(data.scheduledAt).toLocaleString()}</dd></div>}
+          {data.paidAt && <div><dt>Paid</dt><dd>{new Date(data.paidAt).toLocaleString()}</dd></div>}
+          {data.failureReason && <div><dt>Failure</dt><dd>{data.failureReason}</dd></div>}
+        </dl>
+      </section>
+
+      <section className="work-panel">
+        <h2>Activity</h2>
+        <ul className="plain-list">
+          {detail.data.timeline.map((event) => (
+            <li key={event.id}>{event.action} · {new Date(event.createdAt).toLocaleString()}</li>
+          ))}
+          {!detail.data.timeline.length && <li className="muted">No activity yet.</li>}
+        </ul>
       </section>
     </div>
   </div>;

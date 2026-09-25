@@ -18,8 +18,8 @@ export const navigation: NavigationSection[] = [
   { label: "Spend", items: [
     { href: "/app/spend/programs", label: "Spend programs", permission: "spend_program.manage", feature: "cards" },
     { href: "/app/spend/requests", label: "Spend requests", permission: "spend_request.approve", feature: "cards" },
-    { href: "/app/spend/cards", label: "Cards", permission: "card.issue", feature: "cards" },
-    { href: "/app/spend/funds", label: "Funds", permission: "fund.create", feature: "cards" },
+    { href: "/app/cards", label: "Cards", permission: "card.issue", feature: "cards" },
+    { href: "/app/spend/funds", label: "Funds", permission: "card.read", feature: "cards" },
     { href: "/app/spend/transactions", label: "Transactions", permission: "expense.read", feature: "expenses" },
     { href: "/app/disputes", label: "Disputes", permission: "*", feature: "cards", phase: "P1" },
   ] },
@@ -27,12 +27,17 @@ export const navigation: NavigationSection[] = [
     { href: "/app/expenses/transactions", label: "Expense review", permission: "expense.approve", feature: "expenses" },
     { href: "/app/expenses/receipts", label: "Receipts", permission: "expense.create", feature: "expenses" },
     { href: "/app/expenses/reimbursements", label: "Reimbursements", permission: "reimbursement.approve", feature: "expenses" },
+    { href: "/app/expenses/reimbursements?status=IN_REVIEW", label: "For approval", permission: "reimbursement.approve", feature: "expenses" },
+    { href: "/app/expenses/reimbursements?status=APPROVED", label: "For payout", permission: "reimbursement.pay", feature: "expenses" },
+    { href: "/app/expenses/reimbursements?status=PAID", label: "Paid / History", permission: "reimbursement.pay", feature: "expenses" },
+    { href: "/app/expenses/reimbursements?status=FAILED", label: "Failures", permission: "reimbursement.pay", feature: "expenses" },
   ] },
   { label: "Procurement", items: [
-    { href: "/app/procurement/requests", label: "Requests", permission: "procurement.review", feature: "procurement" },
+    { href: "/app/procurement/requests", label: "Requests", permission: "procurement.request", feature: "procurement" },
     { href: "/app/procurement/programs", label: "Programs", permission: "procurement.review", feature: "procurement" },
-    { href: "/app/procurement/purchase-orders", label: "Purchase orders", permission: "procurement.review", feature: "procurement" },
+    { href: "/app/procurement/purchase-orders", label: "Purchase Orders", permission: "procurement.review", feature: "procurement" },
     { href: "/app/procurement/receiving", label: "Receiving", permission: "procurement.review", feature: "procurement" },
+    { href: "/app/procurement/match-exceptions", label: "Match Exceptions", permission: "procurement.review", feature: "procurement" },
     { href: "/app/procurement/contracts", label: "Contracts", permission: "*", feature: "procurement", phase: "P1" },
   ] },
   { label: "Vendors & Bill Pay", items: [
@@ -71,6 +76,8 @@ export const navigation: NavigationSection[] = [
   { label: "Travel", items: [
     { href: "/app/travel/trips", label: "Trips", permission: "travel.book", feature: "travel" },
     { href: "/app/travel/requests", label: "Trip requests", permission: "travel.approve", feature: "travel" },
+    { href: "/app/travel/search", label: "Search", permission: "travel.book", feature: "travel" },
+    { href: "/app/travel/reports", label: "Reports", permission: "report.read", feature: "travel" },
   ] },
   { label: "AI & tools", items: [
     { href: "/app/ai/ask", label: "Ask AI", permission: "*", feature: "ai_spend", phase: "P2" },
@@ -88,6 +95,7 @@ export const navigation: NavigationSection[] = [
     { href: "/app/company/roles", label: "Roles", permission: "roles.assign" },
     { href: "/app/company/policy", label: "Policies", permission: "roles.assign" },
     { href: "/app/company/approvals", label: "Approval rules", permission: "roles.assign" },
+    { href: "/app/company/accounting-dimensions", label: "Accounting dimensions", permission: "accounting.code" },
     { href: "/app/company/integrations", label: "Integrations", permission: "report.read" },
     { href: "/app/company/rewards", label: "Rewards", permission: "*", phase: "P1" },
     { href: "/app/company/audit", label: "Audit log", permission: "audit.read" },
@@ -103,4 +111,50 @@ export function canSeeItem(item: NavigationItem, session: { roles: string[]; per
   const privileged = session.roles.includes("Owner") || session.permissions.includes("*");
   return (!item.permission || privileged || session.permissions.includes(item.permission)) &&
     (!item.feature || session.entitlements.includes(item.feature));
+}
+
+/** Unfinished product surfaces kept as scaffolds — blocked unless P1/P2 flags enabled. */
+const unfinishedRoutePrefixes: Array<{ prefix: string; phase: "P1" | "P2" }> = [
+  { prefix: "/app/disputes", phase: "P1" },
+  { prefix: "/app/tax", phase: "P1" },
+  { prefix: "/app/receivables", phase: "P1" },
+  { prefix: "/app/banking", phase: "P1" },
+  { prefix: "/app/developer", phase: "P1" },
+  { prefix: "/app/company/rewards", phase: "P1" },
+  { prefix: "/app/procurement/contracts", phase: "P1" },
+  { prefix: "/app/procurement/sourcing", phase: "P1" },
+  { prefix: "/app/procurement/renewals", phase: "P1" },
+  { prefix: "/app/insights/price-intelligence", phase: "P1" },
+  { prefix: "/app/insights/license-intelligence", phase: "P1" },
+  { prefix: "/app/insights/savings", phase: "P1" },
+  { prefix: "/app/insights/reports", phase: "P1" },
+  { prefix: "/app/ai", phase: "P2" },
+  { prefix: "/app/travel/travelers", phase: "P1" },
+  { prefix: "/app/travel/policy", phase: "P1" },
+];
+
+export function isUnfinishedProductRoute(pathname: string): "P1" | "P2" | null {
+  const match = unfinishedRoutePrefixes.find((item) => pathname === item.prefix || pathname.startsWith(`${item.prefix}/`));
+  if (!match) return null;
+  if (match.phase === "P1" && process.env.NEXT_PUBLIC_ENABLE_P1_ROUTES === "true") return null;
+  if (match.phase === "P2" && process.env.NEXT_PUBLIC_ENABLE_P2_ROUTES === "true") return null;
+  return match.phase;
+}
+
+export function findNavItem(route: string): NavigationItem | undefined {
+  const current = new URL(route, "http://finance.local");
+  const items = navigation.flatMap((section) => section.items);
+  const exact = items
+    .filter((item) => {
+      const candidate = new URL(item.href, current.origin);
+      return candidate.pathname === current.pathname &&
+        candidate.searchParams.toString() === current.searchParams.toString();
+    })
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  if (exact) return exact;
+  const base = items.find((item) => item.href === current.pathname);
+  if (base) return base;
+  return items
+    .filter((item) => item.href.includes("?") === false && current.pathname.startsWith(`${item.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
 }

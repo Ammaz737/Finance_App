@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { ResourcePage } from "@/components/ResourcePage";
 
@@ -48,6 +49,7 @@ export default function Page() {
       <p>Bill Pay</p>
       <h1>Payables workspace</h1>
       <span>Review invoices, approve bills, schedule payments, and release them through a separate payment gate.</span>
+      <Link className="btn btn-primary" href="/app/bill-pay/bills/new">Create bill</Link>
     </div>
     <div className="stage-tabs" role="tablist" aria-label="Bill stages">
       {stages.map((item) => <button key={item} role="tab" aria-selected={stage === item} type="button" className={stage === item ? "active" : ""} onClick={() => setStage(item)}>{item}<span>{counts[item]}</span></button>)}

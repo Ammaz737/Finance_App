@@ -50,7 +50,7 @@ function initialValues(fields: FieldConfig[]) {
   return Object.fromEntries(fields.map((field) => [field.key, field.defaultValue ?? field.options?.[0]?.value ?? ""])) as Record<string, string>;
 }
 
-export function ResourcePage({ title, path, columns, actions = [], mineField, filter, predicate, onRowNavigate }: {
+export function ResourcePage({ title, path, columns, actions = [], mineField, filter, predicate, onRowNavigate, pageSize }: {
   title: string;
   path: string;
   columns?: Column<Row>[];
@@ -59,12 +59,15 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   filter?: Record<string, string[]>;
   predicate?: (row: Row) => boolean;
   onRowNavigate?: (row: Row) => void;
+  pageSize?: number;
 }) {
   const session = useSession();
   const queryClient = useQueryClient();
   const config = resourceConfig[path];
   const fields = config?.fields ?? [];
   const [selected, setSelected] = useState<Row | null>(null);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [accountingDraft, setAccountingDraft] = useState({ category: "", memo: "", glAccount: "", department: "" });
   const [creating, setCreating] = useState(false);
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(fields));
@@ -72,7 +75,9 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search.trim());
   const [status, setStatus] = useState("ALL");
+  const [page, setPage] = useState(1);
   const [message, setMessage] = useState("");
+  const [sandboxLink, setSandboxLink] = useState("");
   const [viewName, setViewName] = useState("");
 
   const query = useQuery({
@@ -114,7 +119,19 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   const sourcePaths = [...new Set(fields.flatMap((field) => field.source ? [field.source.path] : []))];
   const optionsQuery = useQuery({
     queryKey: ["form-options", path],
-    queryFn: async () => Object.fromEntries(await Promise.all(sourcePaths.map(async (source) => [source, await api.get<Row[]>(`/${source}`)] as const))),
+    queryFn: async () => {
+      // A user may be allowed to create a request while not being allowed to
+      // read every optional reference (for example, vendors). Do not let one
+      // forbidden reference make all of the form options unusable.
+      const results = await Promise.all(sourcePaths.map(async (source) => {
+        try {
+          return [source, await api.get<Row[]>(`/${source}`)] as const;
+        } catch {
+          return [source, [] as Row[]] as const;
+        }
+      }));
+      return Object.fromEntries(results);
+    },
     enabled: creating && sourcePaths.length > 0,
   });
 
@@ -124,24 +141,23 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
       setCreating(false);
       setValues(initialValues(fields));
       setCreateKey("");
-      const token = typeof created?.activationToken === "string" ? created.activationToken : "";
-      setMessage(token
-        ? `${title} invited. One-time activation token (copy now): ${token}`
-        : `${title} record created.`);
+      const activationPath = typeof created?.activationPath === "string" ? created.activationPath : "";
+      setSandboxLink(activationPath);
+      setMessage(activationPath ? `${title} invited. Email is not configured; use the sandbox activation link below.` : `${title} record created.`);
       void queryClient.invalidateQueries({ queryKey: ["resource", path] });
     },
   });
   const action = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => api.post<Row>(`/${path}/${id}/${name}`, {}),
     onSuccess: (result, variables) => {
-      const token = typeof result?.activationToken === "string" ? result.activationToken : "";
-      setMessage(token
-        ? `${variables.name} completed. One-time activation token (copy now): ${token}`
-        : `${variables.name} completed.`);
+      const activationPath = typeof result?.activationPath === "string" ? result.activationPath : "";
+      setSandboxLink(activationPath);
+      setMessage(activationPath ? `${variables.name} completed. Email is not configured; copy the sandbox activation link below.` : `${variables.name} completed.`);
       setSelected(null);
       void queryClient.invalidateQueries({ queryKey: ["resource", path] });
     },
   });
+  const update = useMutation({ mutationFn: ({ id, body }: { id: string; body: Record<string, string> }) => api.post<Row>(`/${path}/${id}/update`, body), onSuccess: () => { setMessage("Changes saved."); setEditing(null); setSelected(null); void queryClient.invalidateQueries({ queryKey: ["resource", path] }); } });
   const codeAccounting = useMutation({
     mutationFn: ({ id, draft }: { id: string; draft: typeof accountingDraft }) => api.post(`/accounting/${id}/code`, {
       category: draft.category,
@@ -162,6 +178,9 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   const statuses = [...new Set(ownRows.map((row) => row.status).filter((item): item is string => Boolean(item)))];
   const searchedRows = deferredSearch ? ownRows.filter((row) => Object.values(row).some((value) => typeof value === "string" && value.toLowerCase().includes(deferredSearch.toLowerCase()))) : ownRows;
   const rows = status === "ALL" ? searchedRows : searchedRows.filter((row) => row.status === status);
+  const pageCount = pageSize ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1;
+  const currentPage = Math.min(page, pageCount);
+  const visibleRows = pageSize ? rows.slice((currentPage - 1) * pageSize, currentPage * pageSize) : rows;
   const permittedActions = actions.filter((item) => {
     const permission = actionPermissions[path]?.[item.name];
     return !permission || session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes(permission);
@@ -184,6 +203,8 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
     ).map((item) => ({ value: item.id, label: String(item[field.source?.labelKey ?? "name"] ?? item.id) }));
   }
 
+  const formOptionsLoading = optionsQuery.isPending && sourcePaths.length > 0;
+
   function updateValue(key: string, value: string) {
     const normalized = key === "currency" || key === "country" ? value.toUpperCase() : value;
     const next = { ...values, [key]: normalized };
@@ -199,6 +220,7 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   }
 
   function openCreate() {
+    setSandboxLink("");
     setValues(initialValues(fields));
     setCreateKey(crypto.randomUUID());
     create.reset();
@@ -222,7 +244,12 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   }
 
   function runAction(item: Action, row: Row) {
-    if (["release", "terminate", "freeze"].includes(item.name) && !window.confirm(`Confirm ${item.label.toLowerCase()} for this record?`)) return;
+    if (item.name === "update") {
+      setEditing(row);
+      setEditValues(Object.fromEntries(fields.map((field) => [field.key, String(row[field.key] ?? "")] )));
+      return;
+    }
+    if (["release", "terminate", "freeze", "deactivate", "archive", "cancel"].includes(item.name) && !window.confirm(`Confirm ${item.label.toLowerCase()} for this record?`)) return;
     setMessage("");
     action.mutate({ id: row.id, name: item.name });
   }
@@ -254,6 +281,7 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
       "travel.submit": ["DRAFT"], "travel.approve": ["PENDING_APPROVAL"],
       "expenses.submit": ["DRAFT", "INCOMPLETE"], "expenses.approve": ["SUBMITTED", "IN_REVIEW"],
       "reimbursements.approve": ["IN_REVIEW"],
+      "reimbursements.submit": ["DRAFT"],
       "reimbursements.schedule": ["APPROVED"],
       "reimbursements.confirm-payout": ["SCHEDULED"],
       "accounting.ready": ["NEEDS_REVIEW", "SYNC_ERROR"],
@@ -290,13 +318,35 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
       <button type="button" className="btn btn-ghost" disabled={saveView.isPending || status === "ALL" && !viewName.trim()} onClick={() => saveView.mutate()}>Save view</button>
       <span className="record-count">{rows.length} records</span>
     </div>
-    {message && <p className={message.includes("created") || message.includes("completed") ? "notice" : "error"} role="status">{message}</p>}
-    {query.isError ? <div className="error-panel">Could not load {title.toLowerCase()}. <button className="text-button" onClick={() => void query.refetch()}>Try again</button></div> : query.isPending ? <p className="muted">Loading {title.toLowerCase()}…</p> : <div className="table-wrap"><DataTable rows={rows} columns={cols} onRowClick={selectRow} /></div>}
+    {message && <p className={message.includes("created") || message.includes("completed") || message.includes("invited") ? "notice" : "error"} role="status">{message}</p>}
+    {sandboxLink && <div className="policy-box"><strong>Sandbox activation delivery</strong><p className="muted">Share this single-use link with the invited person. The raw token is not shown as the primary workflow.</p><button className="btn btn-ghost" type="button" onClick={() => void navigator.clipboard.writeText(`${window.location.origin}${sandboxLink}`)}>Copy activation link</button> <a href={sandboxLink}>Open activation</a></div>}
+    {query.isError ? <div className="error-panel" role="alert">
+      {(query.error as Error)?.message
+        ? <>{(query.error as Error).message} <button className="text-button" type="button" onClick={() => void query.refetch()}>Try again</button></>
+        : <>Could not load {title.toLowerCase()}. <button className="text-button" type="button" onClick={() => void query.refetch()}>Try again</button></>}
+    </div> : query.isPending ? <p className="muted">Loading {title.toLowerCase()}…</p> : rows.length === 0 ? <div className="empty-state"><p className="muted">No {title.toLowerCase()} match the current filters.</p></div> : <>
+      <div className="table-wrap"><DataTable rows={visibleRows} columns={cols} onRowClick={selectRow} /></div>
+      {pageSize && pageCount > 1 && <nav className="table-pagination" aria-label={`${title} pagination`}>
+        <span>Page {currentPage} of {pageCount}</span>
+        <div>
+          <button className="btn btn-ghost" type="button" disabled={currentPage === 1} onClick={() => setPage(Math.max(1, currentPage - 1))}>Previous</button>
+          <button className="btn btn-ghost" type="button" disabled={currentPage === pageCount} onClick={() => setPage(Math.min(pageCount, currentPage + 1))}>Next</button>
+        </div>
+      </nav>}
+    </>}
 
     <DrawerReview open={Boolean(selected)} title={selected ? `${title} detail` : title} onClose={() => setSelected(null)}>
       {selected && <div className="detail-panel">
         {selected.status && <StatusBadge status={selected.status} />}
-        <dl className="detail-list">{Object.entries(selected).filter(([key]) => !hiddenKeys.has(key)).map(([key, value]) => <div key={key}><dt>{labelForKey(key)}</dt><dd>{displayValue(key, value, selected, labels)}</dd></div>)}</dl>
+        <dl className="detail-list">{Object.entries(selected)
+          .filter(([key]) => !hiddenKeys.has(key) && !key.endsWith("Id") && key !== "id" && key !== "organizationId" && key !== "coding" && typeof selected[key] !== "object")
+          .map(([key, value]) => <div key={key}><dt>{labelForKey(key)}</dt><dd>{displayValue(key, value, selected, labels)}</dd></div>)}</dl>
+        <details className="system-info">
+          <summary>System information</summary>
+          <dl className="detail-list muted">{Object.entries(selected)
+            .filter(([key]) => !hiddenKeys.has(key) && (key.endsWith("Id") || key === "id" || key === "organizationId" || typeof selected[key] === "object"))
+            .map(([key, value]) => <div key={key}><dt>{labelForKey(key)}</dt><dd>{typeof value === "object" ? JSON.stringify(value) : displayValue(key, value, selected, labels)}</dd></div>)}</dl>
+        </details>
         {path === "accounting" && ["NEEDS_REVIEW", "SYNC_ERROR", "READY_TO_SYNC"].includes(selected.status ?? "") && (session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes("accounting.code")) && <form className="record-form" onSubmit={(event) => { event.preventDefault(); codeAccounting.mutate({ id: selected.id, draft: accountingDraft }); }}>
           <h3>Accounting coding</h3>
           <label>Category<input className="input" value={accountingDraft.category} onChange={(event) => setAccountingDraft({ ...accountingDraft, category: event.target.value })} maxLength={120} /></label>
@@ -314,8 +364,8 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
     <DrawerReview open={creating} title={config?.createLabel ?? `New ${title}`} onClose={() => setCreating(false)}>
       <form className="record-form" onSubmit={submitCreate}>
         {fields.map((field) => <label key={field.key}>{field.label}{field.required ? " *" : ""}
-          {field.type === "select" ? <select className="input" value={values[field.key] ?? ""} required={field.required} onChange={(event) => updateValue(field.key, event.target.value)}>
-            <option value="">Select {field.label.toLowerCase()}</option>
+          {field.type === "select" ? <select className="input" value={values[field.key] ?? ""} required={field.required} disabled={formOptionsLoading} aria-busy={formOptionsLoading} onChange={(event) => updateValue(field.key, event.target.value)}>
+            <option value="">{formOptionsLoading ? "Loading options…" : `Select ${field.label.toLowerCase()}`}</option>
             {fieldOptions(field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select> : <input className="input" type={field.type ?? "text"} min={field.type === "number" ? "0.01" : undefined} step={field.type === "number" ? "0.01" : undefined} value={values[field.key] ?? ""} required={field.required} onChange={(event) => updateValue(field.key, event.target.value)} />}
         </label>)}
@@ -324,5 +374,6 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
         <button className="btn btn-primary" type="submit" disabled={create.isPending || optionsQuery.isPending && sourcePaths.length > 0}>{create.isPending ? "Saving…" : "Create"}</button>
       </form>
     </DrawerReview>
+    <DrawerReview open={Boolean(editing)} title={`Edit ${title}`} onClose={() => setEditing(null)}><form className="record-form" onSubmit={(event) => { event.preventDefault(); if (editing) update.mutate({ id: editing.id, body: editValues }); }}>{fields.map((field) => <label key={field.key}>{field.label}{field.type === "select" ? <select className="input" value={editValues[field.key] ?? ""} onChange={(event) => setEditValues({ ...editValues, [field.key]: event.target.value })}>{fieldOptions(field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input className="input" type={field.type ?? "text"} value={editValues[field.key] ?? ""} onChange={(event) => setEditValues({ ...editValues, [field.key]: event.target.value })} />}</label>)}{update.isError && <p className="error">{update.error.message}</p>}<button className="btn btn-primary" disabled={update.isPending}>Save changes</button></form></DrawerReview>
   </div>;
 }

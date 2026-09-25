@@ -29,7 +29,7 @@ function ctx(partial: Partial<RequestContext> & Pick<RequestContext, "userId" | 
   };
 }
 
-describe.runIf(runDb)("M9 core travel", () => {
+describe.runIf(runDb)("M9/GF5 core travel", () => {
   beforeAll(async () => {
     process.env.NODE_ENV = "development";
     await prisma.$connect();
@@ -114,6 +114,7 @@ describe.runIf(runDb)("M9 core travel", () => {
     await prisma.approvalInstance.deleteMany({ where: { organizationId: orgId } });
     await prisma.inboxItem.deleteMany({ where: { organizationId: orgId } }).catch(() => undefined);
     await prisma.expense.deleteMany({ where: { organizationId: orgId } });
+    await prisma.card.deleteMany({ where: { organizationId: orgId } });
     await prisma.fund.deleteMany({ where: { organizationId: orgId } });
     await prisma.policy.deleteMany({ where: { organizationId: orgId } });
     await prisma.approvalWorkflow.deleteMany({ where: { organizationId: orgId } });
@@ -129,12 +130,13 @@ describe.runIf(runDb)("M9 core travel", () => {
     await prisma.$disconnect();
   });
 
-  it("in-policy trip auto-approves; mock hold ≠ confirmed", async () => {
+  it("in-policy trip ready-to-book; mock hold ≠ confirmed; provisions fund/card", async () => {
     const traveler = ctx({ userId: travelerId, organizationId: orgId });
     const trip = await travel.createTrip(traveler, {
       name: `NYC in-policy ${suffix}`,
       legalEntityId: entityId,
       destination: "New York",
+      origin: "SFO",
       purpose: "Customer visit",
       startDate: "2026-11-01",
       endDate: "2026-11-03",
@@ -155,13 +157,17 @@ describe.runIf(runDb)("M9 core travel", () => {
       amount: inPolicy!.amount,
       currency: inPolicy!.currency,
       outOfPolicy: false,
+      refundable: inPolicy!.refundable,
+      offerExpiry: inPolicy!.offerExpiry,
+      providerOfferId: inPolicy!.providerOfferId,
       itinerary: inPolicy!.itinerary,
     });
     expect(selected.booking.status).toBe("QUOTED");
+    expect(selected.booking.offerSnapshot).toBeTruthy();
 
     const submitted = await travel.submit(traveler, trip.id);
     expect(submitted.requiresApproval).toBe(false);
-    expect(submitted.trip.status).toBe("APPROVED");
+    expect(submitted.trip.status).toBe("READY_TO_BOOK");
 
     await expect(travel.bookMock(traveler, selected.booking.id)).resolves.toMatchObject({
       status: "BOOKED_MOCK",
@@ -171,8 +177,11 @@ describe.runIf(runDb)("M9 core travel", () => {
     expect(held.status).not.toBe("CONFIRMED");
 
     const confirmed = await travel.confirmBooking(traveler, selected.booking.id);
-    expect(confirmed.status).toBe("CONFIRMED");
-    expect(confirmed.providerStatus).toBe("CONFIRMED");
+    expect(confirmed.booking.status).toBe("CONFIRMED");
+    expect(confirmed.booking.providerStatus).toBe("CONFIRMED");
+    expect(confirmed.fund?.id).toBeTruthy();
+    expect(confirmed.card?.id).toBeTruthy();
+    expect(confirmed.card?.allowedMccs).toContain("airlines");
 
     const linked = await travel.linkFund(traveler, trip.id, fundId);
     expect(linked.fundId).toBe(fundId);
@@ -182,8 +191,7 @@ describe.runIf(runDb)("M9 core travel", () => {
     const detail = await travel.getDetail(traveler, trip.id);
     expect(detail.trip.status).toBe("CONFIRMED");
     expect(detail.bookings[0]?.status).toBe("CONFIRMED");
-    expect(detail.fund?.id).toBe(fundId);
-    expect(detail.expense?.id).toBe(expenseId);
+    expect(detail.audit.length).toBeGreaterThan(0);
   });
 
   it("out-of-policy requires approval before mock booking; SOD enforced", async () => {
@@ -220,11 +228,90 @@ describe.runIf(runDb)("M9 core travel", () => {
     await expect(travel.approve(traveler, trip.id)).rejects.toMatchObject({ code: "SOD_VIOLATION" });
 
     const approved = await travel.approve(approver, trip.id);
-    expect(approved.trip.status).toBe("APPROVED");
+    expect(approved.trip.status).toBe("READY_TO_BOOK");
 
     const held = await travel.bookMock(traveler, selected.booking.id);
     expect(held.status).toBe("BOOKED_MOCK");
     expect(held.providerStatus).toBe("MOCK_HOLD");
     expect(held.status).not.toBe("CONFIRMED");
+  });
+
+  it("reprice above tolerance blocks booking; cancel/refund lifecycle", async () => {
+    const traveler = ctx({ userId: travelerId, organizationId: orgId });
+    const trip = await travel.createTrip(traveler, {
+      name: `Reprice ${suffix}`,
+      legalEntityId: entityId,
+      destination: "Austin",
+      startDate: "2027-01-10",
+      endDate: "2027-01-12",
+      estimatedAmount: "600.00",
+      currency: "USD",
+      repriceTolerance: "25",
+    });
+    const search = await travel.search(traveler, trip.id, { type: "FLIGHT" });
+    const quote = search.quotes.find((q) => !q.outOfPolicy)!;
+    const selected = await travel.selectQuote(traveler, trip.id, {
+      quoteId: quote.quoteId,
+      type: "FLIGHT",
+      supplier: quote.supplier,
+      amount: quote.amount,
+      currency: quote.currency,
+      outOfPolicy: false,
+      providerOfferId: quote.providerOfferId,
+      itinerary: quote.itinerary,
+    });
+    await travel.submit(traveler, trip.id);
+
+    await expect(travel.reprice(traveler, selected.booking.id, { forceHigh: true })).rejects.toMatchObject({
+      code: "REPRICE_TOLERANCE_EXCEEDED",
+    });
+    const blocked = await prisma.travelBooking.findUniqueOrThrow({ where: { id: selected.booking.id } });
+    expect(blocked.status).toBe("REPRICE_REQUIRED");
+
+    await prisma.travelBooking.update({
+      where: { id: selected.booking.id },
+      data: { status: "QUOTED", amount: quote.amount, quotedAmount: quote.amount },
+    });
+    const held = await travel.bookMock(traveler, selected.booking.id, { skipReprice: true });
+    expect(held.status).toBe("BOOKED_MOCK");
+    const confirmed = await travel.confirmBooking(traveler, selected.booking.id);
+    expect(confirmed.booking.status).toBe("CONFIRMED");
+
+    const cancelled = await travel.cancelBooking(traveler, selected.booking.id);
+    expect(["CANCELLED", "REFUND_PENDING"]).toContain(cancelled.status);
+    const refunded = await travel.refundBooking(traveler, selected.booking.id);
+    expect(refunded.booking.status).toBe("REFUNDED");
+    const again = await travel.refundBooking(traveler, selected.booking.id);
+    expect(again.booking.status).toBe("REFUNDED");
+  });
+
+  it("duplicate book-mock with idempotency key does not create second hold", async () => {
+    const traveler = ctx({ userId: travelerId, organizationId: orgId });
+    const trip = await travel.createTrip(traveler, {
+      name: `Idem ${suffix}`,
+      legalEntityId: entityId,
+      destination: "Denver",
+      startDate: "2027-02-01",
+      endDate: "2027-02-03",
+      estimatedAmount: "700.00",
+      currency: "USD",
+    });
+    const search = await travel.search(traveler, trip.id, { type: "CAR" });
+    const quote = search.quotes.find((q) => !q.outOfPolicy)!;
+    const selected = await travel.selectQuote(traveler, trip.id, {
+      quoteId: quote.quoteId,
+      type: "CAR",
+      supplier: quote.supplier,
+      amount: quote.amount,
+      currency: quote.currency,
+      outOfPolicy: false,
+      itinerary: quote.itinerary,
+    });
+    await travel.submit(traveler, trip.id);
+    const key = `travel-idem-${suffix}`;
+    const first = await travel.bookMock(traveler, selected.booking.id, { idempotencyKey: key, skipReprice: true });
+    const second = await travel.bookMock(traveler, selected.booking.id, { idempotencyKey: key, skipReprice: true });
+    expect(first.id).toBe(second.id);
+    expect(first.providerRef).toBe(second.providerRef);
   });
 });

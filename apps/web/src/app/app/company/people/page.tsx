@@ -1,15 +1,4 @@
+"use client";
+import { useRouter } from "next/navigation";
 import { ResourcePage } from "@/components/ResourcePage";
-
-export default function Page() {
-  return (
-    <ResourcePage
-      title="People"
-      path="people"
-      actions={[
-        { label: "Publish", name: "publish" },
-        { label: "Reset credentials", name: "reset-credentials" },
-        { label: "Terminate", name: "terminate" },
-      ]}
-    />
-  );
-}
+export default function Page() { const router = useRouter(); return <ResourcePage title="People" path="people" onRowNavigate={(row) => router.push(`/app/company/people/${row.id}`)} />; }

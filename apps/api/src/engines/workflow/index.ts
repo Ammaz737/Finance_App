@@ -86,7 +86,7 @@ export async function startApproval(input: {
         where: { id: input.workflowId, organizationId: input.organizationId },
       })
     : await db.approvalWorkflow.findFirst({
-        where: { organizationId: input.organizationId, objectType: input.objectType },
+        where: { organizationId: input.organizationId, objectType: input.objectType, enabled: true, effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }] },
         orderBy: { version: "desc" },
       });
   const rawSteps = Array.isArray(workflow?.steps) ? (workflow.steps as WorkflowStep[]) : undefined;

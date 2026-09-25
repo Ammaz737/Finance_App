@@ -115,7 +115,15 @@ export async function listInboxTasks(ctx: RequestContext): Promise<InboxTask[]> 
 
     tasks.push({
       id: instance.id,
-      type: instance.objectType === "bill" ? "BILL_APPROVAL" : "APPROVAL",
+      type: instance.objectType === "bill"
+        ? "BILL_APPROVAL"
+        : instance.objectType === "procurement"
+          ? "PROCUREMENT_REQUEST"
+          : instance.objectType === "reimbursement"
+            ? "REIMBURSEMENT_APPROVAL"
+            : instance.objectType === "travel"
+              ? "TRAVEL_REQUEST"
+              : "APPROVAL",
       objectType: instance.objectType,
       objectId: instance.objectId,
       name,
@@ -139,6 +147,30 @@ export async function listInboxTasks(ctx: RequestContext): Promise<InboxTask[]> 
             duplicateStatus: "duplicateStatus" in object ? String((object as { duplicateStatus?: string }).duplicateStatus ?? "CLEAR") : "CLEAR",
             vendorId: "vendorId" in object ? String((object as { vendorId: string }).vendorId) : undefined,
             approvalProgress: progressLabel(instance.currentStep, steps.length, instance.status),
+          }
+        : {}),
+      ...(instance.objectType === "procurement"
+        ? {
+            approvalProgress: progressLabel(instance.currentStep, steps.length, instance.status),
+            vendorId: "vendorId" in object && (object as { vendorId?: string | null }).vendorId
+              ? String((object as { vendorId: string }).vendorId)
+              : undefined,
+          }
+        : {}),
+      ...(instance.objectType === "travel"
+        ? {
+            approvalProgress: progressLabel(instance.currentStep, steps.length, instance.status),
+            destination: "destination" in object ? String((object as { destination?: string }).destination ?? "") : undefined,
+            purpose: "purpose" in object ? String((object as { purpose?: string }).purpose ?? "") : undefined,
+            startDate: "startDate" in object && (object as { startDate?: Date | null }).startDate
+              ? new Date((object as { startDate: Date }).startDate).toISOString()
+              : undefined,
+            endDate: "endDate" in object && (object as { endDate?: Date | null }).endDate
+              ? new Date((object as { endDate: Date }).endDate).toISOString()
+              : undefined,
+            international: "international" in object ? Boolean((object as { international?: boolean }).international) : false,
+            travelerId: "travelerId" in object ? String((object as { travelerId: string }).travelerId) : undefined,
+            href: `/app/travel/trips/${instance.objectId}`,
           }
         : {}),
     });
@@ -188,6 +220,40 @@ export async function listInboxTasks(ctx: RequestContext): Promise<InboxTask[]> 
       availableActions: ["open"],
       createdAt: entry.updatedAt.toISOString(),
     });
+  }
+
+  if (can(ctx, "procurement.review")) {
+    const matchExceptions = await prisma.matchRecord.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        status: { in: ["EXCEPTION", "BLOCKED"] },
+        exceptionStatus: { in: ["OPEN", "IN_REVIEW", ""] },
+      },
+      take: 100,
+      orderBy: { createdAt: "desc" },
+    });
+    for (const match of matchExceptions) {
+      if (match.exceptionStatus === "OPEN" || match.exceptionStatus === "IN_REVIEW" || match.exceptionStatus === "") {
+        tasks.push({
+          id: `match:${match.id}`,
+          type: "PROCUREMENT_MATCH_EXCEPTION",
+          objectType: "match",
+          objectId: match.id,
+          name: match.reasonCode || match.explanation || "Match exception",
+          amount: String(match.variance),
+          currency: "USD",
+          requestedBy: "Procurement match",
+          priority: match.status === "BLOCKED" ? "HIGH" : "NORMAL",
+          status: match.exceptionStatus || "OPEN",
+          policySummary: match.explanation,
+          currentStep: 1,
+          totalSteps: 1,
+          dueAt: null,
+          availableActions: ["resolve", "open"],
+          createdAt: match.createdAt.toISOString(),
+        });
+      }
+    }
   }
 
   return tasks.sort((a, b) => {

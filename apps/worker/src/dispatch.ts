@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { processPaymentsJob } from "./processors/payments.processor";
+import { processPaymentsJob, processReimbursementPayoutJob } from "./processors/payments.processor";
 import { processAccountingSyncJob } from "./processors/accounting-sync.processor";
 import { processDocumentQuarantineJob } from "./processors/documents.processor";
 import { processOcrJob } from "./processors/ocr.processor";
@@ -22,6 +22,10 @@ export async function processSupportedEvent(
 
   if (type === "payment.released") {
     await processPaymentsJob(prisma, data as { paymentId?: string; objectId?: string });
+    return;
+  }
+  if (type === "reimbursement.scheduled") {
+    await processReimbursementPayoutJob(prisma, data as { reimbursementId?: string; objectId?: string });
     return;
   }
   if (type === "accounting.sync_requested") {

@@ -15,6 +15,7 @@ export default function Page() {
       <ResourcePage
         title="Budgets"
         path="budgets"
+        actions={[{ label: "Edit", name: "update" }]}
         onRowNavigate={(row) => router.push(`/app/insights/budgets/${row.id}`)}
       />
     </div>

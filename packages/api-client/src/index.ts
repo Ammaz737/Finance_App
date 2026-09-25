@@ -5,6 +5,7 @@ export class ApiClient {
   constructor(
     private readonly baseUrl: string,
     private readonly getToken: () => string | null,
+    private readonly onUnauthorized?: (error: ApiError["error"]) => void,
   ) {}
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -20,6 +21,7 @@ export class ApiClient {
     const json = (await response.json()) as ApiSuccess<T> | ApiError;
     if (!response.ok || "error" in json) {
       const error = "error" in json ? json.error : { code: "HTTP_ERROR", message: response.statusText };
+      if (response.status === 401 && token) this.onUnauthorized?.(error);
       throw Object.assign(new Error(error.message), error);
     }
     return json.data;
@@ -34,6 +36,6 @@ export class ApiClient {
   }
 }
 
-export function createApiClient(baseUrl: string, getToken: () => string | null = () => null) {
-  return new ApiClient(baseUrl, getToken);
+export function createApiClient(baseUrl: string, getToken: () => string | null = () => null, onUnauthorized?: (error: ApiError["error"]) => void) {
+  return new ApiClient(baseUrl, getToken, onUnauthorized);
 }

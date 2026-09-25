@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, setToken } from "@/lib/api";
 import { Button, Input, PageHeader } from "@finance/design-system";
@@ -11,6 +12,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [workspace, setWorkspace] = useState("");
   const [error, setError] = useState("");
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => setExpired(new URLSearchParams(window.location.search).get("reason") === "session-expired"), []);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -27,6 +31,7 @@ export default function LoginPage() {
   return (
     <main className="login-shell">
       <PageHeader title="Finance" subtitle="On-premises financial operations" />
+      {expired && <p className="notice" role="status">Your session expired. Please sign in again.</p>}
       <form className="login-form" onSubmit={onSubmit}>
         <label>
           Workspace <span className="muted">(if your email belongs to multiple companies)</span>
@@ -42,6 +47,7 @@ export default function LoginPage() {
         </label>
         {error ? <p className="error">{error}</p> : null}
         <Button type="submit">Sign in</Button>
+        <Link href="/forgot-password">Forgot password?</Link>
       </form>
     </main>
   );

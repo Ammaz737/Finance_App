@@ -9,6 +9,7 @@ export default function Page() {
     title="My reimbursements"
     path="reimbursements"
     mineField="userId"
+    actions={[{ label: "Submit", name: "submit" }]}
     onRowNavigate={(row) => router.push(`/app/expenses/reimbursements/${row.id}`)}
   />;
 }

@@ -23,7 +23,9 @@ export function createApp() {
   app.use("/api/v1", (req, res, next) => {
     if (req.method === "POST" && (
       req.path === "/identity/login" || req.path === "/auth/login" ||
-      req.path === "/identity/activate" || req.path === "/auth/activate"
+      req.path === "/identity/activate" || req.path === "/auth/activate" ||
+      req.path === "/identity/forgot-password" || req.path === "/auth/forgot-password" ||
+      req.path === "/identity/reset-password" || req.path === "/auth/reset-password"
     )) {
       return next();
     }

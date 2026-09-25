@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader, StatusBadge } from "@finance/design-system";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
@@ -11,12 +11,12 @@ import { useSession } from "@/providers/session-provider";
 type Detail = {
   bill: {
     id: string; invoiceNumber: string; amount: string | number; remainingAmount: string | number; currency: string;
-    status: string; memo: string; dueDate: string | null; createdBy: string; vendorId: string;
+    status: string; memo: string; dueDate: string | null; invoiceDate?: string | null; createdBy: string; vendorId: string; legalEntityId: string; attachmentId?: string | null;
     duplicateStatus?: string; vendorMatchStatus?: string; codingSource?: string; paymentMethod?: string;
   };
   vendor: { id: string; name: string; displayName?: string; paymentStatus?: string } | null;
   entity?: { name: string } | null;
-  lines: Array<{ id: string; description: string; amount: string | number; category: string; glAccount?: string }>;
+  lines: Array<{ id: string; description: string; amount: string | number; quantity?: string | number; unitPrice?: string | number; taxAmount?: string | number; category: string; glAccount?: string; department?: string; location?: string; project?: string }>;
   payments: Array<{ id: string; amount: string | number; currency: string; rail: string; status: string; settlementId: string | null; createdBy: string }>;
   attachment: { originalName: string; malwareStatus: string; ocrStatus?: string | null } | null;
   accounting: { id: string; status: string } | null;
@@ -41,12 +41,16 @@ export default function BillDetailPage() {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
   const [payAmount, setPayAmount] = useState("");
+  const [edit, setEdit] = useState<{ invoiceNumber: string; invoiceDate: string; dueDate: string; memo: string; lines: Array<{ description: string; quantity: string; unitPrice: string; taxAmount: string; category: string; glAccount: string; department: string; location: string; project: string }> } | null>(null);
   const sandbox = process.env.NODE_ENV !== "production";
 
   const detail = useQuery({
     queryKey: ["bill-detail", params.id],
     queryFn: () => api.get<Detail>(`/bills/${params.id}`),
   });
+  useEffect(() => { if (detail.data?.bill.status === "DRAFT" && !edit) setEdit({ invoiceNumber: detail.data.bill.invoiceNumber, invoiceDate: detail.data.bill.invoiceDate?.slice(0,10) ?? "", dueDate: detail.data.bill.dueDate?.slice(0,10) ?? "", memo: detail.data.bill.memo, lines: detail.data.lines.map((line) => ({ description: line.description, quantity: String(line.quantity ?? 1), unitPrice: String(line.unitPrice ?? line.amount), taxAmount: String(line.taxAmount ?? 0), category: line.category ?? "", glAccount: line.glAccount ?? "", department: line.department ?? "", location: line.location ?? "", project: line.project ?? "" })) }); }, [detail.data, edit]);
+  const editDraft = useMutation({ mutationFn: () => api.post(`/bills/${params.id}/edit-draft`, { ...edit, vendorId: detail.data!.bill.vendorId, legalEntityId: detail.data!.bill.legalEntityId, currency: detail.data!.bill.currency, attachmentId: detail.data!.bill.attachmentId }), onSuccess: () => { setMessage("Draft bill updated. Totals were recalculated by the server."); setEdit(null); void queryClient.invalidateQueries({ queryKey: ["bill-detail", params.id] }); } });
+  const cancelBill = useMutation({ mutationFn: () => api.post(`/bills/${params.id}/cancel`, {}), onSuccess: () => { setMessage("Bill cancelled; history is retained."); void queryClient.invalidateQueries({ queryKey: ["bill-detail", params.id] }); } });
 
   const approve = useMutation({
     mutationFn: () => api.post(`/bills/${params.id}/approve`, {}),
@@ -110,8 +114,8 @@ export default function BillDetailPage() {
       <Link className="btn btn-ghost" href="/app/bill-pay/bills">Back</Link>
     </div>
     {message && <p className="notice" role="status">{message}</p>}
-    {(approve.isError || schedule.isError || paymentAction.isError || submit.isError) && (
-      <p className="error" role="alert">{(approve.error ?? schedule.error ?? paymentAction.error ?? submit.error)?.message}</p>
+    {(approve.isError || schedule.isError || paymentAction.isError || submit.isError || editDraft.isError || cancelBill.isError) && (
+      <p className="error" role="alert">{(approve.error ?? schedule.error ?? paymentAction.error ?? submit.error ?? editDraft.error ?? cancelBill.error)?.message}</p>
     )}
     {detail.data.sandbox && <p className="muted">SANDBOX / MOCK PAYMENT rail for settlement confirmation.</p>}
 
@@ -131,6 +135,7 @@ export default function BillDetailPage() {
         <div className="detail-actions">
           {canSubmit && <button className="btn btn-primary" type="button" disabled={submit.isPending} onClick={() => submit.mutate()}>Submit for approval</button>}
           {canApprove && <button className="btn btn-primary" type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>Approve bill</button>}
+          {["DRAFT", "NEEDS_REVIEW", "PENDING_APPROVAL", "APPROVED"].includes(bill.status) && <button className="btn btn-danger" type="button" disabled={cancelBill.isPending} onClick={() => window.confirm("Cancel this bill? Its audit history will be retained.") && cancelBill.mutate()}>Cancel bill</button>}
           {canSchedule && <>
             <input className="input" placeholder="Partial amount" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} aria-label="Partial amount" />
             <button className="btn btn-primary" type="button" disabled={schedule.isPending} onClick={() => schedule.mutate()}>Schedule payment</button>
@@ -139,6 +144,7 @@ export default function BillDetailPage() {
       </section>
       <section className="work-panel">
         <h2>Invoice & lines</h2>
+        {bill.status === "DRAFT" && edit && <form className="record-form" onSubmit={(event) => { event.preventDefault(); editDraft.mutate(); }}><div className="form-grid"><label>Invoice number<input className="input" value={edit.invoiceNumber} onChange={(e) => setEdit({ ...edit, invoiceNumber: e.target.value })} /></label><label>Invoice date<input className="input" type="date" value={edit.invoiceDate} onChange={(e) => setEdit({ ...edit, invoiceDate: e.target.value })} /></label><label>Due date<input className="input" type="date" value={edit.dueDate} onChange={(e) => setEdit({ ...edit, dueDate: e.target.value })} /></label><label>Memo<input className="input" value={edit.memo} onChange={(e) => setEdit({ ...edit, memo: e.target.value })} /></label></div>{edit.lines.map((line,index) => <div className="form-grid" key={index}>{(["description","quantity","unitPrice","taxAmount","category","glAccount","department","location","project"] as const).map((key) => <label key={key}>{key.replace(/([A-Z])/g," $1")}<input className="input" type={["quantity","unitPrice","taxAmount"].includes(key) ? "number" : "text"} value={line[key]} onChange={(e) => setEdit({ ...edit, lines: edit.lines.map((item,i) => i === index ? { ...item, [key]: e.target.value } : item) })} /></label>)}</div>)}<button className="btn btn-ghost" type="button" onClick={() => setEdit({ ...edit, lines: [...edit.lines, { description: "", quantity: "1", unitPrice: "", taxAmount: "0", category: "", glAccount: "", department: "", location: "", project: "" }] })}>Add line</button><button className="btn btn-primary" disabled={editDraft.isPending}>Save draft corrections</button></form>}
         <ul className="plain-list">
           {lines.map((line) => <li key={line.id}>{line.description} — {money(bill.currency, line.amount)}{line.category ? ` · ${line.category}` : ""}{line.glAccount ? ` · GL ${line.glAccount}` : ""}</li>)}
         </ul>

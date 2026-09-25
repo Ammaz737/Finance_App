@@ -74,3 +74,76 @@ export async function processPaymentsJob(prisma: PrismaClient, data: { paymentId
     });
   });
 }
+
+/** Settles mock reimbursement payouts. Idempotent; never marks PAID without provider confirm. */
+export async function processReimbursementPayoutJob(
+  prisma: PrismaClient,
+  data: { reimbursementId?: string; objectId?: string },
+): Promise<void> {
+  const reimbursementId = data.reimbursementId ?? data.objectId;
+  if (!reimbursementId) throw new Error("Reimbursement job has no ID");
+  if (process.env.PAYMENT_PROVIDER_MODE !== "mock" && process.env.NODE_ENV === "production") {
+    throw new Error("Payout provider is not configured; reimbursement remains SCHEDULED");
+  }
+  await prisma.$transaction(async (tx) => {
+    const record = await tx.reimbursement.findUnique({ where: { id: reimbursementId } });
+    if (!record || record.status === "PAID") return;
+    if (record.status !== "SCHEDULED" && record.status !== "PROCESSING") {
+      throw new Error(`Reimbursement ${reimbursementId} is not scheduled`);
+    }
+    if (!record.providerRef) throw new Error(`Reimbursement ${reimbursementId} missing provider ref`);
+
+    const settlementRef = `mock_settle_${record.providerRef}`;
+    const claim = await tx.reimbursement.updateMany({
+      where: { id: reimbursementId, status: { in: ["SCHEDULED", "PROCESSING"] } },
+      data: {
+        status: "PAID",
+        payoutStatus: "SETTLED",
+        paidAt: new Date(),
+        settlementRef,
+        failureReason: "",
+      },
+    });
+    if (claim.count !== 1) return;
+
+    await tx.accountingEntry.upsert({
+      where: {
+        organizationId_sourceType_sourceId: {
+          organizationId: record.organizationId,
+          sourceType: "REIMBURSEMENT",
+          sourceId: record.id,
+        },
+      },
+      update: {},
+      create: {
+        organizationId: record.organizationId,
+        legalEntityId: record.legalEntityId,
+        sourceType: "REIMBURSEMENT",
+        sourceId: record.id,
+        status: "NEEDS_REVIEW",
+        amount: record.amount,
+        currency: record.currency,
+        memo: record.memo,
+      },
+    });
+    await tx.auditEvent.create({
+      data: {
+        organizationId: record.organizationId,
+        actorId: record.releasedBy ?? record.userId,
+        actorType: "SYSTEM",
+        action: "reimbursement.payout_confirm",
+        objectType: "Reimbursement",
+        objectId: record.id,
+        oldValue: { status: record.status },
+        newValue: { status: "PAID", mode: "mock", settlementRef },
+      },
+    });
+    await tx.outboxEvent.create({
+      data: {
+        organizationId: record.organizationId,
+        type: "reimbursement.paid",
+        payload: { reimbursementId: record.id, objectId: record.id, settlementRef },
+      },
+    });
+  });
+}

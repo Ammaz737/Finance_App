@@ -1,11 +1,111 @@
 # Implementation Plan — Company Web Portal
 
-**Updated:** 2026-09-21 (P0-GF2 AP vertical)  
+**Updated:** 2026-09-22 (P0.5 UX & Operational Completion)  
 **Authoritative refs:** `RAMP_VERIFIED_PRODUCT_DESIGN_V3_OPTIMIZED.md`, `ON_PREMISES_MODULAR_ARCHITECTURE_GUIDE.md`  
-**Baseline:** `IMPLEMENTATION_AUDIT.md` + `CURRENT_FOUNDATION_AUDIT.md` + `P0_GF1_SPEND_AUDIT.md` + `P0_GF2_AP_AUDIT.md`  
-**Delivery target:** Company web portal + API/DB/worker needed for real workflows. Mobile and specialist portals are excluded from this execution scope.
+**Baseline:** `IMPLEMENTATION_AUDIT.md` + `CURRENT_FOUNDATION_AUDIT.md` + GF1–GF5 audits + P0 closure docs  
+**Delivery target:** Company web portal + API/DB/worker needed for real workflows. Mobile and specialist portals are excluded from this execution scope except minimal GF5 scaffold.
 
 A rendered page is never a completion gate.
+
+---
+
+## P0.5 — UX & Operational Completion (2026-09-22)
+
+**DONE:**
+
+- Complete browser authentication lifecycle: invite/copy-link activation, activate, login, forgot/reset/change password, one-time token/session revocation, and explicit session-expiry messaging.
+- Payment-run composition UI and APIs: source account, eligible payment selection, remove-before-release, totals/count/validation, release through existing GF2 settlement path.
+- Protected vendor payment details, match-exception resolution, card controls/unfreeze, spend-program edit/deactivate, exact work/notification deep links.
+- Bill create/DRAFT correction with line quantities, prices, tax, controlled accounting coding, invoice upload, server-authoritative totals, and cancel semantics.
+- Domain correction actions for vendors, organizational units, budgets, bills, payments, POs, and spend programs; no generic hard-delete was introduced.
+- Receipt candidate picker, reimbursement submit/calculation context, travel cancellation/refund, people/role administration, policy versioning/simulation, approval-workflow versioning/preview, and accounting-dimension administration.
+- Migrations: `20260922120000_p0_5_ux_operational`, `20260922130000_p0_5_entity_status`, and `20260922140000_preserve_existing_workflows`.
+- Verification: API/Web/Worker TypeScript green; API Vitest **104/104**; P0.5 Playwright G1–G6 **6/6**; preserved golden A–F suite **18/18**; combined browser run **24/24**.
+
+**EVIDENCE:** `P0_5_UX_OPERATIONAL_AUDIT.md`, `P0_5_TEST_REPORT.md`.
+
+**REMAINING / external only:** Production email delivery and certified issuer, payment rail, payout, ERP, OCR/scanner, and travel-provider adapters remain intentionally mocked or unconfigured. Advanced custom-role authoring remains documented outside P0.5; existing roles, scopes, restrictions, and assignments are operable.
+
+**STOP:** P0.5 is the terminal milestone for this execution. Do not begin P1 or P2.
+
+---
+
+## P0 Closure — Portal hardening + evidence pack (2026-09-21)
+
+**DONE:**
+
+- GF1–GF5 product verticals closed as P0 (see sections below); gates: Vitest **104/104**, Playwright **18/18** (A–E5 + **F**), tsc API/Web/Worker green.
+- Nav unfinished-route blocking for P1/P2 scaffolds unless `NEXT_PUBLIC_ENABLE_P1_ROUTES` / `NEXT_PUBLIC_ENABLE_P2_ROUTES`.
+- Detail deep-links no longer inherit list-nav permission 403 (API RBAC/ownership remains the boundary).
+- Travel search + reports nav; ResourcePage system-info drawer + clearer errors; global search expanded (reimbursements/payments/cards).
+- Authz matrix documented from `resource-access.ts`; travel-bookings child `scopedWhere` fix retained from GF5.
+- Evidence pack: `P0_CLOSURE_AUDIT.md`, `P0_AUTHORIZATION_MATRIX.md`, `P0_PERFORMANCE_REPORT.md`, `P0_ACCESSIBILITY_REPORT.md`, `P0_SECURITY_REVIEW.md`, `BACKUP_RESTORE_RUNBOOK.md`, `P0_CLOSURE_TEST_REPORT.md`.
+- Money invariants: budget capture/reverse no longer spill to all entity budgets; travel refund restores fund availability capped at `limitAmount`; travel type KPIs are CONFIRMED bookings only.
+- Authz: `policies`/`approvals` → `roles.assign`; people invite no longer double-gated with `roles.assign`.
+
+**OPERATIONAL NOTE:** Redis requires Docker Desktop running; worker was reconnecting when Docker was down. Re-seed after Vitest if demo users drift.
+
+**DEFERRED:** Live card/rail/ERP/travel/OCR/payout providers (mocks remain).
+
+**STOP — do not start P1/P2** until this closure is accepted and phase flags are explicitly enabled for intentional scaffold work.
+
+---
+
+## P0-GF5 — Travel Request → Policy → Approval → Booking → Trip → Fund/Card → Expense → Accounting (2026-09-21)
+
+**DONE:**
+
+- Audit: `P0_GF5_TRAVEL_AUDIT.md`; report: `P0_GF5_TEST_REPORT.md`.
+- TravelTrip as request aggregate; lifecycle includes `READY_TO_BOOK`, `BLOCKED`, booking cancel/refund.
+- Shared policy snapshot + OOP/max-amount; approval SoD; inbox `TRAVEL_REQUEST`.
+- MockTravelProvider: search FLIGHT/HOTEL/CAR, reprice, hold≠confirm, cancel, refund.
+- Offer snapshot on select; reprice tolerance gate before book; booking idempotency key.
+- Confirm provisions GF1 Travel Fund + sandbox virtual card (travel MCCs).
+- Card capture auto-links expense to trip/booking; accounting via existing GF1 path.
+- Reporting travel KPIs; trip detail UX (search/book/reprice/cancel/fund/card/activity).
+- Migration `20260921180000_p0_gf5_travel` (+ TravelerProfile).
+- Playwright E–E5; GF1–GF4 regression retained.
+- Mobile: trip list/detail stubs only (native booking deferred).
+
+**REMAINING / deferred:** Duffel/Expedia/TravelPerk adapters; email booking ingest; native search/book; guest booking; negotiated rates.
+
+**NEXT:** Stop — do not start P1/P2.
+
+---
+
+## P0-GF4 — Reimbursement → Policy → Approval → Payout → Settlement → Accounting (2026-09-21)
+
+**DONE:**
+
+- Audit: `P0_GF4_REIMBURSEMENT_AUDIT.md`; report: `P0_GF4_TEST_REPORT.md`.
+- STANDARD / MILEAGE / PER_DIEM; server calc ignores forged amounts/rates.
+- DRAFT → submit with requirements + policy snapshot + duplicate check.
+- Shared approval; payout permission separate; mock schedule → settle; FAILED/RETURNED.
+- Accounting only after PAID; ERP code→ready→sync idempotent.
+- Reporting KPIs; detail UX; inbox `REIMBURSEMENT_APPROVAL`.
+- Migration `20260921160000_p0_gf4_reimbursements`.
+- Vitest suite; Playwright A–D4; typecheck green; Redis PONG.
+- Mobile: minimal create scaffold only (full native deferred).
+
+**REMAINING / deferred:** native mobile capture; live payout rail; deep bank-return ledger; map mileage.
+
+---
+
+## P0-GF3 — Procurement → PO → Receiving → Match → GF2 AP (2026-09-21)
+
+**DONE:**
+
+- Audit: `P0_GF3_PROCUREMENT_AUDIT.md`; report: `P0_GF3_TEST_REPORT.md`.
+- Program intake + Purchase Request lifecycle; shared policy snapshot on submit; manager→finance approval; SoD.
+- Inbox `PROCUREMENT_REQUEST` + `PROCUREMENT_MATCH_EXCEPTION`.
+- Idempotent PO create on final approval (`ISSUED`); lines; partial/qty/service receiving; over-receive blocked.
+- 2/3-way match with % tolerance; first-class exceptions + resolve; GF2 Bill `purchaseOrderId`.
+- Budget commitment on issue / release on matched bill; basic PO change orders.
+- Reporting KPIs; request/PO/match-exception UX.
+- Migration `20260921140000_p0_gf3_procurement`.
+- Vitest suite green; Playwright C/C2/C3 (+ GF1/GF2); typecheck green. **Regression under GF4: 12/12 including C suite.**
+
+**REMAINING / deferred:** sourcing/RFP; advanced contracts; external PO delivery; live rail/ERP certification.
 
 ---
 
@@ -20,11 +120,9 @@ A rendered page is never a completion gate.
 - Inbox `BILL_APPROVAL`; bill.approve ≠ payment.release preserved.
 - Payment detail + AP reporting KPIs (overdue/partial/paid/failures/upcoming).
 - Migration `20260921120000_p0_gf2_ap_hardening`.
-- Vitest **96** tests; Playwright **5/5** (A, A2, B, B2, B3); typecheck green.
+- Vitest suite; Playwright B/B2/B3 (+ GF1 A/A2). **Regression under GF3/GF4 green.**
 
 **REMAINING / deferred:** live rail/ERP certification; RETURNED full model; shared settle package extract; email intake.
-
-**NEXT:** Stop — do not start P0-GF3 from this pass.
 
 ---
 
@@ -33,15 +131,12 @@ A rendered page is never a completion gate.
 **DONE:**
 
 - Audit: `P0_GF1_SPEND_AUDIT.md`; report: `P0_GF1_TEST_REPORT.md`.
-- Spend submit persists policy snapshot (PASS/WARN/REVIEW/BLOCK + reason/rules/actions/version/evaluatedAt); program eligibility; BLOCKED path.
+- Spend submit persists policy snapshot; program eligibility; BLOCKED path.
 - Approval → fund/card fulfillment ends in `FULFILLED` (idempotent replay).
 - Card unfreeze/terminate; CARD_FROZEN decline; SANDBOX label on card UI.
-- Request detail page: policy panel, approval progress, fulfillment links, timeline.
-- Expense requirements checklist API + UI; receipt match scoring helper; merchant→vendor normalize on capture.
-- Dashboard: missingReceipts + policyExceptions.
+- Request detail / expense requirements / dashboard KPIs.
 - Migration `20260920230000_p0_gf1_spend_policy`.
-- Vitest **91** tests; API/Web/Worker typecheck green.
-- Playwright golden A + A2 negatives green (regression under GF2).
+- Playwright golden A + A2 negatives green (regression under GF2–GF4).
 
 **REMAINING / deferred:** FUND_ONLY spend UI; DRAFT-only save; full eligibility admin UI; certified issuer/OCR/scanner.
 

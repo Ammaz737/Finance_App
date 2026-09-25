@@ -38,39 +38,150 @@ export function sumLineAmounts(lines: Array<{ amount: string }>): number {
   return lines.reduce((sum, line) => sum + Number(line.amount), 0);
 }
 
-/** 2-way = PO vs bill; 3-way = PO vs received vs bill. Tolerance in major currency units. */
+export function sumLineQuantities(lines: Array<{ quantity: string | number }>): number {
+  return lines.reduce((sum, line) => sum + Number(line.quantity ?? 0), 0);
+}
+
+export type MatchDecision = "MATCHED" | "WITHIN_TOLERANCE" | "EXCEPTION" | "BLOCKED";
+
+/** Absolute or percent-of-PO tolerance (pct as fraction, e.g. 0.01 = 1%). */
+export function resolveTolerance(poAmount: number, toleranceAbs?: number, tolerancePct?: number): number {
+  const abs = toleranceAbs ?? 0.01;
+  const pct = tolerancePct != null ? Math.abs(poAmount) * tolerancePct : 0;
+  return Math.max(abs, pct);
+}
+
+/**
+ * 2-way = PO vs bill; 3-way = PO vs received vs bill.
+ * Quantity mode: when ordered/received/invoiced quantities provided, qty must reconcile.
+ */
 export function evaluateMatch(input: {
   poAmount: number;
   receivedAmount: number;
   billedAmount: number;
   tolerance?: number;
-}): { matchType: "TWO_WAY" | "THREE_WAY"; status: "MATCHED" | "EXCEPTION"; variance: number; explanation: string } {
-  const tolerance = input.tolerance ?? 0.01;
-  const hasReceiving = input.receivedAmount > 0;
-  const varianceBill = Math.abs(input.billedAmount - input.poAmount);
-  const varianceRecv = Math.abs(input.receivedAmount - input.poAmount);
-  const varianceBillRecv = Math.abs(input.billedAmount - input.receivedAmount);
-
-  if (hasReceiving) {
-    const ok = varianceBill <= tolerance && varianceRecv <= tolerance && varianceBillRecv <= tolerance;
-    const variance = Math.max(varianceBill, varianceRecv, varianceBillRecv);
+  tolerancePct?: number;
+  orderedQuantity?: number;
+  receivedQuantity?: number;
+  invoicedQuantity?: number;
+  vendorMatch?: boolean;
+  currencyMatch?: boolean;
+}): {
+  matchType: "TWO_WAY" | "THREE_WAY";
+  status: MatchDecision;
+  variance: number;
+  explanation: string;
+  reasonCode: string;
+} {
+  if (input.vendorMatch === false) {
     return {
-      matchType: "THREE_WAY",
-      status: ok ? "MATCHED" : "EXCEPTION",
-      variance: Number(variance.toFixed(2)),
-      explanation: ok
-        ? "PO, receiving, and bill amounts reconcile"
-        : `3-way variance ${variance.toFixed(2)} exceeds tolerance`,
+      matchType: input.receivedAmount > 0 ? "THREE_WAY" : "TWO_WAY",
+      status: "BLOCKED",
+      variance: 0,
+      explanation: "Vendor mismatch between PO and bill",
+      reasonCode: "VENDOR_MISMATCH",
+    };
+  }
+  if (input.currencyMatch === false) {
+    return {
+      matchType: input.receivedAmount > 0 ? "THREE_WAY" : "TWO_WAY",
+      status: "BLOCKED",
+      variance: 0,
+      explanation: "Currency mismatch between PO and bill",
+      reasonCode: "CURRENCY_MISMATCH",
     };
   }
 
-  const ok = varianceBill <= tolerance;
+  const tolerance = resolveTolerance(input.poAmount, input.tolerance, input.tolerancePct);
+  const hasReceiving = input.receivedAmount > 0 || (input.receivedQuantity != null && input.receivedQuantity > 0);
+  const varianceBill = Math.abs(input.billedAmount - input.poAmount);
+
+  if (
+    input.orderedQuantity != null
+    && input.receivedQuantity != null
+    && input.invoicedQuantity != null
+  ) {
+    const qtyRecvOk = input.receivedQuantity + 1e-9 >= input.invoicedQuantity;
+    const qtyOrderedOk = input.invoicedQuantity <= input.orderedQuantity + 1e-9;
+    if (!qtyRecvOk) {
+      return {
+        matchType: "THREE_WAY",
+        status: "EXCEPTION",
+        variance: Number((input.invoicedQuantity - input.receivedQuantity).toFixed(4)),
+        explanation: `Invoiced qty ${input.invoicedQuantity} exceeds received ${input.receivedQuantity}`,
+        reasonCode: "NOT_RECEIVED",
+      };
+    }
+    if (!qtyOrderedOk) {
+      return {
+        matchType: "THREE_WAY",
+        status: "EXCEPTION",
+        variance: Number((input.invoicedQuantity - input.orderedQuantity).toFixed(4)),
+        explanation: `Invoiced qty ${input.invoicedQuantity} exceeds ordered ${input.orderedQuantity}`,
+        reasonCode: "QUANTITY_VARIANCE",
+      };
+    }
+  }
+
+  if (hasReceiving) {
+    const varianceRecv = Math.abs(input.receivedAmount - input.poAmount);
+    const varianceBillRecv = Math.abs(input.billedAmount - input.receivedAmount);
+    const variance = Math.max(varianceBill, varianceRecv, varianceBillRecv);
+    if (variance <= 0.01) {
+      return {
+        matchType: "THREE_WAY",
+        status: "MATCHED",
+        variance: Number(variance.toFixed(2)),
+        explanation: "PO, receiving, and bill amounts reconcile",
+        reasonCode: "",
+      };
+    }
+    if (variance <= tolerance) {
+      return {
+        matchType: "THREE_WAY",
+        status: "WITHIN_TOLERANCE",
+        variance: Number(variance.toFixed(2)),
+        explanation: `3-way variance ${variance.toFixed(2)} within tolerance ${tolerance.toFixed(2)}`,
+        reasonCode: "PRICE_VARIANCE",
+      };
+    }
+    const reasonCode = input.billedAmount > input.poAmount + tolerance
+      ? "PO_OVERBILLING"
+      : input.billedAmount > input.receivedAmount + tolerance
+        ? "NOT_RECEIVED"
+        : "PRICE_VARIANCE";
+    return {
+      matchType: "THREE_WAY",
+      status: "EXCEPTION",
+      variance: Number(variance.toFixed(2)),
+      explanation: `3-way variance ${variance.toFixed(2)} exceeds tolerance`,
+      reasonCode,
+    };
+  }
+
+  if (varianceBill <= 0.01) {
+    return {
+      matchType: "TWO_WAY",
+      status: "MATCHED",
+      variance: Number(varianceBill.toFixed(2)),
+      explanation: "PO and bill amounts reconcile",
+      reasonCode: "",
+    };
+  }
+  if (varianceBill <= tolerance) {
+    return {
+      matchType: "TWO_WAY",
+      status: "WITHIN_TOLERANCE",
+      variance: Number(varianceBill.toFixed(2)),
+      explanation: `2-way variance ${varianceBill.toFixed(2)} within tolerance ${tolerance.toFixed(2)}`,
+      reasonCode: "PRICE_VARIANCE",
+    };
+  }
   return {
     matchType: "TWO_WAY",
-    status: ok ? "MATCHED" : "EXCEPTION",
+    status: "EXCEPTION",
     variance: Number(varianceBill.toFixed(2)),
-    explanation: ok
-      ? "PO and bill amounts reconcile"
-      : `2-way variance ${varianceBill.toFixed(2)} exceeds tolerance`,
+    explanation: `2-way variance ${varianceBill.toFixed(2)} exceeds tolerance`,
+    reasonCode: input.billedAmount > input.poAmount ? "PO_OVERBILLING" : "PRICE_VARIANCE",
   };
 }

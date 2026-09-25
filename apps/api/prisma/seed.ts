@@ -183,11 +183,11 @@ async function main() {
       await prisma.rolePermission.create({ data: { roleId: finance.id, permissionId: perm.id, scope: "ORGANIZATION" } });
     }
   }
-  for (const key of ["expense.approve", "spend_request.approve", "reimbursement.approve", "travel.approve", "card.read", "expense.read"]) {
+  for (const key of ["expense.approve", "spend_request.approve", "reimbursement.approve", "travel.approve", "card.read", "expense.read", "procurement.review"]) {
     const perm = permissionRows.find((p) => p.key === key);
     if (perm) await prisma.rolePermission.create({ data: { roleId: manager.id, permissionId: perm.id, scope: "DIRECT_REPORTS" } });
   }
-  for (const key of ["expense.create", "spend_request.create", "card.read", "reimbursement.create", "travel.book"]) {
+  for (const key of ["expense.create", "spend_request.create", "card.read", "reimbursement.create", "travel.book", "procurement.request"]) {
     const perm = permissionRows.find((p) => p.key === key);
     if (perm) await prisma.rolePermission.create({ data: { roleId: employee.id, permissionId: perm.id, scope: "SELF" } });
   }
@@ -263,9 +263,22 @@ async function main() {
       { organizationId: org.id, name: "Expense", objectType: "expense", steps: [{ type: "manager" }] },
       { organizationId: org.id, name: "Reimbursement", objectType: "reimbursement", steps: [{ type: "manager" }] },
       { organizationId: org.id, name: "Bill", objectType: "bill", steps: [{ type: "ap" }, { type: "finance" }] },
-      { organizationId: org.id, name: "Procurement", objectType: "procurement", steps: [{ type: "manager" }, { type: "budget" }, { type: "finance" }, { type: "legal" }, { type: "cfo" }, { type: "controller" }] },
+      { organizationId: org.id, name: "Procurement", objectType: "procurement", steps: [{ type: "manager" }, { type: "finance" }] },
       { organizationId: org.id, name: "Travel", objectType: "travel", steps: [{ type: "manager" }, { type: "finance" }] },
     ],
+  });
+  await prisma.policy.create({
+    data: {
+      organizationId: org.id,
+      name: "Procurement policy",
+      objectType: "procurement",
+      rules: [
+        { type: "vendor_required" },
+        { type: "memo_required", threshold: 0 },
+        { type: "quote_required", threshold: 5000 },
+        { type: "high_value", threshold: 10000 },
+      ],
+    },
   });
   await prisma.policy.create({
     data: {

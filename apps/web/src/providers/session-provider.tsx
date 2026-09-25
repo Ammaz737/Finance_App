@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { api, getToken } from "@/lib/api";
+import { api, getToken, setToken as persistToken } from "@/lib/api";
 
 export type Session = {
   userId: string;
@@ -33,7 +33,11 @@ export function SessionGate({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (token === null || (token && session.isError)) router.replace("/login");
+    if (token === null) router.replace("/login");
+    if (token && session.isError) {
+      persistToken(null);
+      router.replace("/login?reason=session-expired");
+    }
   }, [token, session.isError, router]);
 
   if (!token || session.isPending) {

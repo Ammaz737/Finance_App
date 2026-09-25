@@ -25,6 +25,13 @@ const routes: Record<string, string> = {
   accounting: "/app/accounting/review", travel: "/app/travel/trips",
 };
 
+function sourceHref(task: Task) {
+  const base = routes[task.objectType];
+  if (!base) return "/app/home";
+  if (task.objectType === "accounting") return `${base}?entry=${encodeURIComponent(task.objectId)}`;
+  return `${base}/${task.objectId}`;
+}
+
 export default function Page() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -122,7 +129,7 @@ export default function Page() {
           ))}
         </div> : null}
 
-        <Link className="detail-link" href={routes[selected.objectType] ?? "/app/home"}>View source record →</Link>
+        <Link className="detail-link" href={sourceHref(selected)}>View source record →</Link>
         <label className="review-comment">Comment<textarea className="input" rows={3} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Required for reject / request info" /></label>
         {decision.isError && <p className="error" role="alert">{decision.error.message}</p>}
         <div className="detail-actions">

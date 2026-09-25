@@ -4,7 +4,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../database/client";
 import { createResourceRouter } from "../platform/resource-router";
-import { assertResourcePermission } from "../platform/resource-access";
+import { assertEntityPermission, assertResourcePermission } from "../platform/resource-access";
 import { getContext } from "../platform/auth/context";
 import { login } from "../platform/auth";
 import { ok } from "../platform/http";
@@ -50,6 +50,35 @@ identityRouter.post("/activate", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+identityRouter.post("/forgot-password", async (req, res, next) => {
+  try {
+    const input = z.object({
+      email: z.string().email().max(254),
+      workspace: z.string().trim().min(2).max(80),
+    }).strict().parse(req.body);
+    return ok(res, await actions.credentials.forgotPassword(input));
+  } catch (error) { next(error); }
+});
+identityRouter.post("/reset-password", async (req, res, next) => {
+  try {
+    const input = z.object({
+      email: z.string().email().max(254),
+      workspace: z.string().trim().min(2).max(80),
+      token: z.string().min(20).max(200),
+      password: z.string().min(12).max(128),
+    }).strict().parse(req.body);
+    return ok(res, await actions.credentials.resetPassword(input));
+  } catch (error) { next(error); }
+});
+identityRouter.post("/change-password", async (req, res, next) => {
+  try {
+    const input = z.object({
+      currentPassword: z.string().min(1).max(128),
+      newPassword: z.string().min(12).max(128),
+    }).strict().parse(req.body);
+    return ok(res, await actions.credentials.changePassword(getContext(req), input));
+  } catch (error) { next(error); }
 });
 identityRouter.get("/me", async (req, res, next) => {
   try {
@@ -103,11 +132,39 @@ organizationRouter.patch("/:id", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+async function updateOrganizationUnit(ctx: ReturnType<typeof getContext>, kind: "entity" | "department" | "location", id: string, body: Record<string, unknown>) {
+  return prisma.$transaction(async (tx) => {
+    const delegate = kind === "entity" ? tx.legalEntity : kind === "department" ? tx.department : tx.location;
+    const current = await (delegate as typeof tx.department).findFirst({ where: { id, organizationId: ctx.organizationId } });
+    if (!current) throw new AppError("NOT_FOUND", `${kind} not found`, 404);
+    const name = String(body.name ?? "").trim(); if (name.length < 2) throw new AppError("INVALID_NAME", "Name is required", 400);
+    const updated = await (delegate as typeof tx.department).update({ where: { id }, data: { name } });
+    await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: `${kind}.update`, objectType: kind, objectId: id, oldValue: { name: current.name }, newValue: { name }, correlationId: ctx.correlationId } });
+    await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: `${kind}.updated`, payload: { id } } });
+    return updated;
+  });
+}
+
+async function archiveOrganizationUnit(ctx: ReturnType<typeof getContext>, kind: "entity" | "department" | "location", id: string) {
+  return prisma.$transaction(async (tx) => {
+    if (kind === "entity") {
+      const current = await tx.legalEntity.findFirst({ where: { id, organizationId: ctx.organizationId } }); if (!current) throw new AppError("NOT_FOUND", "Entity not found", 404);
+      const dependencies = await Promise.all([tx.bill.count({ where: { organizationId: ctx.organizationId, legalEntityId: id, status: { notIn: ["PAID", "CANCELLED", "REJECTED"] } } }), tx.card.count({ where: { organizationId: ctx.organizationId, legalEntityId: id, status: { in: ["ACTIVE", "FROZEN"] } } }), tx.payment.count({ where: { organizationId: ctx.organizationId, legalEntityId: id, status: { in: ["SCHEDULED", "PROCESSING", "SENT"] } } })]);
+      if (dependencies.some(Boolean)) throw new AppError("ACTIVE_FINANCIAL_STATE", "Entity has active financial records and cannot be archived", 409);
+      await tx.legalEntity.update({ where: { id }, data: { status: "ARCHIVED" } });
+    } else if (kind === "department") { const current = await tx.department.findFirst({ where: { id, organizationId: ctx.organizationId } }); if (!current) throw new AppError("NOT_FOUND", "Department not found", 404); await tx.department.update({ where: { id }, data: { status: "ARCHIVED" } }); }
+    else { const current = await tx.location.findFirst({ where: { id, organizationId: ctx.organizationId } }); if (!current) throw new AppError("NOT_FOUND", "Location not found", 404); await tx.location.update({ where: { id }, data: { status: "ARCHIVED" } }); }
+    await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: `${kind}.archive`, objectType: kind, objectId: id, newValue: { status: "ARCHIVED" }, correlationId: ctx.correlationId } });
+    await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: `${kind}.archived`, payload: { id } } });
+    return { id, status: "ARCHIVED" };
+  });
+}
+
 export const routers = {
   identity: identityRouter,
   inbox: inboxRouter,
   organizations: organizationRouter,
-  entities: createResourceRouter({ getDelegate: () => prisma.legalEntity as never, searchField: "name", create: async (ctx, body) => {
+  entities: createResourceRouter({ getDelegate: () => prisma.legalEntity as never, searchField: "name", actions: { update: (ctx, id, body) => updateOrganizationUnit(ctx, "entity", id, body), archive: (ctx, id) => archiveOrganizationUnit(ctx, "entity", id) }, create: async (ctx, body) => {
     const input = z.object({ name: z.string().trim().min(2).max(120), country: z.string().regex(/^[A-Z]{2}$/), currency: z.string().regex(/^[A-Z]{3}$/) }).strict().parse(body);
     return prisma.$transaction(async (tx) => {
       const entity = await tx.legalEntity.create({ data: { organizationId: ctx.organizationId, ...input } });
@@ -116,7 +173,7 @@ export const routers = {
       return entity;
     });
   } }),
-  departments: createResourceRouter({ getDelegate: () => prisma.department as never, searchField: "name", create: async (ctx, body) => {
+  departments: createResourceRouter({ getDelegate: () => prisma.department as never, searchField: "name", actions: { update: (ctx, id, body) => updateOrganizationUnit(ctx, "department", id, body), archive: (ctx, id) => archiveOrganizationUnit(ctx, "department", id) }, create: async (ctx, body) => {
     const input = z.object({ name: z.string().trim().min(2).max(120) }).strict().parse(body);
     return prisma.$transaction(async (tx) => {
       const department = await tx.department.create({ data: { organizationId: ctx.organizationId, name: input.name } });
@@ -125,7 +182,7 @@ export const routers = {
       return department;
     });
   } }),
-  locations: createResourceRouter({ getDelegate: () => prisma.location as never, searchField: "name", create: async (ctx, body) => {
+  locations: createResourceRouter({ getDelegate: () => prisma.location as never, searchField: "name", actions: { update: (ctx, id, body) => updateOrganizationUnit(ctx, "location", id, body), archive: (ctx, id) => archiveOrganizationUnit(ctx, "location", id) }, create: async (ctx, body) => {
     const input = z.object({ name: z.string().trim().min(2).max(120) }).strict().parse(body);
     return prisma.$transaction(async (tx) => {
       const location = await tx.location.create({ data: { organizationId: ctx.organizationId, name: input.name } });
@@ -139,21 +196,44 @@ export const routers = {
     searchField: "email",
     select: { id: true, organizationId: true, email: true, firstName: true, lastName: true, status: true, managerId: true, departmentId: true, locationId: true, mfaEnabled: true, createdAt: true },
     create: (ctx, body) => {
-      assertResourcePermission(ctx, "roles.assign");
       return actions.people.create(ctx, z.object({
         email: z.string().email().max(254), firstName: z.string().trim().min(1).max(80), lastName: z.string().trim().min(1).max(80),
         roleId: z.string().uuid(), managerId: z.string().uuid().optional().or(z.literal("")),
       }).parse(body));
     },
+    get: (ctx, id) => actions.credentials.getDetail(ctx, id),
     actions: {
       publish: (ctx, id) => actions.people.publish(ctx, id),
+      update: (ctx, id, body) => actions.credentials.update(ctx, id, { managerId: body.managerId ? String(body.managerId) : null, departmentId: body.departmentId ? String(body.departmentId) : null, locationId: body.locationId ? String(body.locationId) : null, legalEntityId: body.legalEntityId ? String(body.legalEntityId) : null }),
+      "assign-role": (ctx, id, body) => actions.credentials.assignRole(ctx, id, { roleId: String(body.roleId ?? ""), entityId: body.entityId ? String(body.entityId) : null }),
+      "remove-role": (ctx, id, body) => actions.credentials.removeRole(ctx, id, { assignmentId: String(body.assignmentId ?? "") }),
+      suspend: (ctx, id) => actions.credentials.suspend(ctx, id),
       terminate: (ctx, id) => actions.people.terminate(ctx, id),
       "reset-credentials": (ctx, id) => actions.people.resetCredentials(ctx, id),
     },
   }),
-  rbac: createResourceRouter({ getDelegate: () => prisma.role as never, searchField: "name" }),
+  rbac: createResourceRouter({ getDelegate: () => prisma.role as never, searchField: "name", get: async (ctx, id) => {
+    const role = await prisma.role.findFirst({ where: { id, organizationId: ctx.organizationId } });
+    if (!role) throw new AppError("NOT_FOUND", "Role not found", 404);
+    const grants = await prisma.rolePermission.findMany({ where: { roleId: id } });
+    const permissions = await prisma.permission.findMany({ where: { id: { in: grants.map((grant) => grant.permissionId) } } });
+    const assignments = await prisma.userRole.findMany({ where: { organizationId: ctx.organizationId, roleId: id } });
+    return { role, permissions: grants.map((grant) => ({ ...permissions.find((permission) => permission.id === grant.permissionId), scope: grant.scope })), entityRestrictions: [...new Set(assignments.map((assignment) => assignment.entityId).filter(Boolean))] };
+  } }),
   policies: (() => {
-    const router = createResourceRouter({ getDelegate: () => prisma.policy as never, searchField: "name" });
+    const parsePolicy = (body: Record<string, unknown>) => ({
+      name: String(body.name ?? ""), objectType: String(body.objectType ?? ""), priority: Number(body.priority ?? 100),
+      effectiveFrom: body.effectiveFrom ? String(body.effectiveFrom) : undefined, enabled: body.enabled === true || body.enabled === "true",
+      rules: Array.isArray(body.rules) ? body.rules as Array<Record<string, unknown>> : [],
+    });
+    const router = createResourceRouter({
+      getDelegate: () => prisma.policy as never, searchField: "name",
+      create: (ctx, body) => actions.adminConfiguration.createPolicy(ctx, parsePolicy(body)),
+      actions: {
+        version: (ctx, id, body) => actions.adminConfiguration.versionPolicy(ctx, id, parsePolicy(body)),
+        disable: (ctx, id) => actions.adminConfiguration.disablePolicy(ctx, id),
+      },
+    });
     router.post("/simulate", async (req, res, next) => {
       try {
         const ctx = getContext(req);
@@ -178,7 +258,57 @@ export const routers = {
     });
     return router;
   })(),
-  approvals: createResourceRouter({ getDelegate: () => prisma.approvalWorkflow as never, searchField: "name" }),
+  approvals: (() => {
+    const parseWorkflow = (body: Record<string, unknown>) => ({
+      name: String(body.name ?? ""), objectType: String(body.objectType ?? ""),
+      enabled: body.enabled === true || body.enabled === "true", effectiveFrom: body.effectiveFrom ? String(body.effectiveFrom) : undefined,
+      steps: Array.isArray(body.steps) ? body.steps as Array<Record<string, unknown>> : [],
+    });
+    const router = createResourceRouter({
+      getDelegate: () => prisma.approvalWorkflow as never, searchField: "name",
+      create: (ctx, body) => actions.adminConfiguration.createWorkflow(ctx, parseWorkflow(body)),
+      actions: {
+        version: (ctx, id, body) => actions.adminConfiguration.versionWorkflow(ctx, id, parseWorkflow(body)),
+        enable: (ctx, id) => actions.adminConfiguration.setWorkflowEnabled(ctx, id, true),
+        disable: (ctx, id) => actions.adminConfiguration.setWorkflowEnabled(ctx, id, false),
+      },
+    });
+    router.post("/preview", async (req, res, next) => {
+      try {
+        const ctx = getContext(req); assertCan(ctx, "roles.assign");
+        const { resolveWorkflowSteps } = await import("../engines/workflow");
+        const input = z.object({ steps: z.array(z.record(z.unknown())), amount: z.coerce.number().nonnegative(), departmentId: z.string().optional(), legalEntityId: z.string().optional() }).parse(req.body);
+        return ok(res, { steps: resolveWorkflowSteps({ steps: input.steps, amount: input.amount, departmentId: input.departmentId, legalEntityId: input.legalEntityId }), selfApprovalProtected: true, separationOfDuties: true });
+      } catch (error) { next(error); }
+    });
+    return router;
+  })(),
+  "accounting-dimensions": createResourceRouter({
+    getDelegate: () => prisma.accountingDimension as never,
+    create: async (ctx, body) => {
+      const input = z.object({ key: z.string().trim().min(2).max(80), label: z.string().trim().min(2).max(120), values: z.array(z.object({ id: z.string().min(1).max(120), label: z.string().min(1).max(160), active: z.boolean().optional() })).min(1) }).strict().parse(body);
+      return prisma.$transaction(async (tx) => {
+        const dimension = await tx.accountingDimension.create({ data: { organizationId: ctx.organizationId, key: input.key, label: input.label, values: input.values, source: "LOCAL", providerSynced: false } });
+        await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting_dimension.create", objectType: "AccountingDimension", objectId: dimension.id, newValue: { key: dimension.key, valueCount: input.values.length }, correlationId: ctx.correlationId } });
+        await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "accounting_dimension.created", payload: { dimensionId: dimension.id } } });
+        return dimension;
+      });
+    },
+    actions: {
+      update: async (ctx, id, body) => {
+        const input = z.object({ label: z.string().trim().min(2).max(120), values: z.array(z.object({ id: z.string().min(1).max(120), label: z.string().min(1).max(160), active: z.boolean().optional() })).min(1) }).strict().parse(body);
+        return prisma.$transaction(async (tx) => {
+          const current = await tx.accountingDimension.findFirst({ where: { id, organizationId: ctx.organizationId } });
+          if (!current) throw new AppError("NOT_FOUND", "Accounting dimension not found", 404);
+          if (current.providerSynced) throw new AppError("PROVIDER_MANAGED", "Provider-synced dimensions cannot be edited locally", 409);
+          const updated = await tx.accountingDimension.update({ where: { id }, data: { label: input.label, values: input.values } });
+          await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: "accounting_dimension.update", objectType: "AccountingDimension", objectId: id, oldValue: { label: current.label, values: current.values }, newValue: { label: updated.label, values: updated.values }, correlationId: ctx.correlationId } });
+          await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "accounting_dimension.updated", payload: { dimensionId: id } } });
+          return updated;
+        });
+      },
+    },
+  }),
   budgets: (() => {
     const router = Router();
     router.get("/", async (req, res, next) => {
@@ -209,6 +339,18 @@ export const routers = {
       } catch (error) {
         next(error);
       }
+    });
+    router.post("/:id/update", async (req, res, next) => {
+      try {
+        const ctx = getContext(req); assertResourcePermission(ctx, "budget.manage");
+        const input = z.object({ name: z.string().trim().min(2).max(120), amount: z.coerce.number().positive(), period: z.enum(["MONTHLY", "QUARTERLY", "ANNUAL"]) }).passthrough().parse(req.body);
+        const budget = await prisma.budget.findFirst({ where: { id: req.params.id, organizationId: ctx.organizationId } });
+        if (!budget) throw new AppError("NOT_FOUND", "Budget not found", 404);
+        assertEntityPermission(ctx, "budget.manage", budget.legalEntityId);
+        if (input.amount < Number(budget.actualAmount) + Number(budget.committedAmount)) throw new AppError("ACTIVE_FINANCIAL_STATE", "Budget cannot be reduced below actual plus committed spend", 409);
+        const updated = await prisma.$transaction(async (tx) => { const row = await tx.budget.update({ where: { id: budget.id }, data: { name: input.name, amount: input.amount, period: input.period, freshness: new Date() } }); await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: "budget.update", objectType: "Budget", objectId: budget.id, oldValue: { name: budget.name, amount: budget.amount, period: budget.period }, newValue: { name: row.name, amount: row.amount, period: row.period }, correlationId: ctx.correlationId } }); await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "budget.updated", payload: { budgetId: budget.id } } }); return row; });
+        return ok(res, updated);
+      } catch (error) { next(error); }
     });
     return router;
   })(),
@@ -296,6 +438,7 @@ export const routers = {
       });
     },
     actions: {
+      update: (ctx, id, body) => actions.receipts.updateProgram(ctx, id, { name: String(body.name ?? ""), description: body.description ? String(body.description) : undefined, maxAmount: String(body.maxAmount ?? ""), currency: String(body.currency ?? "USD"), merchantLockDefault: body.merchantLockDefault ? String(body.merchantLockDefault) : undefined, allowedMccsDefault: body.allowedMccsDefault ? String(body.allowedMccsDefault) : undefined, perTransactionLimitDefault: body.perTransactionLimitDefault ? String(body.perTransactionLimitDefault) : undefined, velocityMaxAmountDefault: body.velocityMaxAmountDefault ? String(body.velocityMaxAmountDefault) : undefined, velocityMaxCountDefault: body.velocityMaxCountDefault ? Number(body.velocityMaxCountDefault) : undefined }),
       deactivate: (ctx, id) => actions.spend.deactivateProgram(ctx, id),
     },
   }),
@@ -360,6 +503,7 @@ export const routers = {
   }),
   receipts: createResourceRouter({
     getDelegate: () => prisma.receipt as never,
+    get: (ctx, id, query) => actions.receipts.getLinkCandidates(ctx, id, typeof query.q === "string" ? query.q : ""),
     create: (ctx, body) => actions.receipts.createFromAttachment(ctx, z.object({
       attachmentId: z.string().uuid(),
       expenseId: z.string().uuid().optional(),
@@ -382,6 +526,15 @@ export const routers = {
       memo: z.string().trim().min(2).max(500),
       amount: z.string().regex(/^\d+(?:\.\d{1,2})?$/).optional(),
       merchant: z.string().trim().max(200).optional(),
+      category: z.string().trim().max(120).optional(),
+      expenseDate: z.string().optional(),
+      destination: z.string().trim().max(200).optional(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      eligibleDays: z.coerce.number().int().positive().max(365).optional(),
+      department: z.string().trim().max(120).optional(),
+      project: z.string().trim().max(120).optional(),
+      paymentDestination: z.string().trim().max(200).optional(),
       receiptId: z.string().uuid().optional(),
       attachmentId: z.string().uuid().optional(),
       distanceMiles: z.string().regex(/^\d+(?:\.\d{1,2})?$/).optional(),
@@ -390,11 +543,19 @@ export const routers = {
       perDiemRate: z.string().regex(/^\d+(?:\.\d{1,2})?$/).optional(),
     }).strict().parse(body)),
     actions: {
+      submit: (ctx, id) => actions.reimbursements.submit(ctx, id),
       approve: (ctx, id) => actions.reimbursements.approve(ctx, id),
       schedule: (ctx, id, body) => actions.reimbursements.schedule(ctx, id, {
         rail: body.rail != null ? String(body.rail) : undefined,
+        idempotencyKey: body.idempotencyKey != null ? String(body.idempotencyKey) : undefined,
       }),
       "confirm-payout": (ctx, id) => actions.reimbursements.confirmPayout(ctx, id),
+      "fail-payout": (ctx, id, body) => actions.reimbursements.failPayout(ctx, id, {
+        reason: body.reason != null ? String(body.reason) : undefined,
+      }),
+      "mark-returned": (ctx, id, body) => actions.reimbursements.markReturned(ctx, id, {
+        reason: body.reason != null ? String(body.reason) : undefined,
+      }),
     },
   }),
   procurement: createResourceRouter({
@@ -408,6 +569,13 @@ export const routers = {
       currency: String(body.currency ?? "USD"),
       outcomeType: body.outcomeType as "PURCHASE_ORDER" | "VIRTUAL_CARD" | "VENDOR_SETUP" | undefined,
       vendorId: body.vendorId != null ? String(body.vendorId) : undefined,
+      proposedVendorName: body.proposedVendorName != null ? String(body.proposedVendorName) : undefined,
+      departmentId: body.departmentId != null ? String(body.departmentId) : undefined,
+      category: body.category != null ? String(body.category) : undefined,
+      frequency: body.frequency != null ? String(body.frequency) : undefined,
+      desiredDate: body.desiredDate != null ? String(body.desiredDate) : undefined,
+      attachmentId: body.attachmentId != null ? String(body.attachmentId) : undefined,
+      contractId: body.contractId != null ? String(body.contractId) : undefined,
       memo: body.memo != null ? String(body.memo) : undefined,
       formAnswers: body.formAnswers && typeof body.formAnswers === "object"
         ? body.formAnswers as Record<string, unknown>
@@ -436,13 +604,25 @@ export const routers = {
     create: async (ctx, body) => {
       const input = z.object({
         name: z.string().trim().min(2),
+        description: z.string().optional(),
         defaultOutcomeType: z.enum(["PURCHASE_ORDER", "VIRTUAL_CARD", "VENDOR_SETUP"]).optional(),
+        matchTolerancePct: z.number().optional(),
+        requireReceiving: z.boolean().optional(),
+        workflowId: z.string().uuid().optional(),
+        budgetId: z.string().uuid().optional(),
+        legalEntityId: z.string().uuid().optional(),
       }).parse(body);
       return prisma.procurementProgram.create({
         data: {
           organizationId: ctx.organizationId,
           name: input.name,
+          description: input.description ?? "",
           defaultOutcomeType: input.defaultOutcomeType ?? "PURCHASE_ORDER",
+          matchTolerancePct: input.matchTolerancePct ?? 0.01,
+          requireReceiving: input.requireReceiving ?? true,
+          workflowId: input.workflowId ?? null,
+          budgetId: input.budgetId ?? null,
+          legalEntityId: input.legalEntityId ?? null,
         },
       });
     },
@@ -451,21 +631,51 @@ export const routers = {
     getDelegate: () => prisma.purchaseOrder as never,
     get: (ctx, id) => actions.procurement.getPoDetail(ctx, id),
     actions: {
-      receive: (ctx, id, body) => actions.procurement.receive(ctx, id, String(body.amount ?? ""), body.memo != null ? String(body.memo) : undefined),
-      match: (ctx, id, body) => actions.procurement.match(ctx, id, { billId: String(body.billId) }),
+      receive: (ctx, id, body) => actions.procurement.receive(ctx, id, {
+        amount: body.amount != null ? String(body.amount) : undefined,
+        quantity: body.quantity != null ? String(body.quantity) : undefined,
+        purchaseOrderLineId: body.purchaseOrderLineId != null ? String(body.purchaseOrderLineId) : undefined,
+        receiptType: body.receiptType as "AMOUNT" | "QUANTITY" | "SERVICE" | undefined,
+        memo: body.memo != null ? String(body.memo) : undefined,
+        idempotencyKey: body.idempotencyKey != null ? String(body.idempotencyKey) : undefined,
+        allowOverride: body.allowOverride === true || body.allowOverride === "true",
+      }),
+      match: (ctx, id, body) => actions.procurement.match(ctx, id, {
+        billId: String(body.billId),
+        invoicedQuantity: body.invoicedQuantity != null ? String(body.invoicedQuantity) : undefined,
+      }),
+      "request-change": (ctx, id, body) => actions.procurement.requestChangeOrder(ctx, id, {
+        reason: String(body.reason ?? ""),
+        amount: body.amount != null ? String(body.amount) : undefined,
+        description: body.description != null ? String(body.description) : undefined,
+        expectedDelivery: body.expectedDelivery != null ? String(body.expectedDelivery) : undefined,
+      }),
     },
   }),
   receiving: createResourceRouter({
     getDelegate: () => prisma.receivingRecord as never,
-    create: (ctx, body) => actions.procurement.receive(
-      ctx,
-      String(body.purchaseOrderId),
-      String(body.amount),
-      body.memo != null ? String(body.memo) : undefined,
-    ),
+    create: (ctx, body) => actions.procurement.receive(ctx, String(body.purchaseOrderId), {
+      amount: body.amount != null ? String(body.amount) : undefined,
+      quantity: body.quantity != null ? String(body.quantity) : undefined,
+      receiptType: body.receiptType as "AMOUNT" | "QUANTITY" | "SERVICE" | undefined,
+      memo: body.memo != null ? String(body.memo) : undefined,
+      idempotencyKey: body.idempotencyKey != null ? String(body.idempotencyKey) : undefined,
+    }),
   }),
   matches: createResourceRouter({
     getDelegate: () => prisma.matchRecord as never,
+    actions: {
+      resolve: (ctx, id, body) => actions.procurement.resolveException(ctx, id, {
+        resolution: String(body.resolution ?? "RESOLVED") as "APPROVED_OVERRIDE" | "CORRECTED" | "REJECTED" | "RESOLVED" | "REQUESTED_RECEIVING_UPDATE" | "REQUESTED_CORRECTED_INVOICE" | "COMMENTED",
+        note: body.note != null ? String(body.note) : undefined,
+      }),
+    },
+  }),
+  "po-change-orders": createResourceRouter({
+    getDelegate: () => prisma.poChangeOrder as never,
+    actions: {
+      approve: (ctx, id) => actions.procurement.approveChangeOrder(ctx, id),
+    },
   }),
   vendors: createResourceRouter({
     getDelegate: () => prisma.vendor as never,
@@ -482,6 +692,8 @@ export const routers = {
     }),
     get: (ctx, id) => actions.vendors.getDetail(ctx, id),
     actions: {
+      update: (ctx, id, body) => actions.paymentRuns.update(ctx, id, { name: String(body.name ?? ""), legalName: body.legalName ? String(body.legalName) : undefined, displayName: body.displayName ? String(body.displayName) : undefined, category: body.category ? String(body.category) : undefined, riskLevel: body.riskLevel ? String(body.riskLevel) : undefined, notes: body.notes ? String(body.notes) : undefined, ownerId: body.ownerId ? String(body.ownerId) : null }),
+      deactivate: (ctx, id) => actions.paymentRuns.deactivate(ctx, id),
       "set-bank": (ctx, id, body) => actions.vendors.setBankAccount(ctx, id, {
         last4: String(body.last4 ?? ""),
         routingMasked: String(body.routingMasked ?? ""),
@@ -535,6 +747,9 @@ export const routers = {
               return {
                 description: String(row.description ?? ""),
                 amount: String(row.amount ?? ""),
+                quantity: row.quantity != null ? String(row.quantity) : undefined,
+                unitPrice: row.unitPrice != null ? String(row.unitPrice) : undefined,
+                taxAmount: row.taxAmount != null ? String(row.taxAmount) : undefined,
                 category: row.category != null ? String(row.category) : undefined,
                 glAccount: row.glAccount != null ? String(row.glAccount) : undefined,
                 department: row.department != null ? String(row.department) : undefined,
@@ -548,6 +763,18 @@ export const routers = {
     actions: {
       submit: (ctx, id) => actions.bills.submit(ctx, id),
       approve: (ctx, id) => actions.bills.approve(ctx, id),
+      cancel: (ctx, id) => actions.paymentRuns.cancelBill(ctx, id),
+      "edit-draft": (ctx, id, body) => actions.paymentRuns.editDraft(ctx, id, {
+        vendorId: String(body.vendorId ?? ""), legalEntityId: String(body.legalEntityId ?? ""),
+        invoiceNumber: String(body.invoiceNumber ?? ""), invoiceDate: body.invoiceDate ? String(body.invoiceDate) : undefined,
+        dueDate: body.dueDate ? String(body.dueDate) : undefined, currency: String(body.currency ?? "USD"),
+        memo: body.memo ? String(body.memo) : undefined, attachmentId: body.attachmentId ? String(body.attachmentId) : undefined,
+        departmentId: body.departmentId ? String(body.departmentId) : undefined,
+        lines: Array.isArray(body.lines) ? body.lines.map((line) => {
+          const row = line as Record<string, unknown>;
+          return { description: String(row.description ?? ""), quantity: String(row.quantity ?? "1"), unitPrice: String(row.unitPrice ?? "0"), taxAmount: row.taxAmount != null ? String(row.taxAmount) : undefined, category: row.category != null ? String(row.category) : undefined, glAccount: row.glAccount != null ? String(row.glAccount) : undefined, department: row.department != null ? String(row.department) : undefined, location: row.location != null ? String(row.location) : undefined, project: row.project != null ? String(row.project) : undefined };
+        }) : [],
+      }),
       "update-coding": (ctx, id, body) => actions.bills.updateCoding(ctx, id, {
         codingSource: body.codingSource != null ? String(body.codingSource) : undefined,
         lines: Array.isArray(body.lines)
@@ -580,6 +807,7 @@ export const routers = {
     get: (ctx, id) => actions.payments.getDetail(ctx, id),
     actions: {
       release: (ctx, id) => actions.payments.release(ctx, id),
+      cancel: (ctx, id) => actions.paymentRuns.cancelPayment(ctx, id),
       "confirm-settlement": (ctx, id) => actions.payments.confirmSettlement(ctx, id),
     },
   }),
@@ -588,11 +816,15 @@ export const routers = {
     create: (ctx, body) => actions.paymentRuns.create(ctx, {
       legalEntityId: String(body.legalEntityId),
       name: String(body.name ?? ""),
+      sourceAccountId: body.sourceAccountId ? String(body.sourceAccountId) : undefined,
     }),
     get: (ctx, id) => actions.paymentRuns.getDetail(ctx, id),
     actions: {
       release: (ctx, id) => actions.paymentRuns.release(ctx, id),
       "add-payments": (ctx, id, body) => actions.paymentRuns.addPayments(ctx, id, {
+        paymentIds: Array.isArray(body.paymentIds) ? body.paymentIds.map(String) : [],
+      }),
+      "remove-payments": (ctx, id, body) => actions.paymentRuns.removePayments(ctx, id, {
         paymentIds: Array.isArray(body.paymentIds) ? body.paymentIds.map(String) : [],
       }),
     },
@@ -605,16 +837,22 @@ export const routers = {
       legalEntityId: String(body.legalEntityId),
       travelerId: body.travelerId != null ? String(body.travelerId) : undefined,
       destination: String(body.destination ?? ""),
+      origin: body.origin != null ? String(body.origin) : undefined,
       purpose: body.purpose != null ? String(body.purpose) : undefined,
+      department: body.department != null ? String(body.department) : undefined,
+      international: body.international === true || body.international === "true",
       startDate: String(body.startDate ?? ""),
       endDate: String(body.endDate ?? ""),
       estimatedAmount: String(body.estimatedAmount ?? body.amount ?? ""),
       currency: body.currency != null ? String(body.currency) : undefined,
+      repriceTolerance: body.repriceTolerance != null ? String(body.repriceTolerance) : undefined,
     }),
     get: (ctx, id) => actions.travel.getDetail(ctx, id),
     actions: {
       search: (ctx, id, body) => actions.travel.search(ctx, id, {
         type: String(body.type ?? "FLIGHT").toUpperCase() as "FLIGHT" | "HOTEL" | "CAR",
+        origin: body.origin != null ? String(body.origin) : undefined,
+        cabin: body.cabin != null ? String(body.cabin) : undefined,
       }),
       "select-quote": (ctx, id, body) => actions.travel.selectQuote(ctx, id, {
         quoteId: String(body.quoteId ?? ""),
@@ -624,21 +862,45 @@ export const routers = {
         amount: String(body.amount ?? ""),
         currency: String(body.currency ?? "USD"),
         outOfPolicy: body.outOfPolicy === true || body.outOfPolicy === "true",
+        policyResult: body.policyResult != null ? String(body.policyResult) : undefined,
+        refundable: body.refundable === undefined ? undefined : body.refundable === true || body.refundable === "true",
+        cancellationTerms: body.cancellationTerms != null ? String(body.cancellationTerms) : undefined,
+        offerExpiry: body.offerExpiry != null ? String(body.offerExpiry) : undefined,
+        provider: body.provider != null ? String(body.provider) : undefined,
+        providerOfferId: body.providerOfferId != null ? String(body.providerOfferId) : undefined,
         itinerary: body.itinerary && typeof body.itinerary === "object" ? body.itinerary as Record<string, unknown> : undefined,
         startsAt: body.startsAt != null ? String(body.startsAt) : undefined,
         endsAt: body.endsAt != null ? String(body.endsAt) : undefined,
+        metadata: body.metadata && typeof body.metadata === "object" ? body.metadata as Record<string, unknown> : undefined,
       }),
       submit: (ctx, id) => actions.travel.submit(ctx, id),
       approve: (ctx, id) => actions.travel.approve(ctx, id),
       "link-fund": (ctx, id, body) => actions.travel.linkFund(ctx, id, String(body.fundId)),
       "link-expense": (ctx, id, body) => actions.travel.linkExpense(ctx, id, String(body.expenseId)),
+      provision: (ctx, id) => actions.travel.provisionFundCard(ctx, id),
+      "import-booking": (ctx, id, body) => actions.travel.importBooking(ctx, id, {
+        type: String(body.type ?? "FLIGHT").toUpperCase() as "FLIGHT" | "HOTEL" | "CAR",
+        supplier: String(body.supplier ?? "External"),
+        amount: String(body.amount ?? ""),
+        currency: String(body.currency ?? "USD"),
+        confirmationNumber: body.confirmationNumber != null ? String(body.confirmationNumber) : undefined,
+        description: body.description != null ? String(body.description) : undefined,
+      }),
     },
   }),
   "travel-bookings": createResourceRouter({
     getDelegate: () => prisma.travelBooking as never,
     actions: {
-      "book-mock": (ctx, id) => actions.travel.bookMock(ctx, id),
+      "book-mock": (ctx, id, body) => actions.travel.bookMock(ctx, id, {
+        idempotencyKey: body.idempotencyKey != null ? String(body.idempotencyKey) : undefined,
+        skipReprice: body.skipReprice === true || body.skipReprice === "true",
+      }),
+      reprice: (ctx, id, body) => actions.travel.reprice(ctx, id, {
+        forceHigh: body.forceHigh === true || body.forceHigh === "true",
+      }),
       confirm: (ctx, id) => actions.travel.confirmBooking(ctx, id),
+      cancel: (ctx, id) => actions.travel.cancelBooking(ctx, id),
+      refund: (ctx, id) => actions.travel.refundBooking(ctx, id),
     },
   }),
   banking: createResourceRouter({ getDelegate: () => prisma.bankAccount as never, searchField: "name" }),

@@ -159,8 +159,10 @@ describe.runIf(runDb)("M8 procurement POs", () => {
     expect(lines.reduce((sum, line) => sum + Number(line.amount), 0)).toBe(100);
 
     const poId = step2.purchaseOrder!.id;
-    await expect(procurement.receive(approver, poId, "120")).rejects.toMatchObject({ code: "RECEIVE_EXCEEDS_PO" });
-    await procurement.receive(approver, poId, "100.00", "Dock delivery");
+    expect(step2.request.status).toBe("FULFILLED");
+    expect(step2.purchaseOrder?.status).toBe("ISSUED");
+    await expect(procurement.receive(approver, poId, { amount: "120" })).rejects.toMatchObject({ code: "RECEIVE_EXCEEDS_PO" });
+    await procurement.receive(approver, poId, { amount: "100.00", memo: "Dock delivery" });
     const poAfter = await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: poId } });
     expect(poAfter.status).toBe("RECEIVED");
     expect(Number(poAfter.receivedAmount)).toBe(100);

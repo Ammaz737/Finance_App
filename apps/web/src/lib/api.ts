@@ -13,4 +13,8 @@ export function setToken(token: string | null) {
   else window.localStorage.removeItem(TOKEN_KEY);
 }
 
-export const api = createApiClient("/api/v1", getToken);
+export const api = createApiClient("/api/v1", getToken, () => {
+  if (typeof window === "undefined") return;
+  setToken(null);
+  if (!window.location.pathname.startsWith("/login")) window.location.assign("/login?reason=session-expired");
+});

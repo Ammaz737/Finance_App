@@ -81,15 +81,19 @@ export const resourceConfig: Record<string, ResourceConfig> = {
   ] },
   expenses: { description: "Transactions needing receipts, review, and accounting handoff.", columns: ["merchant", "userId", "amount", "currency", "policyResult", "status", "createdAt"] },
   receipts: { description: "Uploaded receipts linked to card transactions and expenses.", columns: ["merchantGuess", "amountGuess", "matchStatus", "ocrStatus", "expenseId", "createdAt"] },
-  reimbursements: { description: "Employee out-of-pocket spend with server-calculated amounts and separate payout.", columns: ["userId", "type", "amount", "currency", "status", "createdAt"], createLabel: "New reimbursement", fields: [
+  reimbursements: { description: "Employee out-of-pocket spend with server-calculated amounts and separate payout.", columns: ["userId", "type", "amount", "currency", "policyResult", "duplicateStatus", "status", "createdAt"], createLabel: "New reimbursement", fields: [
     entity,
     { key: "type", label: "Type", required: true, type: "select", options: [{ value: "STANDARD", label: "Standard" }, { value: "MILEAGE", label: "Mileage" }, { value: "PER_DIEM", label: "Per diem" }] },
     { key: "amount", label: "Amount (standard only)", type: "number" },
     currency,
-    { key: "memo", label: "Description", required: true },
+    { key: "memo", label: "Business purpose", required: true },
     { key: "merchant", label: "Merchant" },
+    { key: "category", label: "Category" },
+    { key: "expenseDate", label: "Expense date", type: "date" },
+    { key: "destination", label: "Destination (per diem)" },
     { key: "distanceMiles", label: "Distance (miles)", type: "number" },
-    { key: "perDiemNights", label: "Per-diem nights", type: "number" },
+    { key: "perDiemNights", label: "Per-diem days", type: "number" },
+    { key: "eligibleDays", label: "Eligible days", type: "number" },
   ] },
   transactions: { description: "Card activity from authorization through clearing.", columns: ["merchant", "amount", "currency", "status", "clearedAt"] },
   vendors: { description: "Shared counterparty identity with bank-change history and risk.", columns: ["name", "category", "riskLevel", "ownerId", "status", "createdAt"], createLabel: "Add vendor", fields: [
@@ -97,7 +101,7 @@ export const resourceConfig: Record<string, ResourceConfig> = {
     { key: "riskLevel", label: "Risk", type: "select", options: [{ value: "LOW", label: "Low" }, { value: "MEDIUM", label: "Medium" }, { value: "HIGH", label: "High" }], defaultValue: "LOW" },
     { key: "notes", label: "Notes" },
   ] },
-  bills: { description: "Invoices move from intake to approval, payment release, and settlement.", columns: ["invoiceNumber", "vendorId", "amount", "remainingAmount", "currency", "status", "dueDate"], createLabel: "New bill", fields: [
+  bills: { description: "Invoices move from intake to approval, payment release, and settlement.", columns: ["invoiceNumber", "vendorId", "amount", "remainingAmount", "currency", "status", "dueDate"], fields: [
     { key: "vendorId", label: "Vendor", required: true, type: "select", source: { path: "vendors", labelKey: "name", entityField: "legalEntityId", statuses: ["ACTIVE"] } }, entity,
     { key: "invoiceNumber", label: "Invoice number", required: true }, amount, currency,
     { key: "dueDate", label: "Due date", type: "date" },
@@ -109,6 +113,7 @@ export const resourceConfig: Record<string, ResourceConfig> = {
   ] },
   "payment-runs": { description: "Batch scheduled payments for a separate release gate.", columns: ["name", "legalEntityId", "status", "createdBy", "createdAt"], createLabel: "New payment run", fields: [
     { key: "name", label: "Run name", required: true }, entity,
+    { key: "sourceAccountId", label: "Source account", type: "select", source: { path: "banking", labelKey: "name", entityField: "legalEntityId" } },
   ] },
   accounting: { description: "Review and code financial activity before export or ERP sync.", columns: ["sourceType", "sourceId", "amount", "currency", "category", "status", "externalId", "syncError", "updatedAt"] },
   "accounting-rules": { description: "Deterministic coding rules applied when sources enter the queue.", columns: ["name", "priority", "enabled", "createdAt"], createLabel: "New rule", fields: [
@@ -149,12 +154,15 @@ export function labelForKey(key: string) {
 }
 
 export const actionPermissions: Record<string, Record<string, string>> = {
+  entities: { update: "roles.assign", archive: "roles.assign" },
+  departments: { update: "roles.assign", archive: "roles.assign" },
+  locations: { update: "roles.assign", archive: "roles.assign" },
   cards: { freeze: "card.freeze", "set-controls": "card.issue" },
   "spend-requests": { approve: "spend_request.approve" },
   transactions: { clear: "card.issue", capture: "card.issue", void: "card.issue", reverse: "card.issue" },
   expenses: { submit: "expense.create", approve: "expense.approve", split: "expense.create", "update-memo": "expense.create" },
   receipts: { link: "expense.create" },
-  reimbursements: { approve: "reimbursement.approve", schedule: "reimbursement.pay", "confirm-payout": "reimbursement.pay" },
+  reimbursements: { submit: "reimbursement.create", approve: "reimbursement.approve", schedule: "reimbursement.pay", "confirm-payout": "reimbursement.pay" },
   procurement: { submit: "procurement.request", approve: "procurement.review" },
   "purchase-orders": { receive: "procurement.review", match: "procurement.review" },
   travel: { submit: "travel.book", approve: "travel.approve", search: "travel.book", "select-quote": "travel.book", "link-fund": "travel.book", "link-expense": "travel.book" },

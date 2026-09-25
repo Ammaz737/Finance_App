@@ -16,8 +16,16 @@ type Detail = {
   };
   program: { name: string } | null;
   vendor: { name: string } | null;
+  requester: { firstName: string; lastName: string; email: string } | null;
   purchaseOrder: { id: string; number: string; status: string } | null;
   approval: { status: string; currentStep: number } | null;
+  approvalProgress: Array<{ label: string; status: string }>;
+  approvalLabel: string;
+  policy: {
+    result: string | null; reason: string | null; matchedRules: unknown;
+    requiredActions: unknown; version: number | null; evaluatedAt: string | null;
+  };
+  timeline: Array<{ id: string; action: string; createdAt: string }>;
 };
 
 function money(currency: string, value: string | number) {
@@ -51,34 +59,39 @@ export default function ProcurementRequestDetailPage() {
   }
   if (detail.isPending || !detail.data) return <p className="muted">Loading request…</p>;
 
-  const { request, program, vendor, purchaseOrder } = detail.data;
+  const { request, program, vendor, requester, purchaseOrder, approvalProgress, approvalLabel, policy, timeline } = detail.data;
   const canSubmit = request.status === "DRAFT"
     && (session?.userId === request.requesterId || session?.roles.includes("Owner") || session?.permissions.includes("*"));
   const canApprove = request.status === "IN_REVIEW"
     && (session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes("procurement.review"))
     && session?.userId !== request.requesterId;
+  const approvedSteps = approvalProgress.filter((step) => step.status === "Approved").length;
 
   return <div className="spend-detail">
     <div className="resource-heading">
-      <PageHeader title={request.name} subtitle={money(request.currency, request.amount)} />
+      <PageHeader
+        title={request.name}
+        subtitle={`${requester ? `${requester.firstName} ${requester.lastName}` : "Requester"} · ${money(request.currency, request.amount)}`}
+      />
       <Link className="btn btn-ghost" href="/app/procurement/requests">Back</Link>
     </div>
     {message && <p className="notice" role="status">{message}</p>}
     {run.isError && <p className="error" role="alert">{run.error.message}</p>}
 
     <div className="kpi-grid">
-      <article className="kpi-card"><span>Status</span><strong><StatusBadge status={request.status} /></strong><small>{request.approvalProgress}</small></article>
+      <article className="kpi-card"><span>Status</span><strong><StatusBadge status={request.status} /></strong><small>{approvalLabel}</small></article>
       <article className="kpi-card"><span>Outcome</span><strong>{request.outcomeType}</strong><small>{request.outcomeId ? `Ref ${request.outcomeId.slice(0, 12)}` : "After final approval only"}</small></article>
       <article className="kpi-card"><span>PO</span><strong>{purchaseOrder ? purchaseOrder.number : "None"}</strong><small>{purchaseOrder ? <StatusBadge status={purchaseOrder.status} /> : "Not before final approve"}</small></article>
+      <article className="kpi-card"><span>Policy</span><strong>{policy.result ?? "—"}</strong><small>{policy.reason || "Evaluated on submit"}</small></article>
     </div>
 
     <div className="work-panels">
       <section className="work-panel">
-        <h2>Details</h2>
+        <h2>Overview</h2>
         <dl className="detail-list">
           <div><dt>Program</dt><dd>{program?.name ?? "—"}</dd></div>
           <div><dt>Vendor</dt><dd>{vendor?.name ?? "—"}</dd></div>
-          <div><dt>Memo</dt><dd>{request.memo || "—"}</dd></div>
+          <div><dt>Business purpose</dt><dd>{request.memo || "—"}</dd></div>
         </dl>
         <h3>Lines</h3>
         <ul className="plain-list">
@@ -92,6 +105,36 @@ export default function ProcurementRequestDetailPage() {
           {canApprove && <button className="btn btn-primary" type="button" disabled={run.isPending} onClick={() => run.mutate("approve")}>Approve</button>}
           {purchaseOrder && <Link className="btn btn-ghost" href={`/app/procurement/purchase-orders/${purchaseOrder.id}`}>Open PO</Link>}
         </div>
+      </section>
+
+      <section className="work-panel">
+        <h2>Approvals</h2>
+        <p className="muted">{approvedSteps} of {approvalProgress.length || 0} approvals completed</p>
+        <ul className="plain-list">
+          {approvalProgress.map((step) => (
+            <li key={`${step.label}-${step.status}`}>{step.label}{" "}<StatusBadge status={step.status} /></li>
+          ))}
+          {!approvalProgress.length && <li className="muted">No approval steps yet.</li>}
+        </ul>
+      </section>
+
+      <section className="work-panel">
+        <h2>Policy</h2>
+        <dl className="detail-list">
+          <div><dt>Result</dt><dd>{policy.result ?? "—"}</dd></div>
+          <div><dt>Reason</dt><dd>{policy.reason || "—"}</dd></div>
+          <div><dt>Version</dt><dd>{policy.version ?? "—"}</dd></div>
+        </dl>
+      </section>
+
+      <section className="work-panel">
+        <h2>Activity</h2>
+        <ul className="plain-list">
+          {timeline.map((event) => (
+            <li key={event.id}>{event.action} · {new Date(event.createdAt).toLocaleString()}</li>
+          ))}
+          {!timeline.length && <li className="muted">No activity yet.</li>}
+        </ul>
       </section>
     </div>
   </div>;

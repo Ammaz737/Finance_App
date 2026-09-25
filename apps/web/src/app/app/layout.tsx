@@ -2,16 +2,17 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { QueryProvider } from "@/providers/query-provider";
 import { SessionGate, useSession } from "@/providers/session-provider";
-import { canSeeItem, navigation } from "@/config/navigation";
+import { canSeeItem, findNavItem, isUnfinishedProductRoute, navigation } from "@/config/navigation";
 import { api, setToken } from "@/lib/api";
 
 function Shell({ children }: { children: ReactNode }) {
   const session = useSession();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const notifications = useQuery({
     queryKey: ["notifications"],
@@ -19,8 +20,13 @@ function Shell({ children }: { children: ReactNode }) {
     refetchInterval: 60_000,
   });
   if (!session) return null;
-  const current = navigation.flatMap((section) => section.items).find((item) => item.href === pathname);
-  const forbidden = Boolean(current && !canSeeItem(current, session));
+  const query = searchParams.toString();
+  const current = findNavItem(`${pathname}${query ? `?${query}` : ""}`);
+  const unfinished = isUnfinishedProductRoute(pathname);
+  // Nav permissions gate list/exact routes only. Detail deep-links (/:id) rely on API RBAC/ownership
+  // so employees can open their own requests/trips without needing approve/list permissions.
+  const exactNav = Boolean(current && new URL(current.href, "http://finance.local").pathname === pathname);
+  const forbidden = Boolean(unfinished) || Boolean(exactNav && current && !canSeeItem(current, session));
   const unread = (notifications.data ?? []).filter((item) => !item.readAt).length;
 
   function signOut() {
@@ -39,7 +45,10 @@ function Shell({ children }: { children: ReactNode }) {
             if (!items.length) return null;
             return <div className="nav-section" key={section.label}>
               <div className="nav-label">{section.label}</div>
-              {items.map((item) => <Link key={item.href} className={`nav-link${pathname === item.href ? " active" : ""}`} href={item.href} aria-current={pathname === item.href ? "page" : undefined}>{item.label}</Link>)}
+              {items.map((item) => {
+                const active = current?.href === item.href;
+                return <Link key={item.href} className={`nav-link${active ? " active" : ""}`} href={item.href} aria-current={active ? "page" : undefined}>{item.label}</Link>;
+              })}
             </div>;
           })}
         </nav>
@@ -59,10 +68,15 @@ function Shell({ children }: { children: ReactNode }) {
         </header>
         <main id="main-content" className="content" tabIndex={-1}>
           {forbidden ? <section className="access-denied" role="alert">
-            <span className="eyebrow">403 · Access denied</span>
-            <h1>You do not have access to this page</h1>
-            <p>Your role or enabled product features do not allow this route.</p>
-            <Link className="btn btn-primary" href="/app/home">Return to overview</Link>
+            <span className="eyebrow">{unfinished ? `${unfinished} · Not enabled` : "403 · Access denied"}</span>
+            <h1>{unfinished ? "This product area is not part of P0" : "You do not have access to this page"}</h1>
+            <p>{unfinished
+              ? "Scaffolds for later phases stay in the repo but are hidden until feature flags enable them."
+              : "Your role, entity scope, or enabled product features do not allow this route."}</p>
+            <div className="detail-actions">
+              <Link className="btn btn-primary" href="/app/home">Return to overview</Link>
+              <Link className="btn btn-ghost" href="/app/inbox">Open inbox</Link>
+            </div>
           </section> : children}
         </main>
       </div>

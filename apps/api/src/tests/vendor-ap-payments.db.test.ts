@@ -211,6 +211,9 @@ describe.runIf(runDb)("M6 vendor AP payments", () => {
     });
     const run = await paymentRuns.create(creator, { legalEntityId: entityId, name: `Weekly ${suffix}` });
     await paymentRuns.addPayments(creator, run.id, { paymentIds: [payment.id] });
+    await paymentRuns.removePayments(creator, run.id, { paymentIds: [payment.id] });
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).paymentRunId).toBeNull();
+    await paymentRuns.addPayments(creator, run.id, { paymentIds: [payment.id] });
     await expect(paymentRuns.release(creator, run.id)).rejects.toMatchObject({ code: "SOD_VIOLATION" });
     const released = await paymentRuns.release(releaser, run.id);
     expect(released.run.status).toBe("RELEASED");

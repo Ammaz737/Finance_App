@@ -16,5 +16,10 @@ describe("procurement match helpers", () => {
     expect(evaluateMatch({ poAmount: 100, receivedAmount: 0, billedAmount: 90 }).status).toBe("EXCEPTION");
     expect(evaluateMatch({ poAmount: 100, receivedAmount: 100, billedAmount: 100 }).matchType).toBe("THREE_WAY");
     expect(evaluateMatch({ poAmount: 100, receivedAmount: 80, billedAmount: 100 }).status).toBe("EXCEPTION");
+    expect(evaluateMatch({ poAmount: 10000, receivedAmount: 0, billedAmount: 10050, tolerancePct: 0.01 }).status).toBe("WITHIN_TOLERANCE");
+    expect(evaluateMatch({
+      poAmount: 100, receivedAmount: 60, billedAmount: 100,
+      orderedQuantity: 10, receivedQuantity: 6, invoicedQuantity: 10,
+    }).reasonCode).toBe("NOT_RECEIVED");
   });
 });

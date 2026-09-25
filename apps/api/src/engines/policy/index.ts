@@ -45,8 +45,11 @@ function applyRule(rule: PolicyRule, input: {
   amount: number;
   hasReceipt?: boolean;
   hasMemo?: boolean;
+  hasVendor?: boolean;
+  hasAttachment?: boolean;
   category?: string;
   outOfPolicy?: boolean;
+  reimbursementType?: string;
 }): PolicyEvaluation | null {
   switch (rule.type) {
     case "hard_policy_block":
@@ -64,6 +67,7 @@ function applyRule(rule: PolicyRule, input: {
       return null;
     case "receipt_required": {
       if (input.objectType !== "expense" && input.objectType !== "reimbursement") return null;
+      if (input.objectType === "reimbursement" && input.reimbursementType && input.reimbursementType !== "STANDARD") return null;
       const threshold = rule.threshold ?? 75;
       if (!input.hasReceipt && input.amount >= threshold) {
         const result = (rule.action === "review" ? "REVIEW" : "BLOCK") as PolicyResult;
@@ -79,16 +83,45 @@ function applyRule(rule: PolicyRule, input: {
       return null;
     }
     case "memo_required": {
-      if (input.objectType !== "expense" && input.objectType !== "reimbursement" && input.objectType !== "spend_request") return null;
+      if (input.objectType !== "expense" && input.objectType !== "reimbursement" && input.objectType !== "spend_request" && input.objectType !== "procurement") return null;
       const threshold = rule.threshold ?? 0;
       if (!input.hasMemo && input.amount >= threshold) {
         return hit({
-          result: input.objectType === "spend_request" ? "REVIEW" : "REVIEW",
+          result: "REVIEW",
           rule: "memo_required",
           explanation: "A business purpose / memo is required by policy.",
           evidence: [`amount=${input.amount}`],
           requiredAction: "Add memo",
           matchedRules: ["memo_required"],
+        });
+      }
+      return null;
+    }
+    case "vendor_required": {
+      if (input.objectType !== "procurement") return null;
+      if (!input.hasVendor) {
+        return hit({
+          result: "REVIEW",
+          rule: "vendor_required",
+          explanation: "A vendor or proposed vendor is required before approval.",
+          evidence: [input.objectType],
+          requiredAction: "Select vendor",
+          matchedRules: ["vendor_required"],
+        });
+      }
+      return null;
+    }
+    case "quote_required": {
+      if (input.objectType !== "procurement") return null;
+      const threshold = rule.threshold ?? 5000;
+      if (!input.hasAttachment && input.amount >= threshold) {
+        return hit({
+          result: "REVIEW",
+          rule: "quote_required",
+          explanation: `A quote/supporting document is required for amounts at or above ${threshold.toFixed(2)}.`,
+          evidence: [`amount=${input.amount}`, `threshold=${threshold}`],
+          requiredAction: "Attach quote",
+          matchedRules: ["quote_required"],
         });
       }
       return null;
@@ -174,9 +207,12 @@ export function evaluatePolicy(input: {
   amount: number;
   hasReceipt?: boolean;
   hasMemo?: boolean;
+  hasVendor?: boolean;
+  hasAttachment?: boolean;
   merchant?: string;
   category?: string;
   outOfPolicy?: boolean;
+  reimbursementType?: string;
   rules?: PolicyRule[];
 }): PolicyEvaluation {
   const rules = input.rules?.length

@@ -10,6 +10,7 @@ export default function Page() {
     path="receipts"
     onRowNavigate={(row) => {
       if (typeof row.expenseId === "string" && row.expenseId) router.push(`/app/expenses/${row.expenseId}`);
+      else router.push(`/app/expenses/receipts/${row.id}`);
     }}
   />;
 }

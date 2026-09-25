@@ -3,7 +3,10 @@
     "argv": [
       "C:\\Program Files\\nodejs\\node.exe",
       "C:\\Ammaz\\finance\\apps\\web\\node_modules\\@playwright\\test\\cli.js",
-      "test"
+      "test",
+      "e2e/p0-5-ux.spec.ts",
+      "--grep",
+      "G7"
     ],
     "configFile": "C:\\Ammaz\\finance\\apps\\web\\playwright.config.ts",
     "rootDir": "C:/Ammaz/finance/apps/web/e2e",
@@ -65,13 +68,13 @@
   },
   "suites": [
     {
-      "title": "golden-flows.spec.ts",
-      "file": "golden-flows.spec.ts",
+      "title": "p0-5-ux.spec.ts",
+      "file": "p0-5-ux.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [
         {
-          "title": "A: spend request to accounting golden journey",
+          "title": "G7 — Spend request form loads entity and program options",
           "ok": true,
           "tags": [],
           "tests": [
@@ -86,12 +89,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 25603,
+                  "duration": 4207,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-09-21T06:40:10.424Z",
+                  "startTime": "2026-09-22T14:04:37.565Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -99,145 +102,9 @@
               "status": "expected"
             }
           ],
-          "id": "08c379e98cfaebda2019-c4ca5850e9cae140b55a",
-          "file": "golden-flows.spec.ts",
-          "line": 34,
-          "column": 5
-        },
-        {
-          "title": "A2: declined authorization + tenant isolation negatives",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 60000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 1863,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-09-21T06:40:36.985Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "08c379e98cfaebda2019-c1a2e98c71b403fc36cd",
-          "file": "golden-flows.spec.ts",
-          "line": 93,
-          "column": 5
-        },
-        {
-          "title": "B: bill approval, release, settlement, and accounting golden journey",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 60000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 16621,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-09-21T06:40:38.910Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "08c379e98cfaebda2019-79f3feef32469f48d171",
-          "file": "golden-flows.spec.ts",
-          "line": 118,
-          "column": 5
-        },
-        {
-          "title": "B2: partial payment then settle remaining",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 60000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 2338,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-09-21T06:40:55.564Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "08c379e98cfaebda2019-01d5918504268fa9a271",
-          "file": "golden-flows.spec.ts",
-          "line": 168,
-          "column": 5
-        },
-        {
-          "title": "B3: AP negatives — duplicate, creator SoD, tenant isolation",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 60000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 1214,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-09-21T06:40:57.931Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "08c379e98cfaebda2019-c18fed6469fa26e1e554",
-          "file": "golden-flows.spec.ts",
-          "line": 202,
+          "id": "fed96ca3b11f6d4865d1-6839020dda91b8e04dbb",
+          "file": "p0-5-ux.spec.ts",
+          "line": 41,
           "column": 5
         }
       ]
@@ -245,9 +112,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-09-21T06:40:08.718Z",
-    "duration": 60641.882,
-    "expected": 5,
+    "startTime": "2026-09-22T14:04:36.846Z",
+    "duration": 7226.584,
+    "expected": 1,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

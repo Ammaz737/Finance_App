@@ -24,7 +24,7 @@ export function createResourceRouter(options: {
   searchField?: string;
   select?: Record<string, boolean>;
   create?: (ctx: RequestContext, body: Record<string, unknown>) => Promise<unknown>;
-  get?: (ctx: RequestContext, id: string) => Promise<unknown>;
+  get?: (ctx: RequestContext, id: string, query: Record<string, unknown>) => Promise<unknown>;
   actions?: Record<string, (ctx: RequestContext, id: string, body: Record<string, unknown>) => Promise<unknown>>;
 }) {
   const router = Router();
@@ -58,7 +58,7 @@ export function createResourceRouter(options: {
     try {
       const ctx = getContext(req);
       if (options.get) {
-        return ok(res, redact(await options.get(ctx, req.params.id)));
+        return ok(res, redact(await options.get(ctx, req.params.id, req.query as Record<string, unknown>)));
       }
       const where = await scopedWhere(ctx, resourceName(req));
       const item = await options.getDelegate().findFirst({

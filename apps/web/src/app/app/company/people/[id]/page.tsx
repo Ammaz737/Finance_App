@@ -1,0 +1,26 @@
+"use client";
+
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormEvent, useState } from "react";
+import { PageHeader, StatusBadge } from "@finance/design-system";
+import { api } from "@/lib/api";
+
+type Row = { id: string; name?: string; email?: string; status?: string };
+type Detail = { user: { id: string; firstName: string; lastName: string; email: string; status: string; managerId?: string; departmentId?: string; locationId?: string; legalEntityId?: string }; roles: Array<{ id: string; name: string; assignmentId: string; entityId?: string | null }>; audit: Array<{ id: string; action: string; createdAt: string }> };
+export default function PersonDetailPage() {
+  const { id } = useParams<{ id: string }>(); const client = useQueryClient(); const [message, setMessage] = useState(""); const [assignment, setAssignment] = useState({ managerId: "", departmentId: "", locationId: "", legalEntityId: "", roleId: "", entityId: "" });
+  const detail = useQuery({ queryKey: ["person", id], queryFn: () => api.get<Detail>(`/people/${id}`) });
+  const refs = useQuery({ queryKey: ["people-refs"], queryFn: async () => ({ people: await api.get<Row[]>("/people"), departments: await api.get<Row[]>("/departments"), locations: await api.get<Row[]>("/locations"), entities: await api.get<Row[]>("/entities"), roles: await api.get<Row[]>("/rbac") }) });
+  const action = useMutation({ mutationFn: ({ name, body = {} }: { name: string; body?: Record<string, unknown> }) => api.post(`/people/${id}/${name}`, body), onSuccess: (result: unknown, input) => { const activationPath = (result as { activationPath?: string })?.activationPath; setMessage(activationPath ? `Sandbox activation link: ${window.location.origin}${activationPath}` : `${input.name} completed.`); void client.invalidateQueries({ queryKey: ["person", id] }); } });
+  function update(event: FormEvent) { event.preventDefault(); action.mutate({ name: "update", body: assignment }); }
+  if (detail.isPending || !detail.data) return <p className="muted">Loading person…</p>;
+  const { user, roles, audit } = detail.data;
+  return <div className="stack-lg"><div className="resource-heading"><PageHeader title={`${user.firstName} ${user.lastName}`} subtitle={user.email} /><Link className="btn btn-ghost" href="/app/company/people">Back</Link></div>{message && <p className="notice">{message}</p>}{action.error && <p className="error">{action.error.message}</p>}
+    <section className="panel"><h2>Employment assignments</h2><p><StatusBadge status={user.status} /></p><form className="form-grid" onSubmit={update}>{([['managerId','Manager','people'],['departmentId','Department','departments'],['locationId','Location','locations'],['legalEntityId','Legal entity','entities']] as const).map(([key,label,source]) => <label key={key}>{label}<select className="input" value={assignment[key] || user[key] || ""} onChange={(e) => setAssignment({ ...assignment, [key]: e.target.value })}><option value="">None</option>{(refs.data?.[source] ?? []).filter((row) => row.id !== id).map((row) => <option value={row.id} key={row.id}>{row.name ?? row.email}</option>)}</select></label>)}<button className="btn btn-primary">Save assignments</button></form></section>
+    <section className="panel"><h2>Roles</h2><ul className="plain-list">{roles.map((role) => <li key={role.assignmentId}>{role.name}{role.entityId ? ` · entity ${role.entityId.slice(0,8)}` : " · organization"} <button className="btn btn-ghost" onClick={() => action.mutate({ name: "remove-role", body: { assignmentId: role.assignmentId } })}>Remove</button></li>)}</ul><div className="form-grid"><select className="input" aria-label="Role" value={assignment.roleId} onChange={(e) => setAssignment({ ...assignment, roleId: e.target.value })}><option value="">Select role</option>{(refs.data?.roles ?? []).map((role) => <option value={role.id} key={role.id}>{role.name}</option>)}</select><select className="input" aria-label="Role entity scope" value={assignment.entityId} onChange={(e) => setAssignment({ ...assignment, entityId: e.target.value })}><option value="">Organization scope</option>{(refs.data?.entities ?? []).map((entity) => <option value={entity.id} key={entity.id}>{entity.name}</option>)}</select><button className="btn btn-primary" disabled={!assignment.roleId} onClick={() => action.mutate({ name: "assign-role", body: { roleId: assignment.roleId, entityId: assignment.entityId || null } })}>Assign role</button></div></section>
+    <section className="panel"><h2>Account actions</h2><div className="detail-actions">{user.status === "ACTIVE" && <button className="btn btn-ghost" onClick={() => action.mutate({ name: "suspend" })}>Suspend</button>}<button className="btn btn-ghost" onClick={() => action.mutate({ name: "reset-credentials" })}>Reset activation / credentials</button>{user.status !== "TERMINATED" && <button className="btn btn-danger" onClick={() => window.confirm("Terminate this person?") && action.mutate({ name: "terminate" })}>Terminate</button>}</div></section>
+    <section className="panel"><h2>Activity</h2><ul className="plain-list">{audit.map((event) => <li key={event.id}>{event.action} · {new Date(event.createdAt).toLocaleString()}</li>)}</ul></section>
+  </div>;
+}

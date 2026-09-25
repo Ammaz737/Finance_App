@@ -35,7 +35,7 @@ function tinyPng() {
   );
 }
 
-describe.runIf(runDb)("M5 reimbursements", () => {
+describe.runIf(runDb)("M5/GF4 reimbursements", () => {
   beforeAll(async () => {
     process.env.NODE_ENV = "development";
     await prisma.$connect();
@@ -120,9 +120,14 @@ describe.runIf(runDb)("M5 reimbursements", () => {
       currency: "USD",
       memo: "Client visit drive",
       distanceMiles: "100",
+      amount: "9999.00",
+      mileageRate: "9.99",
     });
     expect(Number(created.amount)).toBe(67);
-    expect(created.status).toBe("IN_REVIEW");
+    expect(created.status).toBe("DRAFT");
+
+    const submitted = await reimbursements.submit(employee, created.id);
+    expect(submitted.status).toBe("IN_REVIEW");
 
     const approved = await reimbursements.approve(approver, created.id);
     const approvedStatus = "reimbursement" in approved ? approved.reimbursement.status : approved.status;
@@ -156,13 +161,17 @@ describe.runIf(runDb)("M5 reimbursements", () => {
       permissions: ["*", "reimbursement.create", "expense.create"],
     });
 
-    await expect(reimbursements.create(employee, {
+    const draft = await reimbursements.create(employee, {
       legalEntityId: entityId,
       type: "STANDARD",
       currency: "USD",
       memo: "Conference hotel",
       amount: "120.00",
-    })).rejects.toMatchObject({ code: "REIMBURSEMENT_POLICY_BLOCK" });
+      merchant: "Hilton",
+      expenseDate: "2026-09-01",
+    });
+    expect(draft.status).toBe("DRAFT");
+    await expect(reimbursements.submit(employee, draft.id)).rejects.toMatchObject({ code: "REIMBURSEMENT_POLICY_BLOCK" });
 
     const attachment = await ingestDocument(employee, tinyPng(), {
       name: `hotel-120-${suffix}.png`,
@@ -175,10 +184,14 @@ describe.runIf(runDb)("M5 reimbursements", () => {
       currency: "USD",
       memo: "Conference hotel",
       amount: "120.00",
+      merchant: "Hilton",
+      expenseDate: "2026-09-02",
       attachmentId: attachment.id,
     });
     expect(created.receiptId).toBeTruthy();
     expect(Number(created.amount)).toBe(120);
+    const submitted = await reimbursements.submit(employee, created.id);
+    expect(submitted.status).toBe("IN_REVIEW");
   });
 
   it("rejects self-approval", async () => {
@@ -193,13 +206,36 @@ describe.runIf(runDb)("M5 reimbursements", () => {
       currency: "USD",
       memo: "Travel nights",
       perDiemNights: 1,
-      attachmentId: (await ingestDocument(employee, tinyPng(), {
-        name: `perdiem-${suffix}.png`,
-        mimeType: "image/png",
-        classification: "RECEIPT",
-      })).id,
+      destination: "Austin",
+      amount: "999.00",
+      perDiemRate: "500",
     });
     expect(Number(created.amount)).toBe(75);
+    await reimbursements.submit(employee, created.id);
     await expect(reimbursements.approve(employee, created.id)).rejects.toMatchObject({ code: "SOD_VIOLATION" });
+  });
+
+  it("failed payout leaves reimbursement unpaid and retryable", async () => {
+    const employee = ctx({ userId: employeeId, organizationId: orgId, permissions: ["*"] });
+    const approver = ctx({ userId: approverId, organizationId: orgId, permissions: ["*"] });
+    const created = await reimbursements.create(employee, {
+      legalEntityId: entityId,
+      type: "MILEAGE",
+      currency: "USD",
+      memo: "Fail path",
+      distanceMiles: "10",
+    });
+    await reimbursements.submit(employee, created.id);
+    await reimbursements.approve(approver, created.id);
+    await reimbursements.schedule(approver, created.id, { rail: "ACH" });
+    const failed = await reimbursements.failPayout(approver, created.id, { reason: "Bank rejected" });
+    expect(failed.status).toBe("FAILED");
+    expect(failed.failureReason).toContain("Bank");
+    const accounting = await prisma.accountingEntry.count({
+      where: { organizationId: orgId, sourceType: "REIMBURSEMENT", sourceId: created.id },
+    });
+    expect(accounting).toBe(0);
+    const again = await reimbursements.schedule(approver, created.id, { rail: "ACH", idempotencyKey: `retry-${suffix}` });
+    expect(again.status).toBe("SCHEDULED");
   });
 });

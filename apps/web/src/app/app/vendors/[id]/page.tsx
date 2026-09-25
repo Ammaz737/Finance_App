@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader, StatusBadge } from "@finance/design-system";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
@@ -37,11 +37,14 @@ export default function VendorDetailPage() {
   const [last4, setLast4] = useState("");
   const [routing, setRouting] = useState("");
   const [reason, setReason] = useState("");
+  const [vendorForm, setVendorForm] = useState({ name: "", legalName: "", displayName: "", category: "", riskLevel: "LOW", notes: "" });
 
   const detail = useQuery({
     queryKey: ["vendor-detail", params.id],
     queryFn: () => api.get<Detail>(`/vendors/${params.id}`),
   });
+  useEffect(() => { if (detail.data) { const value = detail.data.vendor; setVendorForm({ name: value.name, legalName: value.legalName ?? "", displayName: value.displayName ?? "", category: value.category ?? "", riskLevel: value.riskLevel, notes: value.notes ?? "" }); } }, [detail.data]);
+  const vendorAction = useMutation({ mutationFn: ({ name, body }: { name: string; body?: object }) => api.post(`/vendors/${params.id}/${name}`, body ?? {}), onSuccess: (_result, input) => { setMessage(`Vendor ${input.name} completed.`); void queryClient.invalidateQueries({ queryKey: ["vendor-detail", params.id] }); } });
 
   const setBank = useMutation({
     mutationFn: () => api.post(`/vendors/${params.id}/set-bank`, { last4, routingMasked: routing, changeReason: reason }),
@@ -75,7 +78,7 @@ export default function VendorDetailPage() {
       <Link className="btn btn-ghost" href="/app/vendors">Back</Link>
     </div>
     {message && <p className="notice" role="status">{message}</p>}
-    {(setBank.isError || verifyBank.isError) && <p className="error" role="alert">{(setBank.error ?? verifyBank.error)?.message}</p>}
+    {(setBank.isError || verifyBank.isError || vendorAction.isError) && <p className="error" role="alert">{(setBank.error ?? verifyBank.error ?? vendorAction.error)?.message}</p>}
     {detail.data.sandbox && <p className="muted">SANDBOX vendor banking — masked details only.</p>}
 
     <div className="kpi-grid">
@@ -86,6 +89,7 @@ export default function VendorDetailPage() {
     </div>
 
     <div className="work-panels">
+      <section className="work-panel"><h2>Overview</h2><form className="record-form" onSubmit={(event) => { event.preventDefault(); vendorAction.mutate({ name: "update", body: vendorForm }); }}>{Object.entries(vendorForm).map(([key, value]) => <label key={key}>{key.replace(/([A-Z])/g, " $1")}<input className="input" value={value} onChange={(event) => setVendorForm({ ...vendorForm, [key]: event.target.value })} /></label>)}<button className="btn btn-primary">Save vendor</button></form>{vendor.status === "ACTIVE" && <button className="btn btn-danger" onClick={() => window.confirm("Deactivate this vendor?") && vendorAction.mutate({ name: "deactivate" })}>Deactivate</button>}</section>
       <section className="work-panel">
         <h2>Banking / payment details</h2>
         <ul className="plain-list">

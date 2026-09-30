@@ -366,7 +366,13 @@ export const routers = {
       "set-controls": (ctx, id, body) => actions.cards.setControls(ctx, id, {
         merchantLock: body.merchantLock === null ? null : body.merchantLock != null ? String(body.merchantLock) : undefined,
         allowedMccs: body.allowedMccs === null ? null : body.allowedMccs != null ? String(body.allowedMccs) : undefined,
+        blockedMccs: body.blockedMccs === null ? null : body.blockedMccs != null ? String(body.blockedMccs) : undefined,
+        allowedCountries: body.allowedCountries === null ? null : body.allowedCountries != null ? String(body.allowedCountries) : undefined,
+        blockedCountries: body.blockedCountries === null ? null : body.blockedCountries != null ? String(body.blockedCountries) : undefined,
         perTransactionLimit: body.perTransactionLimit === null ? null : body.perTransactionLimit != null ? String(body.perTransactionLimit) : undefined,
+        dailyLimit: body.dailyLimit === null ? null : body.dailyLimit != null ? String(body.dailyLimit) : undefined,
+        weeklyLimit: body.weeklyLimit === null ? null : body.weeklyLimit != null ? String(body.weeklyLimit) : undefined,
+        monthlyLimit: body.monthlyLimit === null ? null : body.monthlyLimit != null ? String(body.monthlyLimit) : undefined,
         velocityMaxAmount: body.velocityMaxAmount === null ? null : body.velocityMaxAmount != null ? String(body.velocityMaxAmount) : undefined,
         velocityMaxCount: body.velocityMaxCount === null ? null : body.velocityMaxCount != null ? Number(body.velocityMaxCount) : undefined,
         velocityWindowHours: body.velocityWindowHours != null ? Number(body.velocityWindowHours) : undefined,
@@ -477,6 +483,7 @@ export const routers = {
   transactions: createResourceRouter({
     getDelegate: () => prisma.txn as never,
     searchField: "merchant",
+    get: (ctx, id) => actions.cards.getTransactionDetail(ctx, id),
     actions: {
       clear: (ctx, id) => actions.cards.clear(ctx, id),
       capture: (ctx, id, body) => actions.cards.capture(ctx, id, {
@@ -545,6 +552,9 @@ export const routers = {
     actions: {
       submit: (ctx, id) => actions.reimbursements.submit(ctx, id),
       approve: (ctx, id) => actions.reimbursements.approve(ctx, id),
+      "attach-receipt": (ctx, id, body) => actions.reimbursements.attachReceipt(ctx, id, {
+        attachmentId: String(body.attachmentId ?? ""),
+      }),
       schedule: (ctx, id, body) => actions.reimbursements.schedule(ctx, id, {
         rail: body.rail != null ? String(body.rail) : undefined,
         idempotencyKey: body.idempotencyKey != null ? String(body.idempotencyKey) : undefined,

@@ -305,7 +305,7 @@ Trip detail par:
 4. **Submit**.
 5. In-policy trip `READY_TO_BOOK` ho sakti hai.
 6. Out-of-policy trip Manager aur Finance approval ke paas jayegi.
-7. Approved trip par **Reprice**.
+7. 4 2.
 8. **Place mock hold**.
 9. **Confirm (sandbox)**.
 

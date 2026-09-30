@@ -78,11 +78,13 @@ describe("GF5 travel mock adapter + policy + reprice", () => {
     expect(evaluatePolicy({ objectType: "travel", amount: 500, outOfPolicy: true, rules }).result).toBe("REVIEW");
   });
 
-  it("state helpers allow search/book on READY_TO_BOOK", () => {
+  it("state helpers allow search/book on READY_TO_BOOK and BOOKING", () => {
     expect(canSearchTrip("DRAFT")).toBe(true);
     expect(canSearchTrip("READY_TO_BOOK")).toBe(true);
+    expect(canSearchTrip("BOOKING")).toBe(true);
     expect(canBookTrip("READY_TO_BOOK")).toBe(true);
     expect(canBookTrip("APPROVED")).toBe(true);
+    expect(canBookTrip("BOOKING")).toBe(true);
     expect(canBookTrip("PENDING_APPROVAL")).toBe(false);
   });
 });

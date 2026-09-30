@@ -67,12 +67,14 @@ model User {
   passwordResetTokenHash String? @map("password_reset_token_hash")
   passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
   legalEntityId String? @map("legal_entity_id")
+  stripeCardholderId String? @map("stripe_cardholder_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@unique([organizationId, email])
   @@index([organizationId, status])
   @@index([organizationId, passwordResetTokenHash])
+  @@index([organizationId, stripeCardholderId])
   @@map("users")
 }
 
@@ -485,18 +487,51 @@ model Card {
   last4          String
   token          String
   providerRef    String? @map("provider_ref")
+  stripeCardId   String? @map("stripe_card_id")
+  provider       String  @default("mock")
+  brand          String  @default("visa")
   network        String  @default("MOCK")
   status         String  @default("ACTIVE")
+  shippingStatus String? @map("shipping_status")
+  shippingName   String? @map("shipping_name")
+  shippingLine1  String? @map("shipping_line1")
+  shippingCity   String? @map("shipping_city")
+  shippingState  String? @map("shipping_state")
+  shippingPostal String? @map("shipping_postal")
+  shippingCountry String? @map("shipping_country")
   merchantLock   String? @map("merchant_lock")
   allowedMccs    String? @map("allowed_mccs")
+  blockedMccs    String? @map("blocked_mccs")
+  allowedCountries String? @map("allowed_countries")
+  blockedCountries String? @map("blocked_countries")
   perTransactionLimit Decimal? @map("per_transaction_limit") @db.Decimal(18, 2)
+  dailyLimit     Decimal? @map("daily_limit") @db.Decimal(18, 2)
+  weeklyLimit    Decimal? @map("weekly_limit") @db.Decimal(18, 2)
+  monthlyLimit   Decimal? @map("monthly_limit") @db.Decimal(18, 2)
   velocityMaxAmount Decimal? @map("velocity_max_amount") @db.Decimal(18, 2)
   velocityMaxCount Int?  @map("velocity_max_count")
   velocityWindowHours Int @default(24) @map("velocity_window_hours")
+  replacedByCardId String? @map("replaced_by_card_id")
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@unique([organizationId, fundId])
+  @@unique([organizationId, stripeCardId])
+  @@index([organizationId, providerRef])
   @@map("cards")
+}
+
+model CardEvent {
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  stripeEventId  String   @unique @map("stripe_event_id")
+  eventType      String   @map("event_type")
+  payload        Json
+  processedAt    DateTime? @map("processed_at")
+  error          String   @default("")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([eventType, createdAt])
+  @@map("card_events")
 }
 
 model CardAuthorization {
@@ -508,13 +543,16 @@ model CardAuthorization {
   currency       String
   merchant       String
   merchantCategory String @map("merchant_category")
+  merchantCountry String? @map("merchant_country")
   decision       String
   reason         String  @default("")
   providerEventId String? @map("provider_event_id")
+  stripeAuthorizationId String? @map("stripe_authorization_id")
   idempotencyKey String  @map("idempotency_key")
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@unique([organizationId, idempotencyKey])
+  @@unique([organizationId, stripeAuthorizationId])
   @@map("card_authorizations")
 }
 
@@ -556,6 +594,8 @@ model Txn {
   voidedAt       DateTime? @map("voided_at")
   reversedAt     DateTime? @map("reversed_at")
   providerClearEventId String? @map("provider_clear_event_id")
+  stripeTransactionId String? @map("stripe_transaction_id")
+  @@unique([organizationId, stripeTransactionId])
   @@index([organizationId, status])
   @@index([organizationId, cardId, authorizedAt])
   @@map("transactions")

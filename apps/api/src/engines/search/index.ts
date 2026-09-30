@@ -59,17 +59,17 @@ export async function searchOrganization(ctx: RequestContext, q: string) {
 
   const results: SearchHit[] = [
     ...vendors.map((item) => ({ id: item.id, type: "vendor", title: item.name, subtitle: item.category || "Vendor", status: item.status, href: `/app/vendors/${item.id}` })),
-    ...people.map((item) => ({ id: item.id, type: "person", title: `${item.firstName} ${item.lastName}`.trim(), subtitle: item.email, status: item.status, href: `/app/company/people` })),
-    ...bills.map((item) => ({ id: item.id, type: "bill", title: item.invoiceNumber, subtitle: `${item.currency} ${item.amount}`, status: item.status, href: `/app/bill-pay/bills/${item.id}` })),
-    ...transactions.map((item) => ({ id: item.id, type: "transaction", title: item.merchant, subtitle: `${item.currency} ${item.amount}`, status: item.status, href: `/app/spend/transactions` })),
-    ...expenses.map((item) => ({ id: item.id, type: "expense", title: item.merchant, subtitle: `${item.currency} ${item.amount}`, status: item.status, href: `/app/expenses/${item.id}` })),
-    ...purchaseOrders.map((item) => ({ id: item.id, type: "purchase_order", title: item.number, subtitle: `${item.currency} ${item.amount}`, status: item.status, href: `/app/procurement/purchase-orders/${item.id}` })),
+    ...people.map((item) => ({ id: item.id, type: "person", title: `${item.firstName} ${item.lastName}`.trim(), subtitle: item.email, status: item.status, href: `/app/company/people/${item.id}` })),
+    ...bills.map((item) => ({ id: item.id, type: "bill", title: item.invoiceNumber, subtitle: `${item.currency} ${Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, status: item.status, href: `/app/bill-pay/bills/${item.id}` })),
+    ...transactions.map((item) => ({ id: item.id, type: "transaction", title: item.merchant, subtitle: `${item.currency} ${Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, status: item.status, href: `/app/spend/transactions/${item.id}` })),
+    ...expenses.map((item) => ({ id: item.id, type: "expense", title: item.merchant, subtitle: `${item.currency} ${Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, status: item.status, href: `/app/expenses/${item.id}` })),
+    ...purchaseOrders.map((item) => ({ id: item.id, type: "purchase_order", title: item.number, subtitle: `${item.currency} ${Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, status: item.status, href: `/app/procurement/purchase-orders/${item.id}` })),
     ...trips.map((item) => ({ id: item.id, type: "travel", title: item.name, subtitle: item.destination, status: item.status, href: `/app/travel/trips/${item.id}` })),
-    ...spendRequests.map((item) => ({ id: item.id, type: "spend_request", title: item.name, subtitle: `${item.currency} ${item.amount}`, status: item.status, href: `/app/spend/requests/${item.id}` })),
-    ...reimbursements.map((item) => ({ id: item.id, type: "reimbursement", title: item.memo || item.merchant || "Reimbursement", subtitle: `${item.currency} ${item.amount}`, status: item.status, href: `/app/expenses/reimbursements/${item.id}` })),
-    ...payments.map((item) => ({ id: item.id, type: "payment", title: `${item.rail} payment`, subtitle: `${item.currency} ${item.amount}`, status: item.status, href: `/app/bill-pay/payments/${item.id}` })),
-    ...cards.map((item) => ({ id: item.id, type: "card", title: `Card ····${item.last4}`, subtitle: item.type, status: item.status, href: `/app/spend/cards/${item.id}` })),
-  ];
+    ...spendRequests.map((item) => ({ id: item.id, type: "spend_request", title: item.name, subtitle: `${item.currency} ${Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, status: item.status, href: `/app/spend/requests/${item.id}` })),
+    ...reimbursements.map((item) => ({ id: item.id, type: "reimbursement", title: item.memo || item.merchant || "Reimbursement", subtitle: `${item.currency} ${Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, status: item.status, href: `/app/expenses/reimbursements/${item.id}` })),
+    ...payments.map((item) => ({ id: item.id, type: "payment", title: `${item.rail} payment`, subtitle: `${item.currency} ${Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, status: item.status, href: `/app/bill-pay/payments/${item.id}` })),
+    ...cards.map((item) => ({ id: item.id, type: "card", title: `Card ····${item.last4}`, subtitle: item.type, status: item.status, href: `/app/cards/${item.id}` })),
+  ].sort((a, b) => a.type.localeCompare(b.type) || a.title.localeCompare(b.title));
 
   return {
     query,

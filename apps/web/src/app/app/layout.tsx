@@ -43,10 +43,34 @@ function Shell({ children }: { children: ReactNode }) {
           {navigation.map((section) => {
             const items = section.items.filter((item) => canSeeItem(item, session));
             if (!items.length) return null;
+            const activeHref = items
+              .filter((candidate) => {
+                const url = new URL(candidate.href, "http://finance.local");
+                const pathMatch = pathname === url.pathname || pathname.startsWith(`${url.pathname}/`);
+                if (!pathMatch) return false;
+                const keys = [...url.searchParams.keys()];
+                if (keys.length) {
+                  return keys.every((key) => searchParams.get(key) === url.searchParams.get(key));
+                }
+                // Bare path item is active only when no query-bearing sibling matches.
+                return !items.some((sibling) => {
+                  const siblingUrl = new URL(sibling.href, "http://finance.local");
+                  if (siblingUrl.pathname !== pathname) return false;
+                  const siblingKeys = [...siblingUrl.searchParams.keys()];
+                  if (!siblingKeys.length) return false;
+                  return siblingKeys.every((key) => searchParams.get(key) === siblingUrl.searchParams.get(key));
+                });
+              })
+              .sort((a, b) => {
+                const aQuery = a.href.includes("?") ? 1 : 0;
+                const bQuery = b.href.includes("?") ? 1 : 0;
+                if (aQuery !== bQuery) return bQuery - aQuery;
+                return b.href.length - a.href.length;
+              })[0]?.href;
             return <div className="nav-section" key={section.label}>
               <div className="nav-label">{section.label}</div>
               {items.map((item) => {
-                const active = current?.href === item.href;
+                const active = activeHref === item.href;
                 return <Link key={item.href} className={`nav-link${active ? " active" : ""}`} href={item.href} aria-current={active ? "page" : undefined}>{item.label}</Link>;
               })}
             </div>;

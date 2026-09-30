@@ -1,14 +1,13 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ResourcePage } from "@/components/ResourcePage";
 
-export default function Page() {
+/** Legacy spend/cards list → corporate cards. */
+export default function SpendCardsRedirect() {
   const router = useRouter();
-  return <ResourcePage
-    title="Cards"
-    path="cards"
-    actions={[{ label: "Freeze", name: "freeze" }]}
-    onRowNavigate={(row) => router.push(`/app/spend/cards/${row.id}`)}
-  />;
+  useEffect(() => {
+    router.replace("/app/cards");
+  }, [router]);
+  return <p className="muted">Opening corporate cards…</p>;
 }

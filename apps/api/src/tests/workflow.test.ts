@@ -18,6 +18,12 @@ describe("approval engine foundation", () => {
       step: { type: "manager" }, actorId: "mgr", actorRoles: [], managerId: "mgr",
     })).toBe(true);
     expect(eligibleForStep({
+      step: { type: "manager" }, actorId: "other", actorRoles: ["Finance Admin"], managerId: "mgr",
+    })).toBe(false);
+    expect(eligibleForStep({
+      step: { type: "manager" }, actorId: "owner", actorRoles: ["Owner"], managerId: "mgr",
+    })).toBe(true);
+    expect(eligibleForStep({
       step: { type: "finance" }, actorId: "x", actorRoles: ["Employee"], managerId: null,
     })).toBe(false);
   });

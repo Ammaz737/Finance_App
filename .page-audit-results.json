@@ -1,0 +1,865 @@
+﻿{
+    "pages":  [
+                  {
+                      "page":  "/login",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/home",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/inbox",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/search",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/notifications",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/me/cards",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/me/expenses",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/me/requests",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/me/reimbursements",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/me/travel",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/spend/programs",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/spend/requests",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/cards",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/spend/funds",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/spend/transactions",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/disputes",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/expenses/transactions",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/expenses/receipts",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/expenses/reimbursements",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/expenses/travel",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/procurement/requests",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/procurement/programs",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/procurement/purchase-orders",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/procurement/receiving",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/procurement/match-exceptions",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/procurement/contracts",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/procurement/sourcing",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/procurement/renewals",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/vendors",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/bill-pay/bills",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/bill-pay/bills/new",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/bill-pay/payments",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/bill-pay/payment-runs",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/bill-pay/recurring",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/bill-pay/settings",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/overview",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/review",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/ready-to-sync",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/synced",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/errors",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/rules",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/integrations",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/card",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/bill-pay",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/banking",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/accounting/reimbursements",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/banking/accounts",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/banking/transfers",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/banking/transactions",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/banking/statements",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/banking/forecast",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/banking/automations",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/receivables/customers",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/receivables/invoices",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/receivables/payments",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/receivables/collections",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/receivables/cash-application",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/insights/dashboard",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/insights/budgets",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/insights/reports",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/insights/savings",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/insights/price-intelligence",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/insights/license-intelligence",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/tax",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/travel/trips",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/travel/requests",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/travel/search",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/travel/reports",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/travel/travelers",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/travel/policy",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/ai/ask",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/ai/agents",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/ai/router",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/ai/token-spend",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/ai/sheets",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/ai/activity",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/settings",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/entities",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/departments",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/locations",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/people",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/roles",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/policy",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/approvals",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/accounting-dimensions",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/integrations",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/rewards",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/audit",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/billing",
+                      "status":  200,
+                      "flags":  "SCAFFOLD,FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/company/security",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  },
+                  {
+                      "page":  "/app/developer",
+                      "status":  200,
+                      "flags":  "FORBIDDEN",
+                      "ok":  true
+                  }
+              ],
+    "scannedAt":  "2026-09-29T13:07:51.7953066+05:00",
+    "api":  [
+                {
+                    "path":  "identity/me",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":{\"actorType\":\"INTERNAL_USER\",\"userId\":\"456880d5-cd58-4ce9-b0e0-e1d98a97d74b\",\"organizationId\":\"2f8cf20c-42ac-4c3"
+                },
+                {
+                    "path":  "identity/overview",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":{\"cards\":1,\"openExpenses\":0,\"pendingRequests\":0,\"availableFunds\":[{\"currency\":\"USD\",\"amount\":\"5000\"}]},\"meta\":{\""
+                },
+                {
+                    "path":  "notifications",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"5ca16b3e-37dd-4e40-8da3-5b85a2f0b2fe\"}}"
+                },
+                {
+                    "path":  "inbox",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"accounting:7ca7898b-66f4-476e-9f80-2b8b81491656\",\"type\":\"ACCOUNTING_EXCEPTION\",\"objectType\":\"accounting\""
+                },
+                {
+                    "path":  "search?q=acme",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":{\"query\":\"acme\",\"total\":9,\"results\":[{\"id\":\"43477c59-1f49-409b-bfe8-6dbbc33dce4f\",\"type\":\"person\",\"title\":\"Aiden"
+                },
+                {
+                    "path":  "entities",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"503261e9-c406-4542-8f5d-adad823bb079\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"Ac"
+                },
+                {
+                    "path":  "departments",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"eefc0adb-64e5-485d-975a-443c795e6442\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"SO"
+                },
+                {
+                    "path":  "locations",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"e896038f-cd55-459a-936d-26948f07e50f\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"KA"
+                },
+                {
+                    "path":  "people",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"eb2f4491-6f6a-4fcd-b8bd-648cd875bd55\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"email\":\"g"
+                },
+                {
+                    "path":  "rbac",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"ff504541-11a8-4ad7-9775-3cbe26f78890\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"Ow"
+                },
+                {
+                    "path":  "policies",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"efecab5d-cc4e-40c1-b8e9-a5c1864244a2\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"G6"
+                },
+                {
+                    "path":  "approvals",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"f9f5aaa6-2090-4dc6-8ecd-440ebd69e87e\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"G6"
+                },
+                {
+                    "path":  "integrations",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"0e125bfd-9bcd-4c5b-902d-fe2233f949e5\",\"family\":\"AccountingProvider\",\"provider\":\"MOCK_QBO\",\"status\":\"CONN"
+                },
+                {
+                    "path":  "audit",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"ff387654-0e85-4ea9-b402-83ec5c1b719c\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"actorId\":"
+                },
+                {
+                    "path":  "budgets",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"cb2a354f-4127-4fb0-a8b6-f384de9d0693\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "cards",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"fe4a8c93-64f7-4744-b76f-06f906ef8a7e\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "funds",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"f173fe8a-c79d-4a1a-86df-082da76f3c7b\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "spend-programs",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"f0264446-eef9-47ee-bee2-8c1bf37934f9\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "spend-requests",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"ecbcf935-a6e1-4310-97b3-49820693ba9e\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "transactions",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"ff4304b0-bac3-4762-afa1-a0ff3944626d\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "expenses",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"f59c49c7-ed29-424a-bc01-ba37c3c0f70d\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "receipts",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"e90ab5c3-568b-41f1-84ae-fe93b6787078\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"attachmen"
+                },
+                {
+                    "path":  "reimbursements",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"fdf9f493-17d9-4de3-bb0c-f19e16bee58c\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "procurement",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"e87c2b08-4329-40ad-b650-1db66fb69fb4\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "procurement-programs",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"e8fe6cc5-83f6-4974-9aab-089d9a6f8122\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"So"
+                },
+                {
+                    "path":  "purchase-orders",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"fd1a13d6-4b15-496c-a597-06f00c34198a\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "receiving",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"fcceea38-cd9d-49a1-a152-b4f656e7671d\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"purchaseO"
+                },
+                {
+                    "path":  "matches",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"e7e274fa-bdc7-4ac1-8985-58dec81350e2\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"purchaseO"
+                },
+                {
+                    "path":  "vendors",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"b09fa1ca-6783-4fed-97a0-9cae05cc60f4\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "bills",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"fd9f18c3-4693-454b-8294-115afe86e1de\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "payments",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"fad7badf-9c7c-4d0c-950e-296ae02f2211\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "payment-runs",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"fb6cc896-e2a2-413e-b60e-9f1763326342\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "accounting",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"fd30d634-b9f8-4975-b623-06432644da79\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "accounting-rules",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"94cc87ec-61d8-4825-bf8e-fcad98857365\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"Mi"
+                },
+                {
+                    "path":  "banking",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"8f62f316-cf01-4d7b-9993-eccb37417d7f\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "treasury",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"230647a7-23ea-400c-b81d-5f48613dd377\"}}"
+                },
+                {
+                    "path":  "travel",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"f2e337be-1b59-4d35-a4ea-09fb0470a05e\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "reporting/dashboard",
+                    "status":  404,
+                    "ok":  false,
+                    "snippet":  "\n\n\n\nError\n\n\nCannot GET /api/v1/reporting/dashboard\n\n\n"
+                },
+                {
+                    "path":  "customers",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"55af867f-bfd2-4753-9437-c79a04caa9b0\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"No"
+                },
+                {
+                    "path":  "invoices",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"41864ece-fdae-4135-988c-e1b275d0d8ba\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "incoming-payments",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"3784c851-4675-46dd-866a-f0c0d758f806\"}}"
+                },
+                {
+                    "path":  "contracts",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"3a99cca5-c57e-4229-bbcf-a78769cbbc59\"}}"
+                },
+                {
+                    "path":  "disputes",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"63749fc1-c9d8-4d50-a4d7-e35c53cf943e\"}}"
+                },
+                {
+                    "path":  "rewards",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"5da82567-7d40-4fe3-a0f3-2f961c72a88c\"}}"
+                },
+                {
+                    "path":  "tax-operations",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"a6c8da2d-987f-4816-8af7-2dea6f150cdf\"}}"
+                },
+                {
+                    "path":  "developer-platform",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"2e28c460-6e54-483f-9381-a3d58a6b5abe\"}}"
+                },
+                {
+                    "path":  "ai",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"f4e8797e-5ccf-4f4e-9e72-7190c2866989\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"objectTyp"
+                },
+                {
+                    "path":  "agent-finance",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"deae8282-3b75-40ee-aafb-d9c475aa04dd\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"legalEnti"
+                },
+                {
+                    "path":  "router",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[],\"meta\":{\"requestId\":\"70997679-2b1f-4a8a-b753-0be8548ae7c8\"}}"
+                },
+                {
+                    "path":  "ai-token-spend",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"149a1c0f-e01a-49b0-b327-112c661c5d0b\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"provider\""
+                },
+                {
+                    "path":  "sheets",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"428c9fc6-3093-492d-846b-575cd70e5e04\",\"organizationId\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"FY"
+                },
+                {
+                    "path":  "organizations",
+                    "status":  200,
+                    "ok":  true,
+                    "snippet":  "{\"data\":[{\"id\":\"2f8cf20c-42ac-4c3d-ae1f-1aeb15e1d8b9\",\"name\":\"Acme Manufacturing\",\"slug\":\"acme\",\"createdAt\":\"2026-09-21T"
+                }
+            ]
+}

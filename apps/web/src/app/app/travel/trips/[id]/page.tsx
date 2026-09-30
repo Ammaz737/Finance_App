@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { PageHeader, StatusBadge } from "@finance/design-system";
+import { canSeeItem, findNavItem } from "@/config/navigation";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
 
@@ -36,7 +37,7 @@ type Detail = {
   bookings: Booking[];
   fund: { id: string; name: string; availableAmount?: string | number } | null;
   card: { id: string; last4: string; status: string; allowedMccs?: string | null; providerRef?: string | null } | null;
-  expense: { id: string; merchant: string; memo?: string } | null;
+  expense: { id: string; merchant: string; memo?: string; userId?: string } | null;
   approval: { status: string; currentStep: number } | null;
   audit: Array<{ id: string; action: string; createdAt: string }>;
 };
@@ -54,7 +55,16 @@ function fmtDate(value: string | null | undefined) {
 }
 
 export default function TravelTripDetailPage() {
+  return (
+    <Suspense fallback={<p className="muted">Loading trip…</p>}>
+      <TravelTripDetailInner />
+    </Suspense>
+  );
+}
+
+function TravelTripDetailInner() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const session = useSession();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
@@ -148,20 +158,72 @@ export default function TravelTripDetailPage() {
 
   const { trip, bookings, fund, card, expense, approval, audit } = detail.data;
   const privileged = session?.roles.includes("Owner") || session?.permissions.includes("*");
-  const canBook = privileged || session?.permissions.includes("travel.book");
-  const canApprove = trip.status === "PENDING_APPROVAL"
-    && (privileged || session?.permissions.includes("travel.approve"))
-    && session?.userId !== trip.travelerId;
+  const isMine = Boolean(session?.userId && session.userId === trip.travelerId);
+  const canBook = Boolean(privileged || session?.permissions.includes("travel.book"));
+  const canApprovePerm = Boolean(privileged || session?.permissions.includes("travel.approve"));
+  const canApprove = trip.status === "PENDING_APPROVAL" && canApprovePerm && !isMine;
   const canSubmit = trip.status === "DRAFT" && canBook;
-  const bookable = ["READY_TO_BOOK", "APPROVED"].includes(trip.status);
-  const canSearch = canBook && ["DRAFT", "APPROVED", "READY_TO_BOOK", "PENDING_APPROVAL"].includes(trip.status);
+  const bookable = ["READY_TO_BOOK", "APPROVED", "BOOKING"].includes(trip.status);
+  const canSearch = canBook && ["DRAFT", "APPROVED", "READY_TO_BOOK", "PENDING_APPROVAL", "BOOKING"].includes(trip.status);
   const pending = tripAction.isPending || search.isPending || selectQuote.isPending || bookingAction.isPending || linkFund.isPending || linkExpense.isPending;
   const error = tripAction.error || search.error || selectQuote.error || bookingAction.error || linkFund.error || linkExpense.error;
 
-  return <div className="spend-detail">
+  const from = searchParams.get("from");
+  const canSeeTrips = session
+    ? canSeeItem(findNavItem("/app/travel/trips") ?? { href: "/app/travel/trips", permission: "travel.book" }, session)
+    : false;
+  const canSeeRequests = session
+    ? canSeeItem(findNavItem("/app/travel/requests") ?? { href: "/app/travel/requests", permission: "travel.approve" }, session)
+    : false;
+  const canSeeFunds = session
+    ? canSeeItem(findNavItem("/app/spend/funds") ?? { href: "/app/spend/funds", permission: "card.read" }, session)
+    : false;
+  const canSeeCorporateCards = session
+    ? canSeeItem(findNavItem("/app/cards") ?? { href: "/app/cards", permission: "card.issue" }, session)
+    : false;
+  const canSeeMyExpenses = session
+    ? canSeeItem(findNavItem("/app/me/expenses") ?? { href: "/app/me/expenses", permissions: ["expense.read", "expense.create"] }, session)
+    : false;
+  const canSeeExpenseReview = session
+    ? canSeeItem(findNavItem("/app/expenses/transactions") ?? { href: "/app/expenses/transactions", permission: "expense.approve" }, session)
+    : false;
+
+  let backHref = "/app/me/travel";
+  let backLabel = "Back to my travel";
+  if (from === "requests" && canSeeRequests) {
+    backHref = "/app/travel/requests";
+    backLabel = "Back to trip requests";
+  } else if (from === "trips" && canSeeTrips) {
+    backHref = "/app/travel/trips";
+    backLabel = "Back to trips";
+  } else if (from === "mine" || (isMine && canBook)) {
+    backHref = "/app/me/travel";
+    backLabel = "Back to my travel";
+  } else if (canSeeRequests && (!isMine || !canBook)) {
+    backHref = "/app/travel/requests";
+    backLabel = "Back to trip requests";
+  } else if (canSeeTrips) {
+    backHref = "/app/travel/trips";
+    backLabel = "Back to trips";
+  } else {
+    backHref = "/app/inbox";
+    backLabel = "Back to inbox";
+  }
+
+  const fundHref = fund && canSeeFunds ? `/app/spend/funds/${fund.id}` : null;
+  const cardHref = card
+    ? isMine || !canSeeCorporateCards
+      ? `/app/me/cards/${card.id}`
+      : `/app/cards/${card.id}`
+    : null;
+  const expenseHref = expense && (canSeeMyExpenses || canSeeExpenseReview)
+    ? `/app/expenses/${expense.id}`
+    : null;
+
+  return <div className="spend-detail travel-detail-page linked-dest-page">
     <div className="resource-heading">
       <PageHeader title={trip.name} subtitle={`${trip.origin ? `${trip.origin} → ` : ""}${trip.destination} · ${money(trip.currency, trip.estimatedAmount)}`} />
-      <Link className="btn btn-ghost" href="/app/travel/trips">Back</Link>
+      <Link className="btn btn-ghost" href={backHref}>{backLabel}</Link>
     </div>
     {message && <p className="notice" role="status">{message}</p>}
     {error && <p className="error" role="alert">{error.message}</p>}
@@ -175,12 +237,17 @@ export default function TravelTripDetailPage() {
     <div className="work-panels">
       <section className="work-panel">
         <h2>Itinerary & Bookings</h2>
-        <ul className="plain-list">
+        <ul className="plain-list travel-booking-list">
           {bookings.map((booking) => (
-            <li key={booking.id}>
-              <strong>{booking.type}</strong> · {booking.supplier} · {money(booking.currency, booking.amount)}
-              {" "}<StatusBadge status={booking.status} />
-              {booking.outOfPolicy && <> · <StatusBadge status="OUT_OF_POLICY" /></>}
+            <li key={booking.id} className="travel-booking-row">
+              <div className="travel-booking-head">
+                <strong>{booking.type}</strong>
+                <StatusBadge status={booking.status} />
+                {booking.outOfPolicy && <StatusBadge status="OUT_OF_POLICY" />}
+              </div>
+              <p className="travel-booking-meta">
+                {booking.supplier} · {booking.description || "Offer"} · {money(booking.currency, booking.amount)}
+              </p>
               <div className="muted">
                 Provider: {booking.providerStatus}{booking.providerRef ? ` (${booking.providerRef})` : ""}
                 {booking.confirmationNumber ? ` · Conf ${booking.confirmationNumber}` : ""}
@@ -223,7 +290,7 @@ export default function TravelTripDetailPage() {
         </ul>
 
         {canSearch && (
-          <div className="detail-actions" style={{ marginTop: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+          <div className="travel-search-toolbar">
             <select className="input" value={searchType} onChange={(event) => setSearchType(event.target.value as "FLIGHT" | "HOTEL" | "CAR")} aria-label="Search type">
               <option value="FLIGHT">Flights</option>
               <option value="HOTEL">Hotels</option>
@@ -234,12 +301,19 @@ export default function TravelTripDetailPage() {
         )}
 
         {quotes.length > 0 && (
-          <ul className="plain-list" style={{ marginTop: "1rem" }}>
+          <ul className="travel-quote-list">
             {quotes.map((quote) => (
-              <li key={quote.quoteId}>
-                {quote.supplier} · {quote.description} · {money(quote.currency, quote.amount)}
-                {quote.outOfPolicy ? " · Out of policy" : " · In policy"}
-                {quote.policyResult ? ` · ${quote.policyResult}` : ""}
+              <li key={quote.quoteId} className={`travel-quote-card${quote.outOfPolicy ? " is-oop" : ""}`}>
+                <div>
+                  <strong>{quote.supplier}</strong>
+                  <p>{quote.description}</p>
+                  <small className="muted">
+                    {money(quote.currency, quote.amount)}
+                    {quote.outOfPolicy ? " · Out of policy" : " · In policy"}
+                    {quote.policyResult ? ` · ${quote.policyResult}` : ""}
+                    {quote.refundable != null ? (quote.refundable ? " · Refundable" : " · Non-refundable") : ""}
+                  </small>
+                </div>
                 <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => selectQuote.mutate(quote)}>Select</button>
               </li>
             ))}
@@ -258,16 +332,36 @@ export default function TravelTripDetailPage() {
       <section className="work-panel">
         <h2>Fund / Card / Expense</h2>
         <dl className="detail-list">
-          <div><dt>Fund</dt><dd>{fund?.name ?? trip.fundId ?? "—"}</dd></div>
+          <div>
+            <dt>Fund</dt>
+            <dd>
+              {fundHref ? (
+                <Link className="detail-link" href={fundHref}>{fund?.name ?? "Open fund"}</Link>
+              ) : (fund?.name ?? trip.fundId ?? "—")}
+            </dd>
+          </div>
           <div>
             <dt>Travel card</dt>
             <dd>
-              {card
-                ? <>····{card.last4} · {card.status}{card.providerRef?.startsWith("sandbox_") ? " · SANDBOX / MOCK CARD" : ""}</>
-                : (trip.cardId ?? "—")}
+              {card && cardHref ? (
+                <Link className="detail-link" href={cardHref}>
+                  ····{card.last4} · {card.status}{card.providerRef?.startsWith("sandbox_") ? " · SANDBOX / MOCK CARD" : ""}
+                </Link>
+              ) : card ? (
+                <>····{card.last4} · {card.status}{card.providerRef?.startsWith("sandbox_") ? " · SANDBOX / MOCK CARD" : ""}</>
+              ) : (trip.cardId ?? "—")}
             </dd>
           </div>
-          <div><dt>Expense</dt><dd>{expense?.merchant ?? trip.expenseId ?? "—"}{expense?.memo ? ` · ${expense.memo}` : ""}</dd></div>
+          <div>
+            <dt>Expense</dt>
+            <dd>
+              {expenseHref ? (
+                <Link className="detail-link" href={expenseHref}>
+                  {expense?.merchant ?? "Open expense"}{expense?.memo ? ` · ${expense.memo}` : ""}
+                </Link>
+              ) : (expense?.merchant ?? trip.expenseId ?? "—")}
+            </dd>
+          </div>
         </dl>
         {canBook && (
           <div className="record-form">

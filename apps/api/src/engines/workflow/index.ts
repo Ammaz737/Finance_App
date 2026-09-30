@@ -29,7 +29,9 @@ export function eligibleForStep(input: {
   if (input.step.userId) return input.step.userId === input.actorId;
   if (input.step.role) return input.actorRoles.includes(input.step.role) || input.actorRoles.includes("Owner");
   switch (input.step.type) {
-    case "manager": return input.managerId === input.actorId;
+    // Direct manager is primary; Owner may override (same pattern as role/finance steps).
+    case "manager":
+      return input.managerId === input.actorId || input.actorRoles.includes("Owner");
     case "finance": case "ap": case "budget": return input.actorRoles.some((role) => ["Owner", "Finance Admin", "Accounts Payable Admin", "Controller"].includes(role));
     case "controller": return input.actorRoles.some((role) => ["Owner", "Controller", "Accounting Admin"].includes(role));
     case "legal": case "cfo": return input.actorRoles.includes("Owner");
@@ -86,7 +88,19 @@ export async function startApproval(input: {
         where: { id: input.workflowId, organizationId: input.organizationId },
       })
     : await db.approvalWorkflow.findFirst({
-        where: { organizationId: input.organizationId, objectType: input.objectType, enabled: true, effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }] },
+        where: {
+          organizationId: input.organizationId,
+          objectType: input.objectType,
+          enabled: true,
+          effectiveFrom: { lte: new Date() },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date() } }],
+        },
+        orderBy: { version: "desc" },
+      })
+      // Seed historically created workflows with enabled=false (schema default). Fall back so
+      // manager → finance chains still start instead of collapsing to a single finance step.
+      ?? await db.approvalWorkflow.findFirst({
+        where: { organizationId: input.organizationId, objectType: input.objectType },
         orderBy: { version: "desc" },
       });
   const rawSteps = Array.isArray(workflow?.steps) ? (workflow.steps as WorkflowStep[]) : undefined;

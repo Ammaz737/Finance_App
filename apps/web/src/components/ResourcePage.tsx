@@ -1,11 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useDeferredValue, useState, type FormEvent } from "react";
+import { Suspense, useDeferredValue, useEffect, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { DataTable, DrawerReview, PageHeader, StatusBadge, type Column } from "@finance/design-system";
 import { api } from "@/lib/api";
 import { actionPermissions, createPermissions, labelForKey, resourceConfig, type FieldConfig } from "@/config/resource-config";
 import { useSession } from "@/providers/session-provider";
+import { DEFAULT_NEW_WITHIN_DAYS, isNewRecord, MY_WORK_NEEDS_ACTION, type MyWorkFocus } from "@/lib/my-work-filters";
 
 type Row = { id: string; status?: string; currency?: string; [key: string]: unknown };
 type Action = { label: string; name: string };
@@ -50,7 +52,7 @@ function initialValues(fields: FieldConfig[]) {
   return Object.fromEntries(fields.map((field) => [field.key, field.defaultValue ?? field.options?.[0]?.value ?? ""])) as Record<string, string>;
 }
 
-export function ResourcePage({ title, path, columns, actions = [], mineField, filter, predicate, onRowNavigate, pageSize }: {
+export function ResourcePage(props: {
   title: string;
   path: string;
   columns?: Column<Row>[];
@@ -60,9 +62,38 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   predicate?: (row: Row) => boolean;
   onRowNavigate?: (row: Row) => void;
   pageSize?: number;
+  /** Opt-in chips: All / New / Needs action + status filters for My work lists. */
+  myWorkFilters?: boolean;
+  needsActionStatuses?: string[];
+  newWithinDays?: number;
+}) {
+  return (
+    <Suspense fallback={<p className="muted">Loading {props.title.toLowerCase()}…</p>}>
+      <ResourcePageInner {...props} />
+    </Suspense>
+  );
+}
+
+function ResourcePageInner({ title, path, columns, actions = [], mineField, filter, predicate, onRowNavigate, pageSize, myWorkFilters, needsActionStatuses, newWithinDays = DEFAULT_NEW_WITHIN_DAYS }: {
+  title: string;
+  path: string;
+  columns?: Column<Row>[];
+  actions?: Action[];
+  mineField?: string;
+  filter?: Record<string, string[]>;
+  predicate?: (row: Row) => boolean;
+  onRowNavigate?: (row: Row) => void;
+  pageSize?: number;
+  myWorkFilters?: boolean;
+  needsActionStatuses?: string[];
+  newWithinDays?: number;
 }) {
   const session = useSession();
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const deepLinkId = searchParams.get("entry") ?? searchParams.get("id");
+  const urlFocus = searchParams.get("focus");
+  const urlStatus = searchParams.get("status");
   const config = resourceConfig[path];
   const fields = config?.fields ?? [];
   const [selected, setSelected] = useState<Row | null>(null);
@@ -74,11 +105,20 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   const [createKey, setCreateKey] = useState("");
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search.trim());
-  const [status, setStatus] = useState("ALL");
+  const [focus, setFocus] = useState<MyWorkFocus>(() => {
+    if (urlFocus === "new") return "NEW";
+    if (urlFocus === "needs") return "NEEDS_ACTION";
+    if (urlStatus && urlStatus !== "ALL") return urlStatus;
+    return "ALL";
+  });
+  const [status, setStatus] = useState(urlStatus && urlStatus !== "ALL" ? urlStatus : "ALL");
   const [page, setPage] = useState(1);
   const [message, setMessage] = useState("");
   const [sandboxLink, setSandboxLink] = useState("");
   const [viewName, setViewName] = useState("");
+  const [deepLinkHandled, setDeepLinkHandled] = useState<string | null>(null);
+  const actionStatuses = needsActionStatuses ?? MY_WORK_NEEDS_ACTION[path] ?? [];
+
 
   const query = useQuery({
     queryKey: ["resource", path, deferredSearch],
@@ -89,12 +129,18 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
     queryFn: () => api.get<Array<{ id: string; name: string; filters: { status?: string } }>>(`/saved-views?resource=${encodeURIComponent(path)}`),
   });
   const saveView = useMutation({
-    mutationFn: () => api.post("/saved-views", {
-      resource: path,
-      name: viewName.trim() || `${title} ${status}`,
-      filters: { status },
-      columns: config?.columns ?? [],
-    }),
+    mutationFn: () => {
+      const currentFocus = myWorkFilters ? focus : status;
+      const savedStatus = myWorkFilters
+        ? (currentFocus === "NEW" || currentFocus === "NEEDS_ACTION" || currentFocus === "ALL" ? "ALL" : String(currentFocus))
+        : status;
+      return api.post("/saved-views", {
+        resource: path,
+        name: viewName.trim() || `${title} ${savedStatus === "ALL" ? currentFocus : savedStatus}`,
+        filters: { status: savedStatus, focus: myWorkFilters ? currentFocus : undefined },
+        columns: config?.columns ?? [],
+      });
+    },
     onSuccess: () => {
       setViewName("");
       setMessage("Saved view created.");
@@ -177,7 +223,19 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
   const ownRows = mineField && session ? scopedRows.filter((row) => row[mineField] === session.userId) : scopedRows;
   const statuses = [...new Set(ownRows.map((row) => row.status).filter((item): item is string => Boolean(item)))];
   const searchedRows = deferredSearch ? ownRows.filter((row) => Object.values(row).some((value) => typeof value === "string" && value.toLowerCase().includes(deferredSearch.toLowerCase()))) : ownRows;
-  const rows = status === "ALL" ? searchedRows : searchedRows.filter((row) => row.status === status);
+  const recordDate = (row: Row) => row.createdAt ?? row.authorizedAt;
+  const newCount = searchedRows.filter((row) => isNewRecord(recordDate(row), newWithinDays)).length;
+  const needsCount = searchedRows.filter((row) => actionStatuses.includes(String(row.status ?? ""))).length;
+  const activeFocus = myWorkFilters ? focus : status;
+  const rows = (() => {
+    if (!myWorkFilters) {
+      return status === "ALL" ? searchedRows : searchedRows.filter((row) => row.status === status);
+    }
+    if (activeFocus === "ALL") return searchedRows;
+    if (activeFocus === "NEW") return searchedRows.filter((row) => isNewRecord(recordDate(row), newWithinDays));
+    if (activeFocus === "NEEDS_ACTION") return searchedRows.filter((row) => actionStatuses.includes(String(row.status ?? "")));
+    return searchedRows.filter((row) => row.status === activeFocus);
+  })();
   const pageCount = pageSize ? Math.max(1, Math.ceil(rows.length / pageSize)) : 1;
   const currentPage = Math.min(page, pageCount);
   const visibleRows = pageSize ? rows.slice((currentPage - 1) * pageSize, currentPage * pageSize) : rows;
@@ -186,13 +244,34 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
     return !permission || session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes(permission);
   });
   const keys = config?.columns ?? ["name", "status", "createdAt"];
-  const cols: Column<Row>[] = columns ?? keys.map((key) => ({
+  const baseCols: Column<Row>[] = columns ?? keys.map((key) => ({
     key,
     header: labelForKey(key),
     render: (row: Row) => displayValue(key, row[key], row, labels),
   }));
+  const cols: Column<Row>[] = myWorkFilters
+    ? baseCols.map((col) => {
+        if (col.key !== "status") return col;
+        const prior = col.render;
+        return {
+          ...col,
+          render: (row: Row) => (
+            <span className="status-with-new">
+              {prior ? prior(row) : <StatusBadge status={String(row.status ?? "UNKNOWN")} />}
+              {isNewRecord(row.createdAt, newWithinDays) ? <span className="badge-new">New</span> : null}
+            </span>
+          ),
+        };
+      })
+    : baseCols;
   const createPermission = createPermissions[path];
   const canCreate = Boolean(config?.createLabel) && (!createPermission || session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes(createPermission)) && (path !== "people" || session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes("roles.assign"));
+
+  function setActiveFocus(next: MyWorkFocus) {
+    setFocus(next);
+    setStatus(next === "NEW" || next === "NEEDS_ACTION" || next === "ALL" ? "ALL" : next);
+    setPage(1);
+  }
 
   function fieldOptions(field: FieldConfig) {
     if (field.options) return field.options;
@@ -200,7 +279,14 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
     return items.filter((item) =>
       (!field.source?.entityField || !values.legalEntityId || item[field.source.entityField] === values.legalEntityId) &&
       (!field.source?.statuses || field.source.statuses.includes(String(item.status))),
-    ).map((item) => ({ value: item.id, label: String(item[field.source?.labelKey ?? "name"] ?? item.id) }));
+    ).map((item) => {
+      const base = String(item[field.source?.labelKey ?? "name"] ?? item.id);
+      // Bank accounts: show masked last4 so payment-run source matches demo copy ("Operating ••••1111").
+      if (field.source?.path === "banking" && item.last4) {
+        return { value: item.id, label: `${base} ••••${String(item.last4)}` };
+      }
+      return { value: item.id, label: base };
+    });
   }
 
   const formOptionsLoading = optionsQuery.isPending && sourcePaths.length > 0;
@@ -235,12 +321,38 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
       setMessage(`${missing.label} is required.`);
       return;
     }
-    const invalidAmount = fields.find((field) => field.type === "number" && (!Number.isFinite(Number(values[field.key])) || Number(values[field.key]) <= 0));
+    if (path === "reimbursements") {
+      const type = values.type;
+      if (type === "STANDARD" && !values.amount?.trim()) {
+        setMessage("Amount is required for standard reimbursements.");
+        return;
+      }
+      if (type === "MILEAGE" && !values.distanceMiles?.trim()) {
+        setMessage("Distance (miles) is required for mileage reimbursements.");
+        return;
+      }
+      if (type === "PER_DIEM" && !values.perDiemNights?.trim() && !values.eligibleDays?.trim()) {
+        setMessage("Per-diem days (or eligible days) is required for per diem reimbursements.");
+        return;
+      }
+    }
+    // Only validate filled or required number fields — empty optional numbers must not block create.
+    const invalidAmount = fields.find((field) => {
+      if (field.type !== "number") return false;
+      const raw = values[field.key]?.trim() ?? "";
+      if (!raw) return Boolean(field.required);
+      const amount = Number(raw);
+      return !Number.isFinite(amount) || amount <= 0;
+    });
     if (invalidAmount) {
       setMessage(`${invalidAmount.label} must be greater than zero.`);
       return;
     }
-    create.mutate(values);
+    // Omit blank optionals so API Zod optional/coerce fields do not receive "".
+    const body = Object.fromEntries(
+      Object.entries(values).filter(([, value]) => value.trim() !== ""),
+    );
+    create.mutate(body);
   }
 
   function runAction(item: Action, row: Row) {
@@ -270,6 +382,26 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
     }
   }
 
+  useEffect(() => {
+    if (!deepLinkId || !query.data?.length) return;
+    if (deepLinkHandled === deepLinkId) return;
+    const match = query.data.find((row) => row.id === deepLinkId);
+    if (!match) {
+      setMessage(`Record ${deepLinkId.slice(0, 8)}… was not found in this list.`);
+      setDeepLinkHandled(deepLinkId);
+      return;
+    }
+    setStatus("ALL");
+    setFocus("ALL");
+    selectRow(match);
+    setDeepLinkHandled(deepLinkId);
+    setMessage(path === "accounting" ? "Opened accounting entry from inbox." : `Opened ${title.toLowerCase()} from search.`);
+  }, [deepLinkId, deepLinkHandled, path, query.data, title]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [deferredSearch, activeFocus, status]);
+
   function actionApplies(name: string, row: Row) {
     const states: Record<string, string[]> = {
       "bills.submit": ["DRAFT"], "bills.approve": ["PENDING_APPROVAL"],
@@ -279,11 +411,14 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
       "purchase-orders.receive": ["OPEN", "PARTIALLY_RECEIVED"],
       "purchase-orders.match": ["OPEN", "PARTIALLY_RECEIVED", "RECEIVED"],
       "travel.submit": ["DRAFT"], "travel.approve": ["PENDING_APPROVAL"],
-      "expenses.submit": ["DRAFT", "INCOMPLETE"], "expenses.approve": ["SUBMITTED", "IN_REVIEW"],
+      "expenses.submit": ["DRAFT", "INCOMPLETE", "REJECTED"], "expenses.approve": ["SUBMITTED", "IN_REVIEW"],
+      "spend-requests.approve": ["SUBMITTED", "IN_REVIEW"],
+      "spend-programs.deactivate": ["ACTIVE"],
       "reimbursements.approve": ["IN_REVIEW"],
-      "reimbursements.submit": ["DRAFT"],
-      "reimbursements.schedule": ["APPROVED"],
+      "reimbursements.submit": ["DRAFT", "NEEDS_INFO"],
+      "reimbursements.schedule": ["APPROVED", "FAILED", "READY_FOR_PAYOUT"],
       "reimbursements.confirm-payout": ["SCHEDULED"],
+      "reimbursements.attach-receipt": ["DRAFT", "NEEDS_INFO"],
       "accounting.ready": ["NEEDS_REVIEW", "SYNC_ERROR"],
       "accounting.undo-ready": ["READY_TO_SYNC"],
       "accounting.retry": ["SYNC_ERROR"],
@@ -301,13 +436,46 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
     <div className="resource-heading"><PageHeader title={title} subtitle={config?.description ?? `${title} across your organization.`} />
       {canCreate && <button type="button" className="btn btn-primary" onClick={openCreate}>{config?.createLabel}</button>}
     </div>
+    {myWorkFilters && (
+      <div className="my-work-filters" role="toolbar" aria-label="List filters">
+        <button type="button" className={`chip${activeFocus === "ALL" ? " chip-active" : ""}`} onClick={() => setActiveFocus("ALL")}>
+          All <span className="chip-count">{searchedRows.length}</span>
+        </button>
+        <button type="button" className={`chip${activeFocus === "NEW" ? " chip-active" : ""}`} onClick={() => setActiveFocus("NEW")}>
+          New <span className="chip-count">{newCount}</span>
+        </button>
+        {actionStatuses.length > 0 && (
+          <button type="button" className={`chip${activeFocus === "NEEDS_ACTION" ? " chip-active" : ""}`} onClick={() => setActiveFocus("NEEDS_ACTION")}>
+            Needs action <span className="chip-count">{needsCount}</span>
+          </button>
+        )}
+        {statuses.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={`chip${activeFocus === item ? " chip-active" : ""}`}
+            onClick={() => setActiveFocus(item)}
+          >
+            {item.replaceAll("_", " ")}
+            <span className="chip-count">{searchedRows.filter((row) => row.status === item).length}</span>
+          </button>
+        ))}
+      </div>
+    )}
     <div className="resource-toolbar">
       <label className="search-field"><span className="sr-only">Search {title}</span><input className="input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${title.toLowerCase()}…`} /></label>
-      {statuses.length > 1 && <select className="input status-filter" aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select>}
+      {!myWorkFilters && statuses.length > 1 && <select className="input status-filter" aria-label="Filter by status" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select>}
       {(savedViews.data?.length ?? 0) > 0 && (
         <select className="input status-filter" aria-label="Saved views" defaultValue="" onChange={(event) => {
           const view = savedViews.data?.find((item) => item.id === event.target.value);
-          if (view?.filters?.status) setStatus(view.filters.status);
+          if (!view?.filters) return;
+          const filters = view.filters as { status?: string; focus?: string };
+          if (myWorkFilters && filters.focus) {
+            setActiveFocus(filters.focus);
+          } else if (filters.status) {
+            setActiveFocus(filters.status);
+            setStatus(filters.status);
+          }
         }}>
           <option value="">Saved views</option>
           {(savedViews.data ?? []).map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
@@ -315,8 +483,8 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
       )}
       <label className="sr-only" htmlFor={`save-view-${path}`}>Saved view name</label>
       <input id={`save-view-${path}`} className="input" style={{ maxWidth: 160 }} value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder="Save view name" />
-      <button type="button" className="btn btn-ghost" disabled={saveView.isPending || status === "ALL" && !viewName.trim()} onClick={() => saveView.mutate()}>Save view</button>
-      <span className="record-count">{rows.length} records</span>
+      <button type="button" className="btn btn-ghost" disabled={saveView.isPending || (status === "ALL" && activeFocus === "ALL") && !viewName.trim()} onClick={() => saveView.mutate()}>Save view</button>
+      <span className="record-count">{rows.length} records{myWorkFilters && activeFocus === "NEW" ? ` · last ${newWithinDays} days` : ""}</span>
     </div>
     {message && <p className={message.includes("created") || message.includes("completed") || message.includes("invited") ? "notice" : "error"} role="status">{message}</p>}
     {sandboxLink && <div className="policy-box"><strong>Sandbox activation delivery</strong><p className="muted">Share this single-use link with the invited person. The raw token is not shown as the primary workflow.</p><button className="btn btn-ghost" type="button" onClick={() => void navigator.clipboard.writeText(`${window.location.origin}${sandboxLink}`)}>Copy activation link</button> <a href={sandboxLink}>Open activation</a></div>}
@@ -357,7 +525,7 @@ export function ResourcePage({ title, path, columns, actions = [], mineField, fi
           <button className="btn btn-primary" type="submit" disabled={codeAccounting.isPending}>{codeAccounting.isPending ? "Saving…" : "Save coding"}</button>
         </form>}
         {action.isError && <p className="error" role="alert">{action.error.message}</p>}
-        {permittedActions.length > 0 && <div className="detail-actions">{permittedActions.filter((item) => actionApplies(item.name, selected)).map((item) => <button key={item.name} className={`btn ${item.name === "terminate" ? "btn-danger" : "btn-primary"}`} type="button" disabled={action.isPending || (item.name === "approve" && selected.requesterId === session?.userId)} onClick={() => runAction(item, selected)}>{item.label}</button>)}</div>}
+        {permittedActions.length > 0 && <div className="detail-actions">{permittedActions.filter((item) => actionApplies(item.name, selected)).map((item) => <button key={item.name} className={`btn ${item.name === "terminate" ? "btn-danger" : "btn-primary"}`} type="button" disabled={action.isPending || (item.name === "approve" && (selected.requesterId === session?.userId || selected.travelerId === session?.userId))} onClick={() => runAction(item, selected)}>{item.label}</button>)}</div>}
       </div>}
     </DrawerReview>
 

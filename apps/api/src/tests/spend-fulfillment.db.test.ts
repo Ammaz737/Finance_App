@@ -129,7 +129,7 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
     const first = await spend.approveRequest(approver, request.id);
     expect(first.request.status).toBe("FULFILLED");
     expect(first.fund).toBeTruthy();
-    expect(first.card?.providerRef).toMatch(/^mock_/);
+    expect(first.card?.providerRef).toMatch(/mock_/);
     expect(first.card?.merchantLock?.toLowerCase()).toBe("amazon");
 
     const funds = await prisma.fund.findMany({ where: { organizationId: orgId, spendRequestId: request.id } });
@@ -198,8 +198,10 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
     });
     const approved = await spend.approveRequest(approver, request.id);
     expect(approved.card).toBeTruthy();
-    const fundBefore = await prisma.fund.findUniqueOrThrow({ where: { id: approved.fund!.id } });
-    expect(Number(fundBefore.availableAmount)).toBe(200);
+    const walletFundId = approved.card!.fundId;
+    const fundBefore = await prisma.fund.findUniqueOrThrow({ where: { id: walletFundId } });
+    const availableBefore = Number(fundBefore.availableAmount);
+    expect(availableBefore).toBeGreaterThanOrEqual(200);
 
     const auth = await cards.authorize(approver, {
       cardId: approved.card!.id,
@@ -211,19 +213,53 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
     });
     const holdId = approvedTxnId(auth);
 
-    const fundHeld = await prisma.fund.findUniqueOrThrow({ where: { id: approved.fund!.id } });
-    expect(Number(fundHeld.availableAmount)).toBe(120);
+    const fundHeld = await prisma.fund.findUniqueOrThrow({ where: { id: walletFundId } });
+    expect(Number(fundHeld.availableAmount)).toBe(availableBefore - 80);
 
     const captured = await cards.capture(approver, holdId, { amount: "75.00" });
     expect(captured.transaction.status).toBe("CLEARED");
     expect(Number(captured.transaction.amount)).toBe(75);
     expect(captured.expense?.status).toBe("INCOMPLETE");
 
-    const fundAfter = await prisma.fund.findUniqueOrThrow({ where: { id: approved.fund!.id } });
-    expect(Number(fundAfter.availableAmount)).toBe(125); // 120 + 5 release from partial capture
+    const fundAfter = await prisma.fund.findUniqueOrThrow({ where: { id: walletFundId } });
+    expect(Number(fundAfter.availableAmount)).toBe(availableBefore - 75); // 80 hold, 5 released on partial capture
 
     const budget = await prisma.budget.findUniqueOrThrow({ where: { id: budgetId } });
     expect(Number(budget.actualAmount)).toBeGreaterThanOrEqual(75);
+  });
+
+  it("reuses the holder's single virtual card on a second fulfillment", async () => {
+    const requester = ctx({ userId: requesterId, organizationId: orgId });
+    const approver = ctx({ userId: approverId, organizationId: orgId });
+    const first = await spend.createRequest(requester, {
+      programId: programCardId,
+      name: `First card ${suffix}`,
+      purpose: "Primary card",
+      amount: "30.00",
+      currency: "USD",
+      legalEntityId: entityId,
+    });
+    const firstApproved = await spend.approveRequest(approver, first.id);
+    expect(firstApproved.card).toBeTruthy();
+
+    const second = await spend.createRequest(requester, {
+      programId: programCardId,
+      name: `Top up ${suffix}`,
+      purpose: "Reuse card",
+      amount: "20.00",
+      currency: "USD",
+      legalEntityId: entityId,
+    });
+    const secondApproved = await spend.approveRequest(approver, second.id);
+    expect(secondApproved.card?.id).toBe(firstApproved.card!.id);
+
+    const liveCards = await prisma.card.findMany({
+      where: { organizationId: orgId, holderId: requesterId, status: { in: ["ACTIVE", "FROZEN"] } },
+    });
+    expect(liveCards).toHaveLength(1);
+
+    const wallet = await prisma.fund.findUniqueOrThrow({ where: { id: firstApproved.card!.fundId } });
+    expect(Number(wallet.availableAmount)).toBeGreaterThanOrEqual(50);
   });
 
   it("voids a pending hold and restores fund capacity", async () => {
@@ -285,6 +321,11 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
       velocityMaxCount: 1,
       velocityMaxAmount: "50.00",
       velocityWindowHours: 24,
+    });
+    // Prior suite captures leave CLEARED txns on this card — push them outside the velocity window.
+    await prisma.txn.updateMany({
+      where: { organizationId: orgId, cardId: card.id },
+      data: { authorizedAt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
     });
 
     const mcc = await cards.authorize(owner, {

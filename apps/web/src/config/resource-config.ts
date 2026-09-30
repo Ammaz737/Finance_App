@@ -113,7 +113,7 @@ export const resourceConfig: Record<string, ResourceConfig> = {
   ] },
   "payment-runs": { description: "Batch scheduled payments for a separate release gate.", columns: ["name", "legalEntityId", "status", "createdBy", "createdAt"], createLabel: "New payment run", fields: [
     { key: "name", label: "Run name", required: true }, entity,
-    { key: "sourceAccountId", label: "Source account", type: "select", source: { path: "banking", labelKey: "name", entityField: "legalEntityId" } },
+    { key: "sourceAccountId", label: "Source account", required: true, type: "select", source: { path: "banking", labelKey: "name", entityField: "legalEntityId" } },
   ] },
   accounting: { description: "Review and code financial activity before export or ERP sync.", columns: ["sourceType", "sourceId", "amount", "currency", "category", "status", "externalId", "syncError", "updatedAt"] },
   "accounting-rules": { description: "Deterministic coding rules applied when sources enter the queue.", columns: ["name", "priority", "enabled", "createdAt"], createLabel: "New rule", fields: [
@@ -159,10 +159,11 @@ export const actionPermissions: Record<string, Record<string, string>> = {
   locations: { update: "roles.assign", archive: "roles.assign" },
   cards: { freeze: "card.freeze", "set-controls": "card.issue" },
   "spend-requests": { approve: "spend_request.approve" },
+  "spend-programs": { update: "spend_program.manage", deactivate: "spend_program.manage" },
   transactions: { clear: "card.issue", capture: "card.issue", void: "card.issue", reverse: "card.issue" },
   expenses: { submit: "expense.create", approve: "expense.approve", split: "expense.create", "update-memo": "expense.create" },
   receipts: { link: "expense.create" },
-  reimbursements: { submit: "reimbursement.create", approve: "reimbursement.approve", schedule: "reimbursement.pay", "confirm-payout": "reimbursement.pay" },
+  reimbursements: { submit: "reimbursement.create", approve: "reimbursement.approve", schedule: "reimbursement.pay", "confirm-payout": "reimbursement.pay", "attach-receipt": "reimbursement.create" },
   procurement: { submit: "procurement.request", approve: "procurement.review" },
   "purchase-orders": { receive: "procurement.review", match: "procurement.review" },
   travel: { submit: "travel.book", approve: "travel.approve", search: "travel.book", "select-quote": "travel.book", "link-fund": "travel.book", "link-expense": "travel.book" },
@@ -173,6 +174,7 @@ export const actionPermissions: Record<string, Record<string, string>> = {
   "payment-runs": { release: "payment_run.manage", "add-payments": "payment_run.manage" },
   vendors: { "set-bank": "vendor.bank_details.manage" },
   accounting: { ready: "accounting.code", "undo-ready": "accounting.code", retry: "accounting.sync", sync: "accounting.sync", "confirm-sync": "accounting.sync" },
+  integrations: { ping: "accounting.sync" },
   people: { publish: "people.edit", terminate: "people.edit", "reset-credentials": "people.edit" },
   treasury: { approve: "treasury.transfer.approve", release: "treasury.transfer.release" },
 };

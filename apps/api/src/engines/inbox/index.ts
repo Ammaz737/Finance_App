@@ -34,6 +34,9 @@ export type InboxTask = {
   duplicateStatus?: string;
   vendorId?: string;
   approvalProgress?: string;
+  sourceType?: string;
+  sourceId?: string;
+  category?: string;
 };
 
 function amountOf(object: { amount?: Prisma.Decimal | number | string }): string {
@@ -79,10 +82,21 @@ export async function listInboxTasks(ctx: RequestContext): Promise<InboxTask[]> 
 
   for (const instance of instances) {
     const workflow = workflows.find((item) => item.id === instance.workflowId);
-    const steps = Array.isArray(workflow?.steps) ? workflow.steps as Step[] : [{ type: "finance" }];
+    // Prefer steps pinned on the instance (same source as actOnApproval). Falling back to
+    // workflow.steps or a single finance step used to hide step-2 tasks from Finance/Owner
+    // after the manager approved when workflow lookup failed or was disabled.
+    const pinned = Array.isArray(instance.resolvedSteps) ? (instance.resolvedSteps as Step[]) : [];
+    const fromWorkflow = Array.isArray(workflow?.steps) ? (workflow.steps as Step[]) : [];
+    const steps = pinned.length ? pinned : fromWorkflow.length ? fromWorkflow : [{ type: "finance" }];
     const requester = requesters.find((item) => item.id === instance.requesterId);
     const step = steps[instance.currentStep];
-    if (!requester || requester.id === ctx.userId || !step || !eligibleForStep({ step, actorId: ctx.userId, actorRoles: ctx.roles, managerId: requester.managerId })) continue;
+    if (!requester || requester.id === ctx.userId || !step || !eligibleForStep({
+      step,
+      actorId: ctx.userId,
+      actorRoles: ctx.roles,
+      managerId: requester.managerId,
+      assigneeUserId: instance.assigneeUserId,
+    })) continue;
 
     const object = instance.objectType === "spend_request" ? spendRequests.find((item) => item.id === instance.objectId)
       : instance.objectType === "expense" ? expenses.find((item) => item.id === instance.objectId)
@@ -201,14 +215,19 @@ export async function listInboxTasks(ctx: RequestContext): Promise<InboxTask[]> 
   }
 
   for (const entry of accounting) {
+    const sourceLabel = entry.sourceType === "BILL" ? "Bill / invoice"
+      : entry.sourceType === "PAYMENT" ? "Payment"
+      : entry.sourceType === "REIMBURSEMENT" ? "Reimbursement"
+      : entry.sourceType === "CARD" || entry.sourceType === "EXPENSE" ? "Card / expense"
+      : entry.sourceType;
     tasks.push({
       id: `accounting:${entry.id}`,
       type: "ACCOUNTING_EXCEPTION",
       objectType: "accounting",
       objectId: entry.id,
-      name: `${entry.sourceType} coding`,
-      amount: "0",
-      currency: "USD",
+      name: `${sourceLabel} coding`,
+      amount: entry.amount != null ? String(entry.amount) : "0",
+      currency: entry.currency || "USD",
       entity: entityName(entry.legalEntityId),
       requestedBy: "Accounting queue",
       priority: entry.status === "SYNC_ERROR" ? "HIGH" : "NORMAL",
@@ -219,6 +238,9 @@ export async function listInboxTasks(ctx: RequestContext): Promise<InboxTask[]> 
       dueAt: null,
       availableActions: ["open"],
       createdAt: entry.updatedAt.toISOString(),
+      sourceType: entry.sourceType,
+      sourceId: entry.sourceId,
+      category: entry.category || undefined,
     });
   }
 
@@ -270,7 +292,7 @@ export async function getInboxTaskDetail(ctx: RequestContext, id: string) {
   let timeline: Array<{ at: string; actor: string; action: string; comment: string }> = [];
   let policy: Awaited<ReturnType<typeof evaluatePolicy>> | null = null;
 
-  if (task.type === "APPROVAL" && task.approvalInstanceId) {
+  if (task.approvalInstanceId) {
     const [actionsLog, users] = await Promise.all([
       prisma.approvalAction.findMany({ where: { instanceId: task.approvalInstanceId }, orderBy: { createdAt: "asc" } }),
       prisma.user.findMany({ where: { organizationId: ctx.organizationId }, select: { id: true, firstName: true, lastName: true } }),
@@ -284,13 +306,14 @@ export async function getInboxTaskDetail(ctx: RequestContext, id: string) {
         comment: item.comment,
       };
     });
+    const policyObjectType = task.objectType === "spend_request" ? "spend_request" : task.objectType;
     const { rules } = await loadPolicyRules(
       (args) => prisma.policy.findMany(args as never),
       ctx.organizationId,
-      task.objectType === "spend_request" ? "spend_request" : task.objectType,
+      policyObjectType,
     );
     policy = evaluatePolicy({
-      objectType: task.objectType === "spend_request" ? "spend_request" : task.objectType,
+      objectType: policyObjectType,
       amount: Number(task.amount),
       rules,
     });
@@ -305,6 +328,9 @@ export async function decideInboxTask(ctx: RequestContext, id: string, decision:
   }
   if (id.startsWith("accounting:")) {
     throw new AppError("OPEN_IN_ACCOUNTING", "Open this item in Accounting to code or sync", 400);
+  }
+  if (id.startsWith("match:")) {
+    throw new AppError("OPEN_IN_MATCH", "Open this match exception in Procurement to resolve", 400);
   }
 
   const instance = await prisma.approvalInstance.findFirst({

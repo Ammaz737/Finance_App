@@ -1,0 +1,112 @@
+﻿{
+    "scannedAt":  "2026-09-29T13:09:13.3426197+05:00",
+    "details":  [
+                    {
+                        "api":  "cards",
+                        "status":  "OK",
+                        "id":  "fe4a8c93-64f7-4744-b76f-06f906ef8a7e",
+                        "page":  "/app/cards/fe4a8c93-64f7-4744-b76f-06f906ef8a7e"
+                    },
+                    {
+                        "api":  "spend-requests",
+                        "status":  "OK",
+                        "id":  "ecbcf935-a6e1-4310-97b3-49820693ba9e",
+                        "page":  "/app/spend/requests/ecbcf935-a6e1-4310-97b3-49820693ba9e"
+                    },
+                    {
+                        "api":  "funds",
+                        "status":  "OK",
+                        "id":  "f173fe8a-c79d-4a1a-86df-082da76f3c7b",
+                        "page":  "/app/spend/funds/f173fe8a-c79d-4a1a-86df-082da76f3c7b"
+                    },
+                    {
+                        "api":  "transactions",
+                        "status":  "OK",
+                        "id":  "ff4304b0-bac3-4762-afa1-a0ff3944626d",
+                        "page":  "/app/spend/transactions/ff4304b0-bac3-4762-afa1-a0ff3944626d"
+                    },
+                    {
+                        "api":  "expenses",
+                        "status":  "OK",
+                        "id":  "f59c49c7-ed29-424a-bc01-ba37c3c0f70d",
+                        "page":  "/app/expenses/f59c49c7-ed29-424a-bc01-ba37c3c0f70d"
+                    },
+                    {
+                        "api":  "receipts",
+                        "status":  "OK",
+                        "id":  "e90ab5c3-568b-41f1-84ae-fe93b6787078",
+                        "page":  "/app/expenses/receipts/e90ab5c3-568b-41f1-84ae-fe93b6787078"
+                    },
+                    {
+                        "api":  "reimbursements",
+                        "status":  "OK",
+                        "id":  "fdf9f493-17d9-4de3-bb0c-f19e16bee58c",
+                        "page":  "/app/expenses/reimbursements/fdf9f493-17d9-4de3-bb0c-f19e16bee58c"
+                    },
+                    {
+                        "api":  "procurement",
+                        "status":  "OK",
+                        "id":  "e87c2b08-4329-40ad-b650-1db66fb69fb4",
+                        "page":  "/app/procurement/requests/e87c2b08-4329-40ad-b650-1db66fb69fb4"
+                    },
+                    {
+                        "api":  "purchase-orders",
+                        "status":  "OK",
+                        "id":  "fd1a13d6-4b15-496c-a597-06f00c34198a",
+                        "page":  "/app/procurement/purchase-orders/fd1a13d6-4b15-496c-a597-06f00c34198a"
+                    },
+                    {
+                        "api":  "vendors",
+                        "status":  "OK",
+                        "id":  "b09fa1ca-6783-4fed-97a0-9cae05cc60f4",
+                        "page":  "/app/vendors/b09fa1ca-6783-4fed-97a0-9cae05cc60f4"
+                    },
+                    {
+                        "api":  "bills",
+                        "status":  "OK",
+                        "id":  "fd9f18c3-4693-454b-8294-115afe86e1de",
+                        "page":  "/app/bill-pay/bills/fd9f18c3-4693-454b-8294-115afe86e1de"
+                    },
+                    {
+                        "api":  "payments",
+                        "status":  "OK",
+                        "id":  "fad7badf-9c7c-4d0c-950e-296ae02f2211",
+                        "page":  "/app/bill-pay/payments/fad7badf-9c7c-4d0c-950e-296ae02f2211"
+                    },
+                    {
+                        "api":  "payment-runs",
+                        "status":  "OK",
+                        "id":  "fb6cc896-e2a2-413e-b60e-9f1763326342",
+                        "page":  "/app/bill-pay/payment-runs/fb6cc896-e2a2-413e-b60e-9f1763326342"
+                    },
+                    {
+                        "api":  "travel",
+                        "status":  "OK",
+                        "id":  "f2e337be-1b59-4d35-a4ea-09fb0470a05e",
+                        "page":  "/app/travel/trips/f2e337be-1b59-4d35-a4ea-09fb0470a05e"
+                    },
+                    {
+                        "api":  "budgets",
+                        "status":  "EMPTY",
+                        "page":  "/app/insights/budgets"
+                    },
+                    {
+                        "api":  "people",
+                        "status":  "OK",
+                        "id":  "eb2f4491-6f6a-4fcd-b8bd-648cd875bd55",
+                        "page":  "/app/company/people/eb2f4491-6f6a-4fcd-b8bd-648cd875bd55"
+                    },
+                    {
+                        "api":  "rbac",
+                        "status":  "OK",
+                        "id":  "ff504541-11a8-4ad7-9775-3cbe26f78890",
+                        "page":  "/app/company/roles/ff504541-11a8-4ad7-9775-3cbe26f78890"
+                    },
+                    {
+                        "api":  "spend-programs",
+                        "status":  "OK",
+                        "id":  "f0264446-eef9-47ee-bee2-8c1bf37934f9",
+                        "page":  "/app/spend/programs/f0264446-eef9-47ee-bee2-8c1bf37934f9"
+                    }
+                ]
+}

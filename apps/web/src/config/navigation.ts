@@ -1,4 +1,13 @@
-export type NavigationItem = { href: string; label: string; permission?: string; feature?: string; phase?: "P0" | "P1" | "P2" };
+export type NavigationItem = {
+  href: string;
+  label: string;
+  /** Single required permission (Owner / * always pass). */
+  permission?: string;
+  /** Any-of permissions — used when API read sets are broader than one key (e.g. expense.create implies list access). */
+  permissions?: string[];
+  feature?: string;
+  phase?: "P0" | "P1" | "P2";
+};
 export type NavigationSection = { label: string; items: NavigationItem[] };
 
 // Keep every implemented company-web route reachable. Stub-only pages are omitted.
@@ -9,8 +18,8 @@ export const navigation: NavigationSection[] = [
     { href: "/app/search", label: "Search" },
   ] },
   { label: "My work", items: [
-    { href: "/app/me/cards", label: "My cards", permission: "card.read", feature: "cards" },
-    { href: "/app/me/expenses", label: "My expenses", permission: "expense.read", feature: "expenses" },
+    { href: "/app/me/cards", label: "My card", permission: "card.read", feature: "cards" },
+    { href: "/app/me/expenses", label: "My expenses", permissions: ["expense.read", "expense.create"], feature: "expenses" },
     { href: "/app/me/requests", label: "My requests", permission: "spend_request.create", feature: "cards" },
     { href: "/app/me/reimbursements", label: "My reimbursements", permission: "reimbursement.create", feature: "expenses" },
     { href: "/app/me/travel", label: "My travel", permission: "travel.book", feature: "travel" },
@@ -20,13 +29,13 @@ export const navigation: NavigationSection[] = [
     { href: "/app/spend/requests", label: "Spend requests", permission: "spend_request.approve", feature: "cards" },
     { href: "/app/cards", label: "Cards", permission: "card.issue", feature: "cards" },
     { href: "/app/spend/funds", label: "Funds", permission: "card.read", feature: "cards" },
-    { href: "/app/spend/transactions", label: "Transactions", permission: "expense.read", feature: "expenses" },
+    { href: "/app/spend/transactions", label: "Transactions", permissions: ["expense.read", "card.read"], feature: "expenses" },
     { href: "/app/disputes", label: "Disputes", permission: "*", feature: "cards", phase: "P1" },
   ] },
   { label: "Expenses", items: [
     { href: "/app/expenses/transactions", label: "Expense review", permission: "expense.approve", feature: "expenses" },
     { href: "/app/expenses/receipts", label: "Receipts", permission: "expense.create", feature: "expenses" },
-    { href: "/app/expenses/reimbursements", label: "Reimbursements", permission: "reimbursement.approve", feature: "expenses" },
+    { href: "/app/expenses/reimbursements", label: "Reimbursements", permissions: ["reimbursement.approve", "reimbursement.pay"], feature: "expenses" },
     { href: "/app/expenses/reimbursements?status=IN_REVIEW", label: "For approval", permission: "reimbursement.approve", feature: "expenses" },
     { href: "/app/expenses/reimbursements?status=APPROVED", label: "For payout", permission: "reimbursement.pay", feature: "expenses" },
     { href: "/app/expenses/reimbursements?status=PAID", label: "Paid / History", permission: "reimbursement.pay", feature: "expenses" },
@@ -43,11 +52,11 @@ export const navigation: NavigationSection[] = [
   { label: "Vendors & Bill Pay", items: [
     { href: "/app/vendors", label: "Vendors", permission: "vendor.read", feature: "procurement" },
     { href: "/app/bill-pay/bills", label: "Bills", permission: "bill.create", feature: "bill_pay" },
-    { href: "/app/bill-pay/bills?stage=For%20approval", label: "For approval", permission: "bill.approve", feature: "bill_pay" },
-    { href: "/app/bill-pay/bills?stage=For%20payment", label: "For payment", permission: "payment.create", feature: "bill_pay" },
+    { href: "/app/bill-pay/bills?stage=approval", label: "For approval", permission: "bill.approve", feature: "bill_pay" },
+    { href: "/app/bill-pay/bills?stage=payment", label: "For payment", permission: "payment.create", feature: "bill_pay" },
     { href: "/app/bill-pay/payments", label: "Payments", permission: "payment.create", feature: "bill_pay" },
     { href: "/app/bill-pay/payment-runs", label: "Payment runs", permission: "payment_run.manage", feature: "bill_pay" },
-    { href: "/app/bill-pay/bills?stage=History", label: "History", permission: "bill.create", feature: "bill_pay" },
+    { href: "/app/bill-pay/bills?stage=history", label: "History", permission: "bill.create", feature: "bill_pay" },
   ] },
   { label: "Accounting", items: [
     { href: "/app/accounting/overview", label: "Overview", permission: "accounting.read", feature: "accounting" },
@@ -109,8 +118,15 @@ export function canSeeItem(item: NavigationItem, session: { roles: string[]; per
   if (item.phase === "P1" && process.env.NEXT_PUBLIC_ENABLE_P1_ROUTES !== "true") return false;
   if (item.phase === "P2" && process.env.NEXT_PUBLIC_ENABLE_P2_ROUTES !== "true") return false;
   const privileged = session.roles.includes("Owner") || session.permissions.includes("*");
-  return (!item.permission || privileged || session.permissions.includes(item.permission)) &&
-    (!item.feature || session.entitlements.includes(item.feature));
+  const required = [
+    ...(item.permission ? [item.permission] : []),
+    ...(item.permissions ?? []),
+  ];
+  const allowed =
+    privileged ||
+    required.length === 0 ||
+    required.some((permission) => session.permissions.includes(permission));
+  return allowed && (!item.feature || session.entitlements.includes(item.feature));
 }
 
 /** Unfinished product surfaces kept as scaffolds — blocked unless P1/P2 flags enabled. */
@@ -147,11 +163,25 @@ export function findNavItem(route: string): NavigationItem | undefined {
   const exact = items
     .filter((item) => {
       const candidate = new URL(item.href, current.origin);
-      return candidate.pathname === current.pathname &&
-        candidate.searchParams.toString() === current.searchParams.toString();
+      if (candidate.pathname !== current.pathname) return false;
+      const candidateKeys = [...candidate.searchParams.keys()];
+      const currentKeys = [...current.searchParams.keys()];
+      if (candidateKeys.length !== currentKeys.length) return false;
+      return candidateKeys.every((key) => candidate.searchParams.get(key) === current.searchParams.get(key));
     })
     .sort((a, b) => b.href.length - a.href.length)[0];
   if (exact) return exact;
+  // Prefer a query-bearing sibling only when its params are present (partial match for stage queues).
+  const queryMatch = items
+    .filter((item) => {
+      const candidate = new URL(item.href, current.origin);
+      if (candidate.pathname !== current.pathname) return false;
+      const keys = [...candidate.searchParams.keys()];
+      if (!keys.length) return false;
+      return keys.every((key) => candidate.searchParams.get(key) === current.searchParams.get(key));
+    })
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  if (queryMatch) return queryMatch;
   const base = items.find((item) => item.href === current.pathname);
   if (base) return base;
   return items

@@ -21,6 +21,7 @@ const PERMISSIONS = [
   "reimbursement.create",
   "reimbursement.approve",
   "reimbursement.pay",
+  "bill.read",
   "bill.create",
   "bill.approve",
   "payment.create",
@@ -187,9 +188,14 @@ async function main() {
     const perm = permissionRows.find((p) => p.key === key);
     if (perm) await prisma.rolePermission.create({ data: { roleId: manager.id, permissionId: perm.id, scope: "DIRECT_REPORTS" } });
   }
-  for (const key of ["expense.create", "spend_request.create", "card.read", "reimbursement.create", "travel.book", "procurement.request"]) {
+  for (const key of ["expense.create", "expense.read", "spend_request.create", "card.read", "reimbursement.create", "travel.book", "procurement.request"]) {
     const perm = permissionRows.find((p) => p.key === key);
     if (perm) await prisma.rolePermission.create({ data: { roleId: employee.id, permissionId: perm.id, scope: "SELF" } });
+  }
+  // Entity-scoped vendor list so employees can pick a vendor on spend/procurement forms.
+  const vendorRead = permissionRows.find((p) => p.key === "vendor.read");
+  if (vendorRead) {
+    await prisma.rolePermission.create({ data: { roleId: employee.id, permissionId: vendorRead.id, scope: "ENTITY" } });
   }
 
   const admin = await prisma.user.create({
@@ -257,14 +263,15 @@ async function main() {
   await prisma.entitlement.createMany({
     data: FEATURES.map((featureKey) => ({ organizationId: org.id, featureKey, enabled: true })),
   });
+  // enabled must be true — schema default is false, and startApproval only loads enabled workflows.
   await prisma.approvalWorkflow.createMany({
     data: [
-      { organizationId: org.id, name: "Spend request", objectType: "spend_request", steps: [{ type: "manager" }, { type: "finance" }] },
-      { organizationId: org.id, name: "Expense", objectType: "expense", steps: [{ type: "manager" }] },
-      { organizationId: org.id, name: "Reimbursement", objectType: "reimbursement", steps: [{ type: "manager" }] },
-      { organizationId: org.id, name: "Bill", objectType: "bill", steps: [{ type: "ap" }, { type: "finance" }] },
-      { organizationId: org.id, name: "Procurement", objectType: "procurement", steps: [{ type: "manager" }, { type: "finance" }] },
-      { organizationId: org.id, name: "Travel", objectType: "travel", steps: [{ type: "manager" }, { type: "finance" }] },
+      { organizationId: org.id, name: "Spend request", objectType: "spend_request", enabled: true, steps: [{ type: "manager" }, { type: "finance" }] },
+      { organizationId: org.id, name: "Expense", objectType: "expense", enabled: true, steps: [{ type: "manager" }] },
+      { organizationId: org.id, name: "Reimbursement", objectType: "reimbursement", enabled: true, steps: [{ type: "manager" }] },
+      { organizationId: org.id, name: "Bill", objectType: "bill", enabled: true, steps: [{ type: "ap" }, { type: "finance" }] },
+      { organizationId: org.id, name: "Procurement", objectType: "procurement", enabled: true, steps: [{ type: "manager" }, { type: "finance" }] },
+      { organizationId: org.id, name: "Travel", objectType: "travel", enabled: true, steps: [{ type: "manager" }, { type: "finance" }] },
     ],
   });
   await prisma.policy.create({
@@ -350,6 +357,29 @@ async function main() {
       merchantLock: "OpenAI",
     },
   });
+  const adminFund = await prisma.fund.create({
+    data: {
+      organizationId: org.id,
+      legalEntityId: us.id,
+      name: "Ava ops fund",
+      ownerId: admin.id,
+      availableAmount: "5000",
+      limitAmount: "5000",
+      currency: "USD",
+    },
+  });
+  await prisma.card.create({
+    data: {
+      organizationId: org.id,
+      legalEntityId: us.id,
+      fundId: adminFund.id,
+      holderId: admin.id,
+      type: "VIRTUAL",
+      last4: "1001",
+      token: "tok_seed_1001",
+      merchantLock: null,
+    },
+  });
   const txn = await prisma.txn.create({
     data: {
       organizationId: org.id,
@@ -419,6 +449,9 @@ async function main() {
       sourceId: txn.id,
       status: "NEEDS_REVIEW",
       category: "Software",
+      amount: "42.00",
+      currency: "USD",
+      memo: "OpenAI card charge",
     },
   });
   await prisma.bankAccount.createMany({
@@ -446,6 +479,7 @@ async function main() {
       legalEntityId: us.id,
       travelerId: emp.id,
       name: "NYC customer visit",
+      origin: "Austin",
       destination: "New York",
       purpose: "Customer workshop",
       startDate: new Date("2026-10-10"),

@@ -12,12 +12,18 @@ import { hashPassword, verifyPassword } from "../platform/auth";
 import { env } from "../config/env";
 import { hashRequest, withIdempotency } from "../platform/idempotency";
 import { assertEntityPermission, scopedWhere } from "../platform/resource-access";
-import { MockCardIssuerAdapter } from "../integrations/card-issuer/mock.card-issuer.adapter";
+import { CardIssuerError, getCardIssuer, isStripeCardIssuer } from "../integrations/card-issuer";
+import { toStripeSpendingCategories } from "../integrations/card-issuer/stripe-spending-categories";
+import {
+  applyStripeIssuingTransactionCreated,
+} from "../modules/cards/application/stripe-issuing-webhook";
+import { StripeCardIssuerAdapter } from "../integrations/card-issuer/stripe.card-issuer.adapter";
 import { MockOcrAdapter } from "../integrations/ocr/mock.ocr.adapter";
 import { MockPayoutAdapter } from "../integrations/payout/mock.payout.adapter";
 import { MockPaymentRailAdapter } from "../integrations/payment-rail/mock.payment-rail.adapter";
 import { MockAccountingAdapter } from "../integrations/accounting/mock.accounting.adapter";
 import { MockTravelAdapter } from "../integrations/travel/mock.travel.adapter";
+import { evaluateCardAuthorizationRules } from "../modules/cards/domain/authorization-rules";
 import { evaluateExpenseRequirements } from "../modules/expenses/domain/requirements";
 import { evaluateBillDuplicate } from "../modules/ap/domain/duplicate-check";
 import { matchVendor } from "../modules/ap/domain/vendor-match";
@@ -31,7 +37,264 @@ import { canReceivePo, isMatchPassing, nextReceiveStatus } from "../modules/proc
 import { canBookTrip, canSearchTrip, evaluateRepriceTolerance, DEFAULT_REPRICE_TOLERANCE } from "../modules/travel/domain/state-machine";
 import { budgetCapacity, sumByCurrency } from "../modules/reporting/domain/budget-math";
 
-const cardIssuer = new MockCardIssuerAdapter();
+function mapIssuerError(error: unknown): never {
+  if (error instanceof CardIssuerError) {
+    // Surface mapped provider messages (never raw secrets / stack).
+    throw new AppError("CARD_ISSUER_ERROR", error.message || "Card issuer request failed", error.retryable ? 503 : 400);
+  }
+  throw error;
+}
+
+function providerCardIdOf(card: { stripeCardId?: string | null; providerRef?: string | null; token?: string | null }) {
+  return card.stripeCardId || card.providerRef || card.token || null;
+}
+
+function cardNeedsIssuerProvisioning(card: {
+  stripeCardId?: string | null;
+  provider?: string | null;
+  providerRef?: string | null;
+}) {
+  const issuer = getCardIssuer();
+  if (issuer.name === "stripe") return !card.stripeCardId;
+  if (card.provider === "stripe") return true;
+  if (!card.providerRef) return true;
+  if (card.providerRef.startsWith("tok_seed_")) return true;
+  return false;
+}
+
+async function syncIssuerCardStatus(card: {
+  stripeCardId?: string | null;
+  providerRef?: string | null;
+  token?: string | null;
+  provider?: string | null;
+}, action: "freeze" | "unfreeze" | "cancel") {
+  const issuer = getCardIssuer();
+  // Seed tokens must never be sent to Stripe.
+  const providerCardId = issuer.name === "stripe"
+    ? (card.stripeCardId || null)
+    : providerCardIdOf(card);
+  if (!providerCardId) return;
+  if (issuer.name === "stripe" && !providerCardId.startsWith("ic_")) return;
+  try {
+    if (action === "freeze") await issuer.freezeCard(providerCardId);
+    else if (action === "unfreeze") await issuer.unfreezeCard(providerCardId);
+    else await issuer.cancelCard(providerCardId);
+  } catch (error) {
+    mapIssuerError(error);
+  }
+}
+
+async function provisionIssuerCard(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    legalEntityId: string;
+    holderId: string;
+    fundId: string;
+    appCardId: string;
+    allowedMccs?: string | null;
+    perTransactionLimit?: Prisma.Decimal | null;
+  },
+) {
+  const holder = await tx.user.findFirst({ where: { id: input.holderId, organizationId: input.organizationId } });
+  if (!holder) throw new AppError("NOT_FOUND", "Cardholder user not found", 404);
+  const entity = await tx.legalEntity.findFirst({ where: { id: input.legalEntityId, organizationId: input.organizationId } });
+  if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
+
+  const issuer = getCardIssuer();
+  let providerCardholderId = holder.stripeCardholderId;
+  if (!providerCardholderId) {
+    try {
+      const created = await issuer.createCardholder({
+        appUserId: holder.id,
+        email: holder.email,
+        firstName: holder.firstName,
+        lastName: holder.lastName,
+        billing: {
+          line1: "1 Market Street",
+          city: "San Francisco",
+          state: "CA",
+          postalCode: "94105",
+          country: entity.country || "US",
+        },
+      });
+      providerCardholderId = created.providerCardholderId;
+      await tx.user.update({ where: { id: holder.id }, data: { stripeCardholderId: providerCardholderId } });
+    } catch (error) {
+      mapIssuerError(error);
+    }
+  }
+
+  let issued;
+  try {
+    issued = await issuer.createCard({
+      appCardId: input.appCardId,
+      appUserId: holder.id,
+      businessId: input.legalEntityId,
+      providerCardholderId,
+      type: "virtual",
+      currency: env.stripeIssuingCurrency || entity.currency.toLowerCase(),
+      status: "active",
+      spendingControls: {
+        spendingLimits: input.perTransactionLimit
+          ? [{ amount: Math.round(Number(input.perTransactionLimit) * 100), interval: "per_authorization" }]
+          : undefined,
+        allowedCategories: input.allowedMccs
+          ? input.allowedMccs.split(",").map((item) => item.trim()).filter(Boolean)
+          : undefined,
+      },
+      idempotencyKey: `create-card:v4:${input.appCardId}`,
+      metadata: { fund_id: input.fundId },
+    });
+  } catch (error) {
+    mapIssuerError(error);
+  }
+  return { issuer, issued };
+}
+
+/** One live virtual card per holder — new spend tops up the wallet fund instead of issuing another card. */
+async function findHolderLiveCard(tx: Prisma.TransactionClient, organizationId: string, holderId: string) {
+  const active = await tx.card.findFirst({
+    where: { organizationId, holderId, status: "ACTIVE" },
+    orderBy: { createdAt: "asc" },
+  });
+  if (active) return active;
+  return tx.card.findFirst({
+    where: { organizationId, holderId, status: "FROZEN" },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+async function ensureHolderVirtualCard(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    legalEntityId: string;
+    holderId: string;
+    fundId: string;
+    merchantLock?: string | null;
+    allowedMccs?: string | null;
+    perTransactionLimit?: Prisma.Decimal | null;
+    velocityMaxAmount?: Prisma.Decimal | null;
+    velocityMaxCount?: number | null;
+    providerPrefix?: string;
+  },
+) {
+  const existing = await findHolderLiveCard(tx, input.organizationId, input.holderId);
+  if (existing) {
+    if (existing.fundId !== input.fundId) {
+      const requestFund = await tx.fund.findFirstOrThrow({ where: { id: input.fundId, organizationId: input.organizationId } });
+      const move = requestFund.availableAmount;
+      if (move.greaterThan(0)) {
+        await tx.fund.update({
+          where: { id: input.fundId },
+          data: { availableAmount: { decrement: move } },
+        });
+        await tx.fund.update({
+          where: { id: existing.fundId },
+          data: {
+            availableAmount: { increment: move },
+            limitAmount: { increment: move },
+            status: "ACTIVE",
+          },
+        });
+      }
+    }
+    const nextLock =
+      input.merchantLock && existing.merchantLock && input.merchantLock !== existing.merchantLock
+        ? null
+        : (input.merchantLock ?? existing.merchantLock);
+
+    // Seed/mock cards are reused for balance, but must be linked to Stripe on first Stripe-mode fulfill.
+    if (cardNeedsIssuerProvisioning(existing)) {
+      const { issuer, issued } = await provisionIssuerCard(tx, {
+        organizationId: input.organizationId,
+        legalEntityId: input.legalEntityId,
+        holderId: input.holderId,
+        fundId: existing.fundId,
+        appCardId: existing.id,
+        allowedMccs: input.allowedMccs ?? existing.allowedMccs,
+        perTransactionLimit: input.perTransactionLimit ?? existing.perTransactionLimit,
+      });
+      return tx.card.update({
+        where: { id: existing.id },
+        data: {
+          status: issued.status === "active" ? "ACTIVE" : "INACTIVE",
+          last4: issued.last4,
+          token: issued.providerCardId,
+          providerRef: issued.providerCardId,
+          stripeCardId: issuer.name === "stripe" ? issued.providerCardId : null,
+          provider: issuer.name,
+          brand: issued.brand,
+          network: issued.network,
+          merchantLock: nextLock,
+          ...(input.allowedMccs != null ? { allowedMccs: input.allowedMccs } : {}),
+          ...(input.perTransactionLimit != null ? { perTransactionLimit: input.perTransactionLimit } : {}),
+          ...(input.velocityMaxAmount != null ? { velocityMaxAmount: input.velocityMaxAmount } : {}),
+          ...(input.velocityMaxCount != null ? { velocityMaxCount: input.velocityMaxCount } : {}),
+        },
+      });
+    }
+
+    return tx.card.update({
+      where: { id: existing.id },
+      data: {
+        status: "ACTIVE",
+        merchantLock: nextLock,
+        ...(input.allowedMccs != null ? { allowedMccs: input.allowedMccs } : {}),
+        ...(input.perTransactionLimit != null ? { perTransactionLimit: input.perTransactionLimit } : {}),
+        ...(input.velocityMaxAmount != null ? { velocityMaxAmount: input.velocityMaxAmount } : {}),
+        ...(input.velocityMaxCount != null ? { velocityMaxCount: input.velocityMaxCount } : {}),
+      },
+    });
+  }
+
+  const appCardId = crypto.randomUUID();
+  const { issuer, issued } = await provisionIssuerCard(tx, {
+    organizationId: input.organizationId,
+    legalEntityId: input.legalEntityId,
+    holderId: input.holderId,
+    fundId: input.fundId,
+    appCardId,
+    allowedMccs: input.allowedMccs,
+    perTransactionLimit: input.perTransactionLimit,
+  });
+
+  try {
+    return await tx.card.create({
+      data: {
+        id: appCardId,
+        organizationId: input.organizationId,
+        legalEntityId: input.legalEntityId,
+        fundId: input.fundId,
+        holderId: input.holderId,
+        type: "VIRTUAL",
+        last4: issued.last4,
+        token: issued.providerCardId,
+        providerRef: issued.providerCardId,
+        stripeCardId: issuer.name === "stripe" ? issued.providerCardId : null,
+        provider: issuer.name,
+        brand: issued.brand,
+        network: issued.network,
+        status: issued.status === "active" ? "ACTIVE" : "INACTIVE",
+        merchantLock: input.merchantLock ?? null,
+        allowedMccs: input.allowedMccs ?? null,
+        perTransactionLimit: input.perTransactionLimit ?? null,
+        velocityMaxAmount: input.velocityMaxAmount ?? null,
+        velocityMaxCount: input.velocityMaxCount ?? null,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const byFund = await tx.card.findFirst({ where: { organizationId: input.organizationId, fundId: input.fundId } });
+      if (byFund) return byFund;
+      const byHolder = await findHolderLiveCard(tx, input.organizationId, input.holderId);
+      if (byHolder) return byHolder;
+    }
+    throw error;
+  }
+}
+
 const ocrProvider = new MockOcrAdapter();
 const payoutProvider = new MockPayoutAdapter();
 const paymentRail = new MockPaymentRailAdapter();
@@ -665,13 +928,19 @@ export const spend = {
       if (!request) throw new AppError("NOT_FOUND", "Spend request not found", 404);
       if (request.status === "FULFILLED" || request.status === "APPROVED") {
         const fund = await tx.fund.findFirst({ where: { organizationId: ctx.organizationId, spendRequestId: id } });
-        const card = fund ? await tx.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } }) : null;
+        const fulfillmentType = request.fulfillmentType === "FUND_ONLY" ? "FUND_ONLY" : "VIRTUAL_CARD";
+        let card = null;
+        if (fulfillmentType === "VIRTUAL_CARD") {
+          card =
+            (fund ? await tx.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } }) : null)
+            ?? (await findHolderLiveCard(tx, ctx.organizationId, request.requesterId));
+        }
         return { request, fund, card, approval: null };
       }
       if (request.status !== "SUBMITTED" && request.status !== "IN_REVIEW") throw new AppError("INVALID_STATE", "Request is not pending approval", 409);
       assertEntityPermission(ctx, "spend_request.approve", request.legalEntityId);
       const instance = await tx.approvalInstance.findFirst({
-        where: { organizationId: ctx.organizationId, objectId: id, objectType: "spend_request", status: { in: ["IN_REVIEW", "ESCALATED"] } },
+        where: { organizationId: ctx.organizationId, objectId: id, objectType: "spend_request", status: { in: ["IN_REVIEW", "INFO_REQUESTED", "ESCALATED"] } },
         orderBy: { createdAt: "desc" },
       });
       if (!instance) throw new AppError("NOT_FOUND", "Approval was not started", 404);
@@ -731,40 +1000,25 @@ export const spend = {
         }
       }
 
-      let card = await tx.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } });
-      if (fulfillmentType === "VIRTUAL_CARD" && !card) {
-        const issued = cardIssuer.issueVirtual();
+      let card = null;
+      if (fulfillmentType === "VIRTUAL_CARD") {
         let lock: string | null = program?.merchantLockDefault?.trim() || null;
         if (request.vendorId) {
           const vendor = await tx.vendor.findFirst({ where: { id: request.vendorId, organizationId: ctx.organizationId } });
           lock = vendor?.name ?? lock;
         }
-        try {
-          card = await tx.card.create({
-            data: {
-              organizationId: ctx.organizationId,
-              legalEntityId: request.legalEntityId,
-              fundId: fund.id,
-              holderId: request.requesterId,
-              type: "VIRTUAL",
-              last4: issued.last4,
-              token: issued.token,
-              providerRef: `mock_${issued.token}`,
-              network: issued.network,
-              merchantLock: lock,
-              allowedMccs: program?.allowedMccsDefault || null,
-              perTransactionLimit: program?.perTransactionLimitDefault ?? null,
-              velocityMaxAmount: program?.velocityMaxAmountDefault ?? null,
-              velocityMaxCount: program?.velocityMaxCountDefault ?? null,
-            },
-          });
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-            card = await tx.card.findFirstOrThrow({ where: { organizationId: ctx.organizationId, fundId: fund.id } });
-          } else {
-            throw error;
-          }
-        }
+        card = await ensureHolderVirtualCard(tx, {
+          organizationId: ctx.organizationId,
+          legalEntityId: request.legalEntityId,
+          holderId: request.requesterId,
+          fundId: fund.id,
+          merchantLock: lock,
+          allowedMccs: program?.allowedMccsDefault || null,
+          perTransactionLimit: program?.perTransactionLimitDefault ?? null,
+          velocityMaxAmount: program?.velocityMaxAmountDefault ?? null,
+          velocityMaxCount: program?.velocityMaxCountDefault ?? null,
+          providerPrefix: "mock",
+        });
       }
 
       await tx.spendRequest.update({ where: { id }, data: { status: "FULFILLED" } });
@@ -802,13 +1056,26 @@ export const spend = {
         take: 100,
       }),
     ]);
-    const card = fund ? await prisma.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } }) : null;
+    let card = null;
+    if (request.fulfillmentType !== "FUND_ONLY") {
+      const byFund = fund
+        ? await prisma.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } })
+        : null;
+      // After one-card-per-holder reuse the wallet card may not sit on this request's fund.
+      card =
+        byFund
+        ?? (request.status === "FULFILLED"
+          ? await findHolderLiveCard(prisma, ctx.organizationId, request.requesterId)
+          : null);
+    }
     const steps = Array.isArray(instance?.resolvedSteps) ? instance!.resolvedSteps as Array<{ type?: string; role?: string }> : [];
     const approveCount = actions.filter((row) => row.action === "approve").length;
     const approvalProgress = steps.map((step, index) => ({
       label: (step.type ?? step.role ?? `Step ${index + 1}`).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       status: instance?.status === "REJECTED" && index === instance.currentStep
         ? "Rejected"
+        : instance?.status === "INFO_REQUESTED" && index === instance.currentStep
+          ? "Info requested"
         : index < approveCount || instance?.status === "APPROVED"
           ? "Approved"
           : index === (instance?.currentStep ?? 0)
@@ -854,8 +1121,196 @@ export const spend = {
 };
 
 export const cards = {
-  async authorize(ctx: RequestContext, body: { cardId: string; amount: string; currency: string; merchant: string; merchantCategory: string; idempotencyKey: string }) {
-    if (env.nodeEnv === "production") throw new AppError("PROVIDER_REQUIRED", "Card authorization must come from a certified processor", 403);
+  /** Non-prod Stripe path: force-capture so Financial Account is actually debited (no RTA webhook required). */
+  async authorizeStripeSandbox(ctx: RequestContext, body: {
+    cardId: string; amount: string; currency: string; merchant: string; merchantCategory: string; idempotencyKey: string;
+  }) {
+    const money = requireMoney(body.amount, body.currency);
+    const scopedKey = `${ctx.organizationId}:${body.idempotencyKey}`;
+    const existing = await prisma.cardAuthorization.findFirst({
+      where: { organizationId: ctx.organizationId, idempotencyKey: { in: [scopedKey, body.idempotencyKey] } },
+    });
+    if (existing) {
+      const priorTxn = await prisma.txn.findFirst({
+        where: { organizationId: ctx.organizationId, authorizationId: existing.id },
+        select: { id: true },
+      });
+      return { ...existing, transactionId: priorTxn?.id };
+    }
+
+    const card = await prisma.card.findFirst({ where: { id: body.cardId, organizationId: ctx.organizationId } });
+    if (!card) throw new AppError("NOT_FOUND", "Card not found", 404);
+    assertEntityPermission(ctx, "card.issue", card.legalEntityId);
+    const providerCardId = providerCardIdOf(card);
+    if (!providerCardId || !providerCardId.startsWith("ic_")) {
+      throw new AppError(
+        "CARD_NOT_PROVISIONED",
+        "This card is not linked to Stripe Issuing yet. Re-approve/fulfill a spend request so the card gets a Stripe id (ic_…).",
+        409,
+      );
+    }
+
+    let stripeCategories: string[] | undefined;
+    try {
+      stripeCategories = toStripeSpendingCategories([body.merchantCategory]);
+    } catch (error) {
+      throw new AppError(
+        "INVALID_CATEGORY",
+        error instanceof Error ? error.message : "Invalid merchant category for Stripe Issuing",
+        400,
+      );
+    }
+    const merchantCategory = stripeCategories?.[0] ?? "miscellaneous";
+
+    const holder = await prisma.user.findFirst({ where: { id: card.holderId, organizationId: ctx.organizationId } });
+    const fund = await prisma.fund.findFirst({ where: { id: card.fundId, organizationId: ctx.organizationId } });
+    const amount = dec(money.amount);
+    const now = new Date();
+    const windowHours = Math.max(1, card.velocityWindowHours || 24);
+    const since = new Date(now.getTime() - windowHours * 60 * 60 * 1000);
+    const velocityTxns = await prisma.txn.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        cardId: card.id,
+        status: { in: ["PENDING", "CLEARED"] },
+        authorizedAt: { gte: since },
+      },
+      select: { amount: true },
+    });
+    const rule = evaluateCardAuthorizationRules({
+      cardStatus: card.status,
+      holderStatus: holder?.status ?? "INACTIVE",
+      fundStatus: fund?.status ?? "INACTIVE",
+      fundAvailable: fund?.availableAmount ?? 0,
+      fundValidFrom: fund?.validFrom ?? now,
+      fundValidTo: fund?.validTo ?? null,
+      amount,
+      currency: money.currency,
+      fundCurrency: fund?.currency ?? money.currency,
+      merchant: body.merchant,
+      merchantCategory: body.merchantCategory,
+      merchantLock: card.merchantLock,
+      allowedMccs: card.allowedMccs,
+      blockedMccs: card.blockedMccs,
+      allowedCountries: card.allowedCountries,
+      blockedCountries: card.blockedCountries,
+      perTransactionLimit: card.perTransactionLimit,
+      dailyLimit: card.dailyLimit,
+      weeklyLimit: card.weeklyLimit,
+      monthlyLimit: card.monthlyLimit,
+      velocityMaxAmount: card.velocityMaxAmount,
+      velocityMaxCount: card.velocityMaxCount,
+      windowSpendAmount: velocityTxns.reduce((sum, row) => sum.plus(row.amount), dec(0)),
+      windowSpendCount: velocityTxns.length,
+      now,
+    });
+
+    if (rule.decision === "DECLINED") {
+      const declined = await prisma.cardAuthorization.create({
+        data: {
+          organizationId: ctx.organizationId,
+          cardId: card.id,
+          fundId: card.fundId,
+          amount,
+          currency: money.currency,
+          merchant: body.merchant,
+          merchantCategory: body.merchantCategory,
+          decision: "DECLINED",
+          reason: rule.reason,
+          providerEventId: `stripe_declined_${scopedKey}`,
+          idempotencyKey: scopedKey,
+        },
+      });
+      return { ...declined, transactionId: undefined as string | undefined };
+    }
+
+    if (!fund || fund.availableAmount.lessThan(amount)) {
+      throw new AppError("INSUFFICIENT_FUND", "Insufficient local fund available for this capture", 409);
+    }
+
+    const issuer = getCardIssuer();
+    if (!(issuer instanceof StripeCardIssuerAdapter)) {
+      throw new AppError("PROVIDER_REQUIRED", "Stripe adapter is not active", 500);
+    }
+
+    let stripeTxn;
+    try {
+      stripeTxn = await issuer.createForceCaptureRaw({
+        providerCardId,
+        amountCents: Math.round(Number(money.amount) * 100),
+        currency: money.currency,
+        merchant: body.merchant,
+        merchantCategory,
+      });
+    } catch (error) {
+      mapIssuerError(error);
+    }
+
+    const stripeAuthId = typeof stripeTxn.authorization === "string"
+      ? stripeTxn.authorization
+      : stripeTxn.authorization?.id ?? null;
+
+    // Reserve local fund capacity (force-capture has no prior auth hold).
+    const reserved = await prisma.fund.updateMany({
+      where: {
+        id: card.fundId,
+        organizationId: ctx.organizationId,
+        status: "ACTIVE",
+        availableAmount: { gte: amount },
+      },
+      data: { availableAmount: { decrement: amount } },
+    });
+    if (reserved.count !== 1) {
+      throw new AppError("INSUFFICIENT_FUND", "Insufficient fund available after Stripe capture; reconcile balances", 409);
+    }
+
+    try {
+      const localAuth = await prisma.cardAuthorization.create({
+        data: {
+          organizationId: ctx.organizationId,
+          cardId: card.id,
+          fundId: card.fundId,
+          amount,
+          currency: money.currency,
+          merchant: body.merchant,
+          merchantCategory: body.merchantCategory,
+          decision: "APPROVED",
+          reason: "stripe_force_capture",
+          providerEventId: stripeTxn.id,
+          stripeAuthorizationId: stripeAuthId,
+          idempotencyKey: scopedKey,
+        },
+      });
+
+      await applyStripeIssuingTransactionCreated(stripeTxn);
+
+      await prisma.txn.updateMany({
+        where: {
+          organizationId: ctx.organizationId,
+          stripeTransactionId: stripeTxn.id,
+          authorizationId: null,
+        },
+        data: { authorizationId: localAuth.id },
+      });
+
+      const localTxn = await prisma.txn.findFirst({
+        where: { organizationId: ctx.organizationId, stripeTransactionId: stripeTxn.id },
+      });
+
+      return { ...localAuth, transactionId: localTxn?.id };
+    } catch (error) {
+      await prisma.fund.update({
+        where: { id: card.fundId },
+        data: { availableAmount: { increment: amount } },
+      }).catch(() => undefined);
+      throw error;
+    }
+  },
+
+  /** Local auth+capture ledger used by mock issuer and as Stripe sandbox fallback. */
+  async authorizeLocalLedger(ctx: RequestContext, body: {
+    cardId: string; amount: string; currency: string; merchant: string; merchantCategory: string; idempotencyKey: string;
+  }) {
     const money = requireMoney(body.amount, body.currency);
     const scopedKey = `${ctx.organizationId}:${body.idempotencyKey}`;
     return prisma.$transaction(async (tx) => {
@@ -897,43 +1352,42 @@ export const cards = {
       if (!card) {
         return decline({ cardId: body.cardId, fundId: "none", reason: "CARD_INACTIVE" });
       }
-      if (card.status === "FROZEN") {
-        return decline({ cardId: card.id, fundId: card.fundId, reason: "CARD_FROZEN" });
-      }
-      if (card.status === "TERMINATED" || card.status !== "ACTIVE") {
-        return decline({ cardId: card.id, fundId: card.fundId, reason: card.status === "TERMINATED" ? "CARD_TERMINATED" : "CARD_INACTIVE" });
-      }
-      const holder = await tx.user.findFirst({ where: { id: card.holderId, organizationId: ctx.organizationId } });
-      if (!holder || holder.status !== "ACTIVE") {
-        return decline({ cardId: card.id, fundId: card.fundId, reason: "USER_INACTIVE" });
-      }
       assertEntityPermission(ctx, "card.issue", card.legalEntityId);
       const entity = await tx.legalEntity.findFirst({ where: { id: card.legalEntityId, organizationId: ctx.organizationId } });
       if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
       requireCurrencyMatch(entity.currency, money.currency);
 
+      const holder = await tx.user.findFirst({ where: { id: card.holderId, organizationId: ctx.organizationId } });
       const fund = await tx.fund.findFirst({ where: { id: card.fundId, organizationId: ctx.organizationId } });
-      if (!fund || fund.status !== "ACTIVE") {
-        return decline({ cardId: card.id, fundId: card.fundId, reason: "FUND_INACTIVE" });
-      }
-      requireCurrencyMatch(fund.currency, money.currency);
-      const now = new Date();
-      if (fund.validFrom > now || (fund.validTo && fund.validTo < now)) {
-        return decline({ cardId: card.id, fundId: fund.id, reason: "FUND_EXPIRED" });
-      }
-      if (card.merchantLock) {
-        const lock = card.merchantLock.trim().toLowerCase();
-        const merchant = body.merchant.trim().toLowerCase();
-        if (!merchant.includes(lock) && lock !== merchant) {
-          return decline({ cardId: card.id, fundId: fund.id, reason: "MERCHANT_LOCK" });
-        }
-      }
-
       const amount = dec(money.amount);
-
+      const now = new Date();
+      const windowHours = Math.max(1, card.velocityWindowHours || 24);
+      const since = new Date(now.getTime() - windowHours * 60 * 60 * 1000);
+      const velocityTxns = await tx.txn.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          cardId: card.id,
+          status: { in: ["PENDING", "CLEARED"] },
+          authorizedAt: { gte: since },
+        },
+        select: { amount: true },
+      });
+      const dayTxns = await tx.txn.findMany({
+        where: { organizationId: ctx.organizationId, cardId: card.id, status: { in: ["PENDING", "CLEARED"] }, authorizedAt: { gte: new Date(now.getTime() - 86400000) } },
+        select: { amount: true },
+      });
+      const weekTxns = await tx.txn.findMany({
+        where: { organizationId: ctx.organizationId, cardId: card.id, status: { in: ["PENDING", "CLEARED"] }, authorizedAt: { gte: new Date(now.getTime() - 7 * 86400000) } },
+        select: { amount: true },
+      });
+      const monthTxns = await tx.txn.findMany({
+        where: { organizationId: ctx.organizationId, cardId: card.id, status: { in: ["PENDING", "CLEARED"] }, authorizedAt: { gte: new Date(now.getTime() - 30 * 86400000) } },
+        select: { amount: true },
+      });
       const businessLimit = await tx.businessLimit.findFirst({
         where: { organizationId: ctx.organizationId, legalEntityId: card.legalEntityId, currency: money.currency },
       });
+      let businessUsed: Prisma.Decimal | null = null;
       if (businessLimit) {
         const usage = await tx.txn.aggregate({
           where: {
@@ -944,56 +1398,51 @@ export const cards = {
           },
           _sum: { amount: true },
         });
-        const used = usage._sum.amount ?? dec(0);
-        if (used.plus(amount).greaterThan(businessLimit.amount)) {
-          return decline({ cardId: card.id, fundId: fund.id, reason: "BUSINESS_LIMIT" });
-        }
+        businessUsed = usage._sum.amount ?? dec(0);
       }
 
-      if (card.allowedMccs) {
-        const allowed = card.allowedMccs.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
-        const category = body.merchantCategory.trim().toLowerCase();
-        if (allowed.length && !allowed.includes(category)) {
-          return decline({ cardId: card.id, fundId: fund.id, reason: "MCC_BLOCKED" });
-        }
+      const rule = evaluateCardAuthorizationRules({
+        cardStatus: card.status,
+        holderStatus: holder?.status ?? "INACTIVE",
+        fundStatus: fund?.status ?? "INACTIVE",
+        fundAvailable: fund?.availableAmount ?? 0,
+        fundValidFrom: fund?.validFrom ?? now,
+        fundValidTo: fund?.validTo ?? null,
+        amount,
+        currency: money.currency,
+        fundCurrency: fund?.currency ?? money.currency,
+        merchant: body.merchant,
+        merchantCategory: body.merchantCategory,
+        merchantLock: card.merchantLock,
+        allowedMccs: card.allowedMccs,
+        blockedMccs: card.blockedMccs,
+        allowedCountries: card.allowedCountries,
+        blockedCountries: card.blockedCountries,
+        perTransactionLimit: card.perTransactionLimit,
+        dailyLimit: card.dailyLimit,
+        weeklyLimit: card.weeklyLimit,
+        monthlyLimit: card.monthlyLimit,
+        velocityMaxAmount: card.velocityMaxAmount,
+        velocityMaxCount: card.velocityMaxCount,
+        windowSpendAmount: velocityTxns.reduce((sum, row) => sum.plus(row.amount), dec(0)),
+        windowSpendCount: velocityTxns.length,
+        dailySpendAmount: dayTxns.reduce((sum, row) => sum.plus(row.amount), dec(0)),
+        weeklySpendAmount: weekTxns.reduce((sum, row) => sum.plus(row.amount), dec(0)),
+        monthlySpendAmount: monthTxns.reduce((sum, row) => sum.plus(row.amount), dec(0)),
+        businessLimitAmount: businessLimit?.amount ?? null,
+        businessUsedAmount: businessUsed,
+        now,
+      });
+      if (rule.decision === "DECLINED") {
+        return decline({ cardId: card.id, fundId: card.fundId, reason: rule.reason });
       }
 
-      if (card.perTransactionLimit && amount.greaterThan(card.perTransactionLimit)) {
-        return decline({ cardId: card.id, fundId: fund.id, reason: "PER_TXN_LIMIT" });
-      }
-
-      const windowHours = Math.max(1, card.velocityWindowHours || 24);
-      const since = new Date(now.getTime() - windowHours * 60 * 60 * 1000);
-      if (card.velocityMaxCount != null || card.velocityMaxAmount != null) {
-        const velocityTxns = await tx.txn.findMany({
-          where: {
-            organizationId: ctx.organizationId,
-            cardId: card.id,
-            status: { in: ["PENDING", "CLEARED"] },
-            authorizedAt: { gte: since },
-          },
-          select: { amount: true },
-        });
-        if (card.velocityMaxCount != null && velocityTxns.length >= card.velocityMaxCount) {
-          return decline({ cardId: card.id, fundId: fund.id, reason: "VELOCITY_COUNT" });
-        }
-        if (card.velocityMaxAmount != null) {
-          const velocitySum = velocityTxns.reduce((sum, row) => sum.plus(row.amount), dec(0));
-          if (velocitySum.plus(amount).greaterThan(card.velocityMaxAmount)) {
-            return decline({ cardId: card.id, fundId: fund.id, reason: "VELOCITY_AMOUNT" });
-          }
-        }
-      }
-
-      if (cardIssuer.authorize({ available: Number(fund.availableAmount), amount: Number(money.amount) }) === "DECLINED") {
-        return decline({ cardId: card.id, fundId: fund.id, reason: "INSUFFICIENT_FUND" });
-      }
       const reserved = await tx.fund.updateMany({
         where: { id: card.fundId, organizationId: ctx.organizationId, status: "ACTIVE", availableAmount: { gte: amount } },
         data: { availableAmount: { decrement: amount } },
       });
       if (reserved.count === 0) {
-        return decline({ cardId: card.id, fundId: fund.id, reason: "INSUFFICIENT_FUND" });
+        return decline({ cardId: card.id, fundId: card.fundId, reason: "INSUFFICIENT_FUND" });
       }
 
       const loaded = await loadPolicyRules(tx.policy.findMany.bind(tx.policy), ctx.organizationId, "card");
@@ -1006,7 +1455,7 @@ export const cards = {
       });
       if (policy.result === "BLOCK") {
         await tx.fund.update({ where: { id: card.fundId }, data: { availableAmount: { increment: amount } } });
-        return decline({ cardId: card.id, fundId: fund.id, reason: policy.rule || "POLICY_BLOCK" });
+        return decline({ cardId: card.id, fundId: card.fundId, reason: policy.rule || "POLICY_BLOCK" });
       }
 
       const auth = await tx.cardAuthorization.create({
@@ -1054,8 +1503,30 @@ export const cards = {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   },
 
+  async authorize(ctx: RequestContext, body: { cardId: string; amount: string; currency: string; merchant: string; merchantCategory: string; idempotencyKey: string }) {
+    if (env.nodeEnv === "production") {
+      throw new AppError("PROVIDER_REQUIRED", "Card authorization must come from the certified issuer (Stripe Issuing webhooks).", 403);
+    }
+    if (isStripeCardIssuer()) {
+      return cards.authorizeStripeSandbox(ctx, body);
+    }
+    return cards.authorizeLocalLedger(ctx, body);
+  },
+
   async capture(ctx: RequestContext, transactionId: string, body: { amount?: string } = {}) {
-    if (env.nodeEnv === "production") throw new AppError("PROVIDER_REQUIRED", "Transaction capture must come from the processor", 403);
+    if (env.nodeEnv === "production") {
+      throw new AppError("PROVIDER_REQUIRED", "Transaction capture must come from the certified issuer. Sandbox capture is mock-only.", 403);
+    }
+    if (isStripeCardIssuer()) {
+      const pending = await prisma.txn.findFirst({
+        where: { id: transactionId, organizationId: ctx.organizationId },
+        select: { stripeTransactionId: true, status: true },
+      });
+      // Stripe live clearing uses webhooks; allow capture only for local sandbox holds (no stripe txn id).
+      if (pending?.stripeTransactionId || pending?.status !== "PENDING") {
+        throw new AppError("PROVIDER_REQUIRED", "Stripe card captures arrive via Issuing webhooks (or Authorize & capture). Manual capture is for local holds only.", 403);
+      }
+    }
     return prisma.$transaction(async (tx) => {
       let txn = await tx.txn.findFirst({ where: { id: transactionId, organizationId: ctx.organizationId } });
       if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
@@ -1069,9 +1540,6 @@ export const cards = {
       const captureAmount = body.amount ? dec(requireMoney(body.amount, txn.currency).amount) : txn.amount;
       if (captureAmount.lessThanOrEqualTo(0) || captureAmount.greaterThan(txn.amount)) {
         throw new AppError("INVALID_AMOUNT", "Capture amount must be within the authorized hold", 400);
-      }
-      if (cardIssuer.capture({ authorizedAmount: Number(txn.amount), captureAmount: Number(captureAmount) }) === "DECLINED") {
-        throw new AppError("PROVIDER_DECLINED", "Processor declined capture", 409);
       }
 
       const release = txn.amount.minus(captureAmount);
@@ -1222,16 +1690,15 @@ export const cards = {
   },
 
   async void(ctx: RequestContext, transactionId: string) {
-    if (env.nodeEnv === "production") throw new AppError("PROVIDER_REQUIRED", "Transaction void must come from the processor", 403);
+    if (env.nodeEnv === "production" || isStripeCardIssuer()) {
+      throw new AppError("PROVIDER_REQUIRED", "Transaction void must come from the certified issuer. Sandbox void is mock-only.", 403);
+    }
     return prisma.$transaction(async (tx) => {
       const txn = await tx.txn.findFirst({ where: { id: transactionId, organizationId: ctx.organizationId } });
       if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
       assertEntityPermission(ctx, "card.issue", txn.legalEntityId);
       if (txn.status === "VOIDED") return { transaction: txn };
       if (txn.status !== "PENDING") throw new AppError("INVALID_STATE", "Only pending holds can be voided", 409);
-      if (cardIssuer.void({ authorizedAmount: Number(txn.amount) }) === "DECLINED") {
-        throw new AppError("PROVIDER_DECLINED", "Processor declined void", 409);
-      }
       const claim = await tx.txn.updateMany({
         where: { id: txn.id, organizationId: ctx.organizationId, status: "PENDING" },
         data: { status: "VOIDED", voidedAt: new Date() },
@@ -1263,7 +1730,9 @@ export const cards = {
   },
 
   async reverse(ctx: RequestContext, transactionId: string) {
-    if (env.nodeEnv === "production") throw new AppError("PROVIDER_REQUIRED", "Transaction reversal must come from the processor", 403);
+    if (env.nodeEnv === "production" || isStripeCardIssuer()) {
+      throw new AppError("PROVIDER_REQUIRED", "Transaction reversal must come from the certified issuer. Sandbox reverse is mock-only.", 403);
+    }
     return prisma.$transaction(async (tx) => {
       const txn = await tx.txn.findFirst({ where: { id: transactionId, organizationId: ctx.organizationId } });
       if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
@@ -1271,9 +1740,6 @@ export const cards = {
       if (txn.status === "REVERSED") return { transaction: txn };
       if (txn.status !== "CLEARED") throw new AppError("INVALID_STATE", "Only cleared transactions can be reversed", 409);
       const captured = txn.capturedAmount ?? txn.amount;
-      if (cardIssuer.reverse({ capturedAmount: Number(captured) }) === "DECLINED") {
-        throw new AppError("PROVIDER_DECLINED", "Processor declined reversal", 409);
-      }
       const claim = await tx.txn.updateMany({
         where: { id: txn.id, organizationId: ctx.organizationId, status: "CLEARED" },
         data: { status: "REVERSED", reversedAt: new Date() },
@@ -1318,6 +1784,7 @@ export const cards = {
       if (existing.status === "FROZEN") {
         return { result: existing, oldValue: { status: existing.status }, newValue: { status: existing.status } };
       }
+      await syncIssuerCardStatus(existing, "freeze");
       const claim = await tx.card.updateMany({ where: { id: cardId, organizationId: ctx.organizationId, status: existing.status }, data: { status: "FROZEN" } });
       if (claim.count !== 1) throw new AppError("CARD_CONFLICT", "Card changed; refresh and try again", 409);
       const card = await tx.card.findUniqueOrThrow({ where: { id: cardId } });
@@ -1335,6 +1802,7 @@ export const cards = {
         return { result: existing, oldValue: { status: existing.status }, newValue: { status: existing.status } };
       }
       if (existing.status !== "FROZEN") throw new AppError("INVALID_STATE", "Only frozen cards can be unfrozen", 409);
+      await syncIssuerCardStatus(existing, "unfreeze");
       const claim = await tx.card.updateMany({ where: { id: cardId, organizationId: ctx.organizationId, status: "FROZEN" }, data: { status: "ACTIVE" } });
       if (claim.count !== 1) throw new AppError("CARD_CONFLICT", "Card changed; refresh and try again", 409);
       const card = await tx.card.findUniqueOrThrow({ where: { id: cardId } });
@@ -1350,8 +1818,9 @@ export const cards = {
       if (existing.status === "TERMINATED") {
         return { result: existing, oldValue: { status: existing.status }, newValue: { status: existing.status } };
       }
+      await syncIssuerCardStatus(existing, "cancel");
       const claim = await tx.card.updateMany({
-        where: { id: cardId, organizationId: ctx.organizationId, status: { in: ["ACTIVE", "FROZEN"] } },
+        where: { id: cardId, organizationId: ctx.organizationId, status: { in: ["ACTIVE", "FROZEN", "INACTIVE"] } },
         data: { status: "TERMINATED" },
       });
       if (claim.count !== 1) throw new AppError("CARD_CONFLICT", "Card changed; refresh and try again", 409);
@@ -1363,7 +1832,13 @@ export const cards = {
   async setControls(ctx: RequestContext, cardId: string, body: {
     merchantLock?: string | null;
     allowedMccs?: string | null;
+    blockedMccs?: string | null;
+    allowedCountries?: string | null;
+    blockedCountries?: string | null;
     perTransactionLimit?: string | null;
+    dailyLimit?: string | null;
+    weeklyLimit?: string | null;
+    monthlyLimit?: string | null;
     velocityMaxAmount?: string | null;
     velocityMaxCount?: number | null;
     velocityWindowHours?: number;
@@ -1372,24 +1847,64 @@ export const cards = {
       const existing = await tx.card.findFirst({ where: { id: cardId, organizationId: ctx.organizationId } });
       if (!existing) throw new AppError("NOT_FOUND", "Card not found", 404);
       assertEntityPermission(ctx, "card.issue", existing.legalEntityId);
-      const perTxn = body.perTransactionLimit === undefined ? undefined
-        : body.perTransactionLimit === null || body.perTransactionLimit === "" ? null
-          : dec(requireMoney(body.perTransactionLimit, "USD").amount);
-      const velocityAmt = body.velocityMaxAmount === undefined ? undefined
-        : body.velocityMaxAmount === null || body.velocityMaxAmount === "" ? null
-          : dec(requireMoney(body.velocityMaxAmount, "USD").amount);
+      const moneyOrNull = (value: string | null | undefined) => {
+        if (value === undefined) return undefined;
+        if (value === null || value === "") return null;
+        return dec(requireMoney(value, "USD").amount);
+      };
+      const perTxn = moneyOrNull(body.perTransactionLimit);
+      const velocityAmt = moneyOrNull(body.velocityMaxAmount);
+      const daily = moneyOrNull(body.dailyLimit);
+      const weekly = moneyOrNull(body.weeklyLimit);
+      const monthly = moneyOrNull(body.monthlyLimit);
       if (body.velocityMaxCount != null && (body.velocityMaxCount < 1 || body.velocityMaxCount > 10_000)) {
         throw new AppError("INVALID_VELOCITY", "velocityMaxCount must be between 1 and 10000", 400);
       }
       if (body.velocityWindowHours != null && (body.velocityWindowHours < 1 || body.velocityWindowHours > 720)) {
         throw new AppError("INVALID_VELOCITY", "velocityWindowHours must be between 1 and 720", 400);
       }
+
+      const providerCardId = providerCardIdOf(existing);
+      const issuer = getCardIssuer();
+      if (providerCardId && issuer.updateSpendingControls) {
+        const spendingLimits: Array<{ amount: number; interval: "per_authorization" | "daily" | "weekly" | "monthly" }> = [];
+        const nextPerTxn = perTxn === undefined ? existing.perTransactionLimit : perTxn;
+        const nextDaily = daily === undefined ? existing.dailyLimit : daily;
+        const nextWeekly = weekly === undefined ? existing.weeklyLimit : weekly;
+        const nextMonthly = monthly === undefined ? existing.monthlyLimit : monthly;
+        if (nextPerTxn) spendingLimits.push({ amount: Math.round(Number(nextPerTxn) * 100), interval: "per_authorization" });
+        if (nextDaily) spendingLimits.push({ amount: Math.round(Number(nextDaily) * 100), interval: "daily" });
+        if (nextWeekly) spendingLimits.push({ amount: Math.round(Number(nextWeekly) * 100), interval: "weekly" });
+        if (nextMonthly) spendingLimits.push({ amount: Math.round(Number(nextMonthly) * 100), interval: "monthly" });
+        const nextAllowed = body.allowedMccs === undefined ? existing.allowedMccs : body.allowedMccs;
+        const nextBlocked = body.blockedMccs === undefined ? existing.blockedMccs : body.blockedMccs;
+        const nextAllowedCountries = body.allowedCountries === undefined ? existing.allowedCountries : body.allowedCountries;
+        const nextBlockedCountries = body.blockedCountries === undefined ? existing.blockedCountries : body.blockedCountries;
+        try {
+          await issuer.updateSpendingControls(providerCardId, {
+            spendingLimits,
+            allowedCategories: nextAllowed ? nextAllowed.split(",").map((item) => item.trim()).filter(Boolean) : undefined,
+            blockedCategories: nextBlocked ? nextBlocked.split(",").map((item) => item.trim()).filter(Boolean) : undefined,
+            allowedMerchantCountries: nextAllowedCountries ? nextAllowedCountries.split(",").map((item) => item.trim()).filter(Boolean) : undefined,
+            blockedMerchantCountries: nextBlockedCountries ? nextBlockedCountries.split(",").map((item) => item.trim()).filter(Boolean) : undefined,
+          });
+        } catch (error) {
+          mapIssuerError(error);
+        }
+      }
+
       const card = await tx.card.update({
         where: { id: cardId },
         data: {
           ...(body.merchantLock !== undefined ? { merchantLock: body.merchantLock?.trim() || null } : {}),
           ...(body.allowedMccs !== undefined ? { allowedMccs: body.allowedMccs?.trim() || null } : {}),
+          ...(body.blockedMccs !== undefined ? { blockedMccs: body.blockedMccs?.trim() || null } : {}),
+          ...(body.allowedCountries !== undefined ? { allowedCountries: body.allowedCountries?.trim() || null } : {}),
+          ...(body.blockedCountries !== undefined ? { blockedCountries: body.blockedCountries?.trim() || null } : {}),
           ...(perTxn !== undefined ? { perTransactionLimit: perTxn } : {}),
+          ...(daily !== undefined ? { dailyLimit: daily } : {}),
+          ...(weekly !== undefined ? { weeklyLimit: weekly } : {}),
+          ...(monthly !== undefined ? { monthlyLimit: monthly } : {}),
           ...(velocityAmt !== undefined ? { velocityMaxAmount: velocityAmt } : {}),
           ...(body.velocityMaxCount !== undefined ? { velocityMaxCount: body.velocityMaxCount } : {}),
           ...(body.velocityWindowHours !== undefined ? { velocityWindowHours: body.velocityWindowHours } : {}),
@@ -1400,7 +1915,13 @@ export const cards = {
         oldValue: {
           merchantLock: existing.merchantLock,
           allowedMccs: existing.allowedMccs,
+          blockedMccs: existing.blockedMccs,
+          allowedCountries: existing.allowedCountries,
+          blockedCountries: existing.blockedCountries,
           perTransactionLimit: existing.perTransactionLimit ? String(existing.perTransactionLimit) : null,
+          dailyLimit: existing.dailyLimit ? String(existing.dailyLimit) : null,
+          weeklyLimit: existing.weeklyLimit ? String(existing.weeklyLimit) : null,
+          monthlyLimit: existing.monthlyLimit ? String(existing.monthlyLimit) : null,
           velocityMaxAmount: existing.velocityMaxAmount ? String(existing.velocityMaxAmount) : null,
           velocityMaxCount: existing.velocityMaxCount,
           velocityWindowHours: existing.velocityWindowHours,
@@ -1408,7 +1929,13 @@ export const cards = {
         newValue: {
           merchantLock: card.merchantLock,
           allowedMccs: card.allowedMccs,
+          blockedMccs: card.blockedMccs,
+          allowedCountries: card.allowedCountries,
+          blockedCountries: card.blockedCountries,
           perTransactionLimit: card.perTransactionLimit ? String(card.perTransactionLimit) : null,
+          dailyLimit: card.dailyLimit ? String(card.dailyLimit) : null,
+          weeklyLimit: card.weeklyLimit ? String(card.weeklyLimit) : null,
+          monthlyLimit: card.monthlyLimit ? String(card.monthlyLimit) : null,
           velocityMaxAmount: card.velocityMaxAmount ? String(card.velocityMaxAmount) : null,
           velocityMaxCount: card.velocityMaxCount,
           velocityWindowHours: card.velocityWindowHours,
@@ -1466,10 +1993,21 @@ export const cards = {
       controls: {
         merchantLock: card.merchantLock,
         allowedMccs: card.allowedMccs,
+        blockedMccs: card.blockedMccs,
+        allowedCountries: card.allowedCountries,
+        blockedCountries: card.blockedCountries,
         perTransactionLimit: card.perTransactionLimit ? String(card.perTransactionLimit) : null,
+        dailyLimit: card.dailyLimit ? String(card.dailyLimit) : null,
+        weeklyLimit: card.weeklyLimit ? String(card.weeklyLimit) : null,
+        monthlyLimit: card.monthlyLimit ? String(card.monthlyLimit) : null,
         velocityMaxAmount: card.velocityMaxAmount ? String(card.velocityMaxAmount) : null,
         velocityMaxCount: card.velocityMaxCount,
         velocityWindowHours: card.velocityWindowHours,
+      },
+      issuer: {
+        provider: card.provider,
+        sandboxAuthorizeEnabled: env.nodeEnv !== "production",
+        sandboxMode: isStripeCardIssuer() ? "stripe_test_helpers" : "mock",
       },
       totals: {
         currency: fund?.currency ?? "USD",
@@ -1487,12 +2025,11 @@ export const cards = {
     const scope = await scopedWhere(ctx, "funds");
     const fund = await prisma.fund.findFirst({ where: { ...scope, id: fundId } });
     if (!fund) throw new AppError("NOT_FOUND", "Fund not found", 404);
-    const [owner, card, spendRequest, transactions, authorizations] = await Promise.all([
+    const [owner, spendRequest, transactions, authorizations] = await Promise.all([
       prisma.user.findFirst({
         where: { id: fund.ownerId, organizationId: ctx.organizationId },
         select: { id: true, firstName: true, lastName: true, email: true, status: true },
       }),
-      prisma.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } }),
       fund.spendRequestId
         ? prisma.spendRequest.findFirst({ where: { id: fund.spendRequestId, organizationId: ctx.organizationId } })
         : Promise.resolve(null),
@@ -1507,12 +2044,21 @@ export const cards = {
         take: 50,
       }),
     ]);
+    // One-card-per-holder: later approvals top up the live card’s wallet fund, so this
+    // request fund may no longer own the card row — fall back to the holder’s live card.
+    let card = await prisma.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } });
+    let cardLink: "FUND" | "HOLDER" | null = card ? "FUND" : null;
+    if (!card) {
+      card = await findHolderLiveCard(prisma, ctx.organizationId, fund.ownerId);
+      if (card) cardLink = "HOLDER";
+    }
     const pending = transactions.filter((row) => row.status === "PENDING").reduce((sum, row) => sum + Number(row.amount), 0);
     const cleared = transactions.filter((row) => row.status === "CLEARED").reduce((sum, row) => sum + Number(row.amount), 0);
     return {
       fund,
       owner,
       card,
+      cardLink,
       spendRequest,
       totals: {
         currency: fund.currency,
@@ -1523,6 +2069,100 @@ export const cards = {
       },
       transactions,
       authorizations,
+    };
+  },
+
+  async getTransactionDetail(ctx: RequestContext, transactionId: string) {
+    const scope = await scopedWhere(ctx, "transactions");
+    const txn = await prisma.txn.findFirst({ where: { ...scope, id: transactionId } });
+    if (!txn) throw new AppError("NOT_FOUND", "Transaction not found", 404);
+
+    const [card, fund, expense, authorization, vendor, audit] = await Promise.all([
+      txn.cardId
+        ? prisma.card.findFirst({
+            where: { id: txn.cardId, organizationId: ctx.organizationId },
+            select: {
+              id: true,
+              last4: true,
+              status: true,
+              type: true,
+              network: true,
+              holderId: true,
+              fundId: true,
+              merchantLock: true,
+            },
+          })
+        : Promise.resolve(null),
+      txn.fundId
+        ? prisma.fund.findFirst({
+            where: { id: txn.fundId, organizationId: ctx.organizationId },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              availableAmount: true,
+              limitAmount: true,
+              currency: true,
+              ownerId: true,
+            },
+          })
+        : Promise.resolve(null),
+      prisma.expense.findFirst({
+        where: { organizationId: ctx.organizationId, transactionId: txn.id },
+        select: {
+          id: true,
+          merchant: true,
+          amount: true,
+          currency: true,
+          status: true,
+          policyResult: true,
+          userId: true,
+          receiptId: true,
+        },
+      }),
+      txn.authorizationId
+        ? prisma.cardAuthorization.findFirst({
+            where: { id: txn.authorizationId, organizationId: ctx.organizationId },
+            select: {
+              id: true,
+              decision: true,
+              reason: true,
+              amount: true,
+              currency: true,
+              merchant: true,
+              createdAt: true,
+            },
+          })
+        : Promise.resolve(null),
+      txn.vendorId
+        ? prisma.vendor.findFirst({
+            where: { id: txn.vendorId, organizationId: ctx.organizationId },
+            select: { id: true, name: true, status: true },
+          })
+        : Promise.resolve(null),
+      prisma.auditEvent.findMany({
+        where: { organizationId: ctx.organizationId, objectType: "Transaction", objectId: txn.id },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+      }),
+    ]);
+
+    const holder = card
+      ? await prisma.user.findFirst({
+          where: { id: card.holderId, organizationId: ctx.organizationId },
+          select: { id: true, firstName: true, lastName: true, email: true },
+        })
+      : null;
+
+    return {
+      transaction: txn,
+      card,
+      holder,
+      fund,
+      expense,
+      authorization,
+      vendor,
+      audit,
     };
   },
 };
@@ -1730,6 +2370,9 @@ export const expenses = {
       const expense = await tx.expense.findFirst({ where: { id, organizationId: ctx.organizationId } });
       if (!expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
       assertEntityPermission(ctx, "expense.create", expense.legalEntityId);
+      if (expense.userId !== ctx.userId && !ctx.roles.includes("Owner") && !ctx.permissions.includes("*")) {
+        throw new AppError("FORBIDDEN", "You can only split your own expenses", 403);
+      }
       if (!["INCOMPLETE", "REJECTED", "SUBMITTED", "IN_REVIEW"].includes(expense.status)) {
         throw new AppError("INVALID_STATE", "Splits cannot be changed in this state", 409);
       }
@@ -2175,6 +2818,77 @@ export const reimbursements = {
         },
       });
       return { ...record, requirements, duplicate };
+    });
+  },
+
+  async attachReceipt(ctx: RequestContext, id: string, body: { attachmentId: string }) {
+    return prisma.$transaction(async (tx) => {
+      if (!body.attachmentId?.trim()) throw new AppError("INVALID_ATTACHMENT", "attachmentId is required", 400);
+      const record = await tx.reimbursement.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!record) throw new AppError("NOT_FOUND", "Reimbursement not found", 404);
+      if (record.userId !== ctx.userId && !ctx.roles.includes("Owner") && !ctx.permissions.includes("*")) {
+        throw new AppError("FORBIDDEN", "Only the employee (or an owner) can attach a receipt", 403);
+      }
+      if (!["DRAFT", "NEEDS_INFO"].includes(record.status)) {
+        throw new AppError("INVALID_STATE", "Receipts can only be attached while the reimbursement is a draft", 409);
+      }
+      assertEntityPermission(ctx, "reimbursement.create", record.legalEntityId);
+
+      const attachment = await tx.attachment.findFirst({
+        where: { id: body.attachmentId, organizationId: ctx.organizationId },
+      });
+      if (!attachment) throw new AppError("NOT_FOUND", "Attachment not found", 404);
+      if (attachment.malwareStatus !== "CLEAN" && env.nodeEnv !== "production") {
+        await tx.attachment.update({ where: { id: attachment.id }, data: { malwareStatus: "CLEAN" } });
+      }
+      if ((await tx.attachment.findUniqueOrThrow({ where: { id: attachment.id } })).malwareStatus !== "CLEAN") {
+        throw new AppError("ATTACHMENT_QUARANTINED", "Attachment must be scanned clean before use", 409);
+      }
+
+      let receipt = await tx.receipt.findFirst({ where: { organizationId: ctx.organizationId, attachmentId: attachment.id } });
+      if (!receipt) {
+        const ocr = await ocrProvider.extract({
+          attachmentId: attachment.id,
+          mimeType: attachment.mimeType,
+          originalName: attachment.originalName,
+          checksum: attachment.checksum,
+        });
+        receipt = await tx.receipt.create({
+          data: {
+            organizationId: ctx.organizationId,
+            attachmentId: attachment.id,
+            reimbursementId: id,
+            merchantGuess: ocr.merchantGuess,
+            amountGuess: ocr.amountGuess,
+            matchStatus: "MATCHED",
+            ocrStatus: "COMPLETED",
+            ocrPayload: ocr as never,
+          },
+        });
+      } else if (receipt.reimbursementId !== id) {
+        receipt = await tx.receipt.update({
+          where: { id: receipt.id },
+          data: { reimbursementId: id, matchStatus: "MATCHED" },
+        });
+      }
+
+      const updated = await tx.reimbursement.update({
+        where: { id },
+        data: { receiptId: receipt.id },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId,
+          actorId: ctx.userId,
+          action: "reimbursement.attach_receipt",
+          objectType: "Reimbursement",
+          objectId: id,
+          oldValue: { receiptId: record.receiptId },
+          newValue: { receiptId: receipt.id, attachmentId: attachment.id },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return updated;
     });
   },
 
@@ -5031,24 +5745,17 @@ async function provisionTravelInstruments(
   }
   let card = trip.cardId
     ? await tx.card.findFirst({ where: { id: trip.cardId, organizationId: ctx.organizationId } })
-    : await tx.card.findFirst({ where: { organizationId: ctx.organizationId, fundId: fund.id } });
+    : null;
   if (!card) {
-    const issued = cardIssuer.issueVirtual();
-    card = await tx.card.create({
-      data: {
-        organizationId: ctx.organizationId,
-        legalEntityId: trip.legalEntityId,
-        fundId: fund.id,
-        holderId: trip.travelerId,
-        type: "VIRTUAL",
-        last4: issued.last4,
-        token: issued.token,
-        providerRef: `sandbox_travel_${issued.token}`,
-        network: issued.network,
-        merchantLock: null,
-        allowedMccs: TRAVEL_MCCS,
-        perTransactionLimit: limit,
-      },
+    card = await ensureHolderVirtualCard(tx, {
+      organizationId: ctx.organizationId,
+      legalEntityId: trip.legalEntityId,
+      holderId: trip.travelerId,
+      fundId: fund.id,
+      merchantLock: null,
+      allowedMccs: TRAVEL_MCCS,
+      perTransactionLimit: limit,
+      providerPrefix: "sandbox_travel",
     });
   }
   return { fund, card };
@@ -5536,7 +6243,7 @@ export const travel = {
       if (!canBookTrip(trip.status)) {
         throw new AppError("APPROVAL_REQUIRED", "Trip must be ready to book before mock booking", 409);
       }
-      if (booking.outOfPolicy && trip.status !== "READY_TO_BOOK" && trip.status !== "APPROVED") {
+      if (booking.outOfPolicy && !["READY_TO_BOOK", "APPROVED", "BOOKING"].includes(trip.status)) {
         throw new AppError("OUT_OF_POLICY", "Out-of-policy booking requires an approved trip", 409);
       }
       if (!["QUOTED", "PENDING_APPROVAL"].includes(booking.status)) {
@@ -6126,7 +6833,15 @@ export const reporting = {
       reimbursementsSubmitted, reimbursementsAwaitingApproval, reimbursementsApproved, reimbursementsAwaitingPayout,
       reimbursementsPaid, reimbursementsFailed, reimbursementMileage, reimbursementPerDiem, reimbursementPolicyExceptions, reimbursementDuplicates,
     ] = await Promise.all([
-      prisma.txn.groupBy({ by: ["currency"], where: { organizationId: orgId, status: "CLEARED" }, _sum: { amount: true } }),
+      prisma.txn.groupBy({
+        by: ["currency"],
+        where: {
+          organizationId: orgId,
+          status: "CLEARED",
+          ...(isStripeCardIssuer() ? { stripeTransactionId: { not: null } } : {}),
+        },
+        _sum: { amount: true },
+      }),
       prisma.bill.groupBy({ by: ["currency"], where: { organizationId: orgId, NOT: { status: "PAID" } }, _sum: { remainingAmount: true } }),
       prisma.user.count({ where: { organizationId: orgId, status: "ACTIVE" } }),
       prisma.bill.count({ where: { organizationId: orgId, status: "PENDING_APPROVAL" } }),
@@ -6200,7 +6915,44 @@ export const reporting = {
       };
     });
 
+    // Company cash: Stripe Issuing FA when CARD_ISSUER_PROVIDER=stripe; else local BankAccount rows.
+    let companyCashByCurrency: Array<{ currency: string; amount: string }> = [];
+    let companyCashSource: "stripe" | "bank_accounts" | "unavailable" = "unavailable";
+    let companyCashAccountId: string | null = null;
+    let companyCashStatus: string | null = null;
+    let companyCashError: string | null = null;
+    try {
+      const issuer = getCardIssuer();
+      if (issuer.name === "stripe" && issuer.getCompanyBalance) {
+        const balance = await issuer.getCompanyBalance();
+        if (balance) {
+          companyCashByCurrency = balance.available;
+          companyCashSource = "stripe";
+          companyCashAccountId = balance.financialAccountId;
+          companyCashStatus = balance.status;
+        }
+      } else {
+        const bankAccounts = await prisma.bankAccount.findMany({
+          where: { organizationId: orgId },
+          select: { currency: true, available: true },
+          take: 50,
+        });
+        companyCashByCurrency = sumByCurrency(
+          bankAccounts.map((row) => ({ currency: row.currency, amount: Number(row.available) })),
+        );
+        companyCashSource = "bank_accounts";
+      }
+    } catch (error) {
+      companyCashError = error instanceof Error ? error.message : "Company cash unavailable";
+      companyCashSource = isStripeCardIssuer() ? "stripe" : "unavailable";
+    }
+
     return {
+      companyCashByCurrency,
+      companyCashSource,
+      companyCashAccountId,
+      companyCashStatus,
+      companyCashError,
       clearedSpendByCurrency: spend.map((item) => ({ currency: item.currency, amount: String(item._sum.amount ?? 0) })),
       openPayablesByCurrency: payables.map((item) => ({ currency: item.currency, amount: String(item._sum.remainingAmount ?? 0) })),
       budgetCapacityByCurrency: sumByCurrency(budgetRows.map((row) => ({ currency: row.currency, amount: row.remainingAmount }))),

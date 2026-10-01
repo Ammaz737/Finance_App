@@ -19,7 +19,9 @@ import type {
  * hold → MOCK_HOLD only; confirm required for CONFIRMED.
  */
 export class MockTravelAdapter implements TravelProvider {
-  search(input: TravelSearchInput): TravelQuote[] {
+  readonly name = "mock" as const;
+
+  async search(input: TravelSearchInput): Promise<TravelQuote[]> {
     const start = new Date(input.startDate);
     const end = new Date(input.endDate);
     const nights = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
@@ -77,7 +79,7 @@ export class MockTravelAdapter implements TravelProvider {
     ];
   }
 
-  reprice(input: TravelRepriceInput): TravelRepriceResult {
+  async reprice(input: TravelRepriceInput): Promise<TravelRepriceResult> {
     const quoted = Number(input.quotedAmount);
     const next = input.forceHigh
       ? (quoted * 1.8).toFixed(2)
@@ -91,7 +93,7 @@ export class MockTravelAdapter implements TravelProvider {
     };
   }
 
-  hold(input: TravelHoldInput): TravelHoldResult {
+  async hold(input: TravelHoldInput): Promise<TravelHoldResult> {
     return {
       providerRef: `mock_hold_${input.tripId.slice(0, 8)}_${input.quoteId.slice(-12)}`,
       providerStatus: "MOCK_HOLD",
@@ -100,7 +102,7 @@ export class MockTravelAdapter implements TravelProvider {
     };
   }
 
-  confirm(input: TravelConfirmInput): TravelConfirmResult {
+  async confirm(input: TravelConfirmInput): Promise<TravelConfirmResult> {
     if (!input.providerRef.startsWith("mock_hold_")) {
       return { providerRef: input.providerRef, providerStatus: "FAILED", status: "FAILED" };
     }
@@ -113,7 +115,7 @@ export class MockTravelAdapter implements TravelProvider {
     };
   }
 
-  cancel(input: TravelCancelInput): TravelCancelResult {
+  async cancel(input: TravelCancelInput): Promise<TravelCancelResult> {
     if (!input.providerRef.startsWith("mock_conf_") && !input.providerRef.startsWith("mock_hold_")) {
       return { providerRef: input.providerRef, status: "FAILED" };
     }
@@ -123,10 +125,10 @@ export class MockTravelAdapter implements TravelProvider {
     };
   }
 
-  refund(input: TravelRefundInput): TravelRefundResult {
+  async refund(input: TravelRefundInput): Promise<TravelRefundResult> {
     if (!input.providerRef.startsWith("mock_conf_") && !input.providerRef.startsWith("mock_hold_")) {
       return { providerRef: input.providerRef, status: "FAILED" };
     }
-    return { providerRef: input.providerRef, status: "REFUNDED" };
+    return { providerRef: input.providerRef, status: "REFUNDED", refundAmount: undefined };
   }
 }

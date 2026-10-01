@@ -195,7 +195,13 @@ async function decideApproval(tx: Prisma.TransactionClient, input: {
     managerId: requester.managerId,
     assigneeUserId: instance.assigneeUserId,
   })) {
-    throw new AppError("NOT_ASSIGNED", "You are not eligible for this approval step", 403);
+    const who =
+      step?.type === "manager"
+        ? "This step requires the employee's manager (or Owner)."
+        : step?.type === "finance" || step?.type === "ap"
+          ? "This step requires Finance / AP / Owner."
+          : "You are not assigned to the current approval step.";
+    throw new AppError("NOT_ASSIGNED", who, 403);
   }
 
   // Separation of duties: requester cannot decide (above).

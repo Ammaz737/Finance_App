@@ -15,6 +15,7 @@ type Quote = {
   refundable?: boolean; offerExpiry?: string; providerOfferId?: string;
   cancellationTerms?: string; provider?: string;
   itinerary?: Record<string, unknown>; startsAt?: string; endsAt?: string;
+  metadata?: { imageUrl?: string; [key: string]: unknown };
 };
 
 type Booking = {
@@ -92,11 +93,16 @@ function TravelTripDetailInner() {
   });
 
   const search = useMutation({
-    mutationFn: () => api.post<{ quotes: Quote[] }>(`/travel/${params.id}/search`, { type: searchType }),
-    onSuccess: (data) => {
-      setQuotes(data.quotes ?? []);
-      setMessage(`Found ${(data.quotes ?? []).length} ${searchType.toLowerCase()} options.`);
+    mutationFn: () => {
+      setQuotes([]);
+      return api.post<{ quotes: Quote[] }>(`/travel/${params.id}/search`, { type: searchType });
     },
+    onSuccess: (data) => {
+      const next = data.quotes ?? [];
+      setQuotes(next);
+      setMessage(`Found ${next.length} ${searchType.toLowerCase()} options.`);
+    },
+    onError: () => setQuotes([]),
   });
 
   const selectQuote = useMutation({
@@ -117,6 +123,7 @@ function TravelTripDetailInner() {
       itinerary: quote.itinerary,
       startsAt: quote.startsAt,
       endsAt: quote.endsAt,
+      metadata: quote.metadata,
     }),
     onSuccess: () => {
       setMessage("Offer snapshot saved.");
@@ -291,7 +298,16 @@ function TravelTripDetailInner() {
 
         {canSearch && (
           <div className="travel-search-toolbar">
-            <select className="input" value={searchType} onChange={(event) => setSearchType(event.target.value as "FLIGHT" | "HOTEL" | "CAR")} aria-label="Search type">
+            <select
+              className="input"
+              value={searchType}
+              onChange={(event) => {
+                setSearchType(event.target.value as "FLIGHT" | "HOTEL" | "CAR");
+                setQuotes([]);
+                setMessage("");
+              }}
+              aria-label="Search type"
+            >
               <option value="FLIGHT">Flights</option>
               <option value="HOTEL">Hotels</option>
               <option value="CAR">Cars</option>
@@ -304,14 +320,25 @@ function TravelTripDetailInner() {
           <ul className="travel-quote-list">
             {quotes.map((quote) => (
               <li key={quote.quoteId} className={`travel-quote-card${quote.outOfPolicy ? " is-oop" : ""}`}>
+                {quote.metadata?.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={String(quote.metadata.imageUrl)}
+                    alt=""
+                    className="travel-quote-thumb"
+                    width={72}
+                    height={72}
+                  />
+                ) : null}
                 <div>
                   <strong>{quote.supplier}</strong>
-                  <p>{quote.description}</p>
+                  <p>{quote.type}: {quote.description}</p>
                   <small className="muted">
                     {money(quote.currency, quote.amount)}
                     {quote.outOfPolicy ? " · Out of policy" : " · In policy"}
                     {quote.policyResult ? ` · ${quote.policyResult}` : ""}
                     {quote.refundable != null ? (quote.refundable ? " · Refundable" : " · Non-refundable") : ""}
+                    {quote.provider === "duffel" ? " · Duffel" : ""}
                   </small>
                 </div>
                 <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => selectQuote.mutate(quote)}>Select</button>

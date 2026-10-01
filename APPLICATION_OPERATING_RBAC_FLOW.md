@@ -318,6 +318,7 @@ Route: `/app/me/reimbursements` → **New reimbursement**.
 
 Enter:
 
+
 - Entity: `Acme US LLC`
 - Type: `STANDARD`
 - Amount: `85.50`

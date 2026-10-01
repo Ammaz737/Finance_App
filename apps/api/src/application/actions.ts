@@ -6,7 +6,7 @@ import { AppError } from "../platform/http";
 import type { RequestContext } from "../platform/auth/context";
 import { auditedCommand } from "../platform/database";
 import { evaluatePolicy, loadPolicyRules } from "../engines/policy";
-import { actOnApproval, progressLabel, startApproval } from "../engines/workflow";
+import { actOnApproval, eligibleForStep, progressLabel, startApproval } from "../engines/workflow";
 import { postLedger } from "../engines/ledger";
 import { hashPassword, verifyPassword } from "../platform/auth";
 import { env } from "../config/env";
@@ -22,7 +22,7 @@ import { MockOcrAdapter } from "../integrations/ocr/mock.ocr.adapter";
 import { MockPayoutAdapter } from "../integrations/payout/mock.payout.adapter";
 import { MockPaymentRailAdapter } from "../integrations/payment-rail/mock.payment-rail.adapter";
 import { MockAccountingAdapter } from "../integrations/accounting/mock.accounting.adapter";
-import { MockTravelAdapter } from "../integrations/travel/mock.travel.adapter";
+import { getTravelProvider } from "../integrations/travel";
 import { evaluateCardAuthorizationRules } from "../modules/cards/domain/authorization-rules";
 import { evaluateExpenseRequirements } from "../modules/expenses/domain/requirements";
 import { evaluateBillDuplicate } from "../modules/ap/domain/duplicate-check";
@@ -299,7 +299,10 @@ const ocrProvider = new MockOcrAdapter();
 const payoutProvider = new MockPayoutAdapter();
 const paymentRail = new MockPaymentRailAdapter();
 const accountingProvider = new MockAccountingAdapter();
-const travelProvider = new MockTravelAdapter();
+
+function travelProvider() {
+  return getTravelProvider();
+}
 
 function dec(value: string | number) {
   return new Prisma.Decimal(value);
@@ -3285,10 +3288,10 @@ export const reimbursements = {
       }),
       prisma.user.findFirst({
         where: { id: reimbursement.userId, organizationId: ctx.organizationId },
-        select: { id: true, firstName: true, lastName: true, email: true },
+        select: { id: true, firstName: true, lastName: true, email: true, managerId: true },
       }),
     ]);
-    const steps = Array.isArray(instance?.resolvedSteps) ? instance!.resolvedSteps as Array<{ type?: string; role?: string; name?: string }> : [];
+    const steps = Array.isArray(instance?.resolvedSteps) ? instance!.resolvedSteps as Array<{ type?: string; role?: string; name?: string; userId?: string }> : [];
     const approveCount = actions.filter((row) => row.action === "approve").length;
     const approvalProgress = steps.map((step, index) => ({
       label: (step.name ?? step.type ?? step.role ?? `Step ${index + 1}`).replace(/_/g, " "),
@@ -3300,6 +3303,20 @@ export const reimbursements = {
             ? "Pending"
             : "Waiting",
     }));
+    const currentStep = instance && instance.status === "IN_REVIEW"
+      ? steps[instance.currentStep]
+      : undefined;
+    const canApproveStep = Boolean(
+      currentStep
+      && ctx.userId !== reimbursement.userId
+      && eligibleForStep({
+        step: currentStep,
+        actorId: ctx.userId,
+        actorRoles: ctx.roles,
+        managerId: employee?.managerId ?? null,
+        assigneeUserId: instance?.assigneeUserId,
+      }),
+    );
     const requireReceipt = reimbursement.type === "STANDARD" && (
       (Array.isArray(reimbursement.policyMatchedRules) && (reimbursement.policyMatchedRules as string[]).includes("receipt_required"))
       || Number(reimbursement.amount) >= 75
@@ -3319,13 +3336,21 @@ export const reimbursements = {
     });
     return {
       reimbursement,
-      employee,
+      employee: employee
+        ? {
+            id: employee.id,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            email: employee.email,
+          }
+        : null,
       receipt,
       attachment,
       accounting,
       approval: instance,
       approvalProgress,
       approvalLabel: instance ? progressLabel(instance.currentStep, steps.length || 1, instance.status) : reimbursement.approvalProgress,
+      canApproveStep,
       requirements,
       policy: {
         result: reimbursement.policyResult,
@@ -5862,7 +5887,7 @@ export const travel = {
     if (!canSearchTrip(trip.status)) {
       throw new AppError("INVALID_STATE", "Trip cannot search in this status", 409);
     }
-    const quotes = travelProvider.search({
+    const quotes = await travelProvider().search({
       origin: (body.origin ?? trip.origin) || undefined,
       destination: trip.destination,
       startDate: trip.startDate.toISOString(),
@@ -6161,7 +6186,7 @@ export const travel = {
       const quoteId = booking.providerOfferId
         || String((booking.itinerary as { quoteId?: string })?.quoteId ?? booking.id);
       const quoted = Number(booking.quotedAmount ?? booking.amount);
-      const result = travelProvider.reprice({
+      const result = await travelProvider().reprice({
         quoteId,
         quotedAmount: String(quoted),
         currency: booking.currency,
@@ -6259,7 +6284,7 @@ export const travel = {
         const quoteId = booking.providerOfferId
           || String((booking.itinerary as { quoteId?: string })?.quoteId ?? booking.id);
         const quoted = Number(booking.quotedAmount ?? booking.amount);
-        const result = travelProvider.reprice({
+        const result = await travelProvider().reprice({
           quoteId,
           quotedAmount: String(quoted),
           currency: booking.currency,
@@ -6306,7 +6331,7 @@ export const travel = {
         });
       }
 
-      const hold = travelProvider.hold({
+      const hold = await travelProvider().hold({
         quoteId: booking.providerOfferId || String((booking.itinerary as { quoteId?: string })?.quoteId ?? booking.id),
         tripId: trip.id,
         amount: holdAmount,
@@ -6382,7 +6407,7 @@ export const travel = {
         throw new AppError("NOT_MOCK_HOLD", "Booking is not a mock hold", 409);
       }
 
-      const confirmed = travelProvider.confirm({ providerRef: booking.providerRef });
+      const confirmed = await travelProvider().confirm({ providerRef: booking.providerRef });
       if (confirmed.status !== "CONFIRMED") {
         await tx.travelBooking.updateMany({
           where: { id: bookingId, status: "BOOKED_MOCK" },
@@ -6448,7 +6473,7 @@ export const travel = {
       if (!["CONFIRMED", "BOOKED_MOCK"].includes(booking.status) || !booking.providerRef) {
         throw new AppError("INVALID_STATE", "Only confirmed or held bookings can be cancelled", 409);
       }
-      const result = travelProvider.cancel({ providerRef: booking.providerRef, refundable: booking.refundable });
+      const result = await travelProvider().cancel({ providerRef: booking.providerRef, refundable: booking.refundable });
       if (result.status === "FAILED") throw new AppError("CANCEL_FAILED", "Provider declined cancellation", 409);
       const updated = await tx.travelBooking.update({
         where: { id: bookingId },
@@ -6485,7 +6510,7 @@ export const travel = {
         throw new AppError("INVALID_STATE", "Booking must be cancelled before refund", 409);
       }
       if (!booking.providerRef) throw new AppError("MISSING_PROVIDER_REF", "Booking has no provider reference", 409);
-      const result = travelProvider.refund({ providerRef: booking.providerRef });
+      const result = await travelProvider().refund({ providerRef: booking.providerRef });
       if (result.status !== "REFUNDED") throw new AppError("REFUND_FAILED", "Provider declined refund", 409);
 
       const updated = await tx.travelBooking.update({

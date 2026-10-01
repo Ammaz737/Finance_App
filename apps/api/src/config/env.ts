@@ -7,6 +7,11 @@ function issuerProvider(): "mock" | "stripe" {
   return value === "stripe" ? "stripe" : "mock";
 }
 
+function travelProvider(): "mock" | "duffel" {
+  const value = (process.env.TRAVEL_PROVIDER ?? "mock").trim().toLowerCase();
+  return value === "duffel" ? "duffel" : "mock";
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 3001),
@@ -27,6 +32,10 @@ export const env = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
   stripeIssuingCurrency: (process.env.STRIPE_ISSUING_CURRENCY ?? "usd").trim().toLowerCase() || "usd",
   stripeFinancialAccountId: (process.env.STRIPE_FINANCIAL_ACCOUNT_ID ?? "").trim(),
+  travelProvider: travelProvider(),
+  duffelAccessToken: (process.env.DUFFEL_ACCESS_TOKEN ?? "").trim(),
+  duffelApiVersion: (process.env.DUFFEL_API_VERSION ?? "v2").trim() || "v2",
+  duffelWebhookSecret: (process.env.DUFFEL_WEBHOOK_SECRET ?? "").trim(),
 };
 
 export function validateRuntimeConfiguration(config: {
@@ -37,11 +46,16 @@ export function validateRuntimeConfiguration(config: {
   cardIssuerProvider?: "mock" | "stripe";
   stripeSecretKey?: string;
   stripeWebhookSecret?: string;
+  travelProvider?: "mock" | "duffel";
+  duffelAccessToken?: string;
 }): string[] {
   const errors: string[] = [];
 
   if (config.cardIssuerProvider === "stripe" && !config.stripeSecretKey?.trim()) {
     errors.push("STRIPE_SECRET_KEY is required when CARD_ISSUER_PROVIDER=stripe");
+  }
+  if (config.travelProvider === "duffel" && !config.duffelAccessToken?.trim()) {
+    errors.push("DUFFEL_ACCESS_TOKEN is required when TRAVEL_PROVIDER=duffel");
   }
 
   if (config.nodeEnv !== "production") return errors;
@@ -56,6 +70,9 @@ export function validateRuntimeConfiguration(config: {
     if (config.stripeSecretKey?.startsWith("sk_test_")) {
       errors.push("Production must not use Stripe test secret keys (sk_test_)");
     }
+  }
+  if (config.travelProvider === "duffel" && config.duffelAccessToken?.startsWith("duffel_test_")) {
+    errors.push("Production must not use Duffel test tokens (duffel_test_)");
   }
   return errors;
 }

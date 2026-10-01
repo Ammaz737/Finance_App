@@ -1,2 +1,4 @@
-export type { TravelProvider } from "./travel.provider";
+export type { TravelProvider, TravelQuote, TravelSearchInput, TravelProviderName } from "./travel.provider";
 export { MockTravelAdapter } from "./mock.travel.adapter";
+export { DuffelTravelAdapter } from "./duffel.travel.adapter";
+export { getTravelProvider, isDuffelTravelProvider, resetTravelProviderForTests } from "./factory";

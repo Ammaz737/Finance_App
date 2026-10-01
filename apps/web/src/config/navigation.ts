@@ -42,7 +42,7 @@ export const navigation: NavigationSection[] = [
     { href: "/app/expenses/reimbursements?status=FAILED", label: "Failures", permission: "reimbursement.pay", feature: "expenses" },
   ] },
   { label: "Procurement", items: [
-    { href: "/app/procurement/requests", label: "Requests", permission: "procurement.request", feature: "procurement" },
+    { href: "/app/procurement/requests", label: "Requests", permissions: ["procurement.request", "procurement.review"], feature: "procurement" },
     { href: "/app/procurement/programs", label: "Programs", permission: "procurement.review", feature: "procurement" },
     { href: "/app/procurement/purchase-orders", label: "Purchase Orders", permission: "procurement.review", feature: "procurement" },
     { href: "/app/procurement/receiving", label: "Receiving", permission: "procurement.review", feature: "procurement" },

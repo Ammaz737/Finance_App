@@ -40,6 +40,7 @@ type Detail = {
   accounting: { id: string; status: string } | null;
   approvalProgress: Array<{ label: string; status: string }>;
   approvalLabel: string;
+  canApproveStep?: boolean;
   requirements: { requirements: Array<{ label: string; status: string }>; complete: boolean };
   policy: { result: string | null; reason: string | null; version: number | null };
   duplicate: { status: string; ofId: string | null };
@@ -136,12 +137,21 @@ function ReimbursementDetailInner() {
   const canSubmit = ["DRAFT", "NEEDS_INFO"].includes(data.status) && Boolean(isOwner);
   const canApprove =
     data.status === "IN_REVIEW" &&
+    detail.data.canApproveStep !== false &&
     Boolean(
       session?.roles.includes("Owner") ||
         session?.permissions.includes("*") ||
         session?.permissions.includes("reimbursement.approve"),
     ) &&
     session?.userId !== data.userId;
+  const waitingOnManager =
+    data.status === "IN_REVIEW" &&
+    detail.data.canApproveStep === false &&
+    Boolean(
+      session?.permissions.includes("reimbursement.approve") ||
+        session?.roles.includes("Owner") ||
+        session?.permissions.includes("*"),
+    );
   const canPay = Boolean(
     session?.roles.includes("Owner") ||
       session?.permissions.includes("*") ||
@@ -293,6 +303,11 @@ function ReimbursementDetailInner() {
               <button className="btn btn-primary" type="button" disabled={run.isPending} onClick={() => run.mutate("approve")}>
                 Approve
               </button>
+            )}
+            {waitingOnManager && (
+              <p className="muted" style={{ margin: 0 }}>
+                Waiting for <strong>Miles Manager</strong> to approve. Finance can Schedule payout after status is APPROVED.
+              </p>
             )}
             {canPay && ["APPROVED", "FAILED", "READY_FOR_PAYOUT"].includes(data.status) && (
               <button className="btn btn-primary" type="button" disabled={run.isPending} onClick={() => run.mutate("schedule")}>

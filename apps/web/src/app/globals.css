@@ -606,6 +606,7 @@ tr.is-attention { background: #fffaf5; }
 .travel-quote-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .travel-quote-card.is-oop { border-color: #e8c4c4; background: #fff8f8; }
 .travel-quote-card p { margin: 4px 0; font-size: 13px; }
+.travel-quote-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: #f3f4f6; }
 .travel-search-list li { padding: 10px 0; border-bottom: 1px solid var(--line); }
 @media (max-width: 980px) {
   .travel-report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }

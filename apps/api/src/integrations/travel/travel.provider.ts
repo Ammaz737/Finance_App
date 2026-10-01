@@ -39,7 +39,7 @@ export type TravelHoldInput = {
 
 export type TravelHoldResult = {
   providerRef: string;
-  /** Mock adapters only ever return MOCK_HOLD — never claim live confirmation. */
+  /** Mock / sandbox hold only — live Duffel order creation is a separate step. */
   providerStatus: "MOCK_HOLD";
   status: "BOOKED_MOCK";
   confirmationNumber?: string;
@@ -92,11 +92,14 @@ export type TravelRefundResult = {
   refundAmount?: string;
 };
 
+export type TravelProviderName = "mock" | "duffel";
+
 export interface TravelProvider {
-  search(input: TravelSearchInput): TravelQuote[];
-  reprice(input: TravelRepriceInput): TravelRepriceResult;
-  hold(input: TravelHoldInput): TravelHoldResult;
-  confirm(input: TravelConfirmInput): TravelConfirmResult;
-  cancel(input: TravelCancelInput): TravelCancelResult;
-  refund(input: TravelRefundInput): TravelRefundResult;
+  readonly name: TravelProviderName;
+  search(input: TravelSearchInput): Promise<TravelQuote[]>;
+  reprice(input: TravelRepriceInput): Promise<TravelRepriceResult>;
+  hold(input: TravelHoldInput): Promise<TravelHoldResult>;
+  confirm(input: TravelConfirmInput): Promise<TravelConfirmResult>;
+  cancel(input: TravelCancelInput): Promise<TravelCancelResult>;
+  refund(input: TravelRefundInput): Promise<TravelRefundResult>;
 }

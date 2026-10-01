@@ -155,7 +155,11 @@ function MatchExceptionsInner() {
               </li>
             ))}
             {!(rows.data ?? []).length && !rows.isPending && (
-              <li className="muted">No open match exceptions.</li>
+              <li className="muted">
+                No open match exceptions yet. This queue fills only after a PO runs{" "}
+                <strong>Run 2/3-way match</strong> against a linked bill and the amounts/qty differ
+                (or tolerance is exceeded). Perfect matches stay off this list.
+              </li>
             )}
           </ul>
         </section>

@@ -4,11 +4,14 @@ export type PaymentRailReleaseInput = {
   amount: string;
   currency: string;
   rail: string;
+  /** Optional vendor / memo shown on the Stripe Issuing force-capture merchant. */
+  description?: string;
 };
 
 export type PaymentRailReleaseResult = {
   providerRef: string;
   status: "ACCEPTED" | "REJECTED";
+  failureReason?: string;
 };
 
 export type PaymentRailSettleInput = {
@@ -22,6 +25,7 @@ export type PaymentRailSettleResult = {
 };
 
 export interface PaymentRailProvider {
-  release(input: PaymentRailReleaseInput): PaymentRailReleaseResult;
-  settle(input: PaymentRailSettleInput): PaymentRailSettleResult;
+  readonly name: "mock" | "stripe";
+  release(input: PaymentRailReleaseInput): Promise<PaymentRailReleaseResult>;
+  settle(input: PaymentRailSettleInput): Promise<PaymentRailSettleResult>;
 }

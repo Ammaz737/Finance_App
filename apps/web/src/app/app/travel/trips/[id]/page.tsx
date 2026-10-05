@@ -236,7 +236,18 @@ function TravelTripDetailInner() {
     {error && <p className="error" role="alert">{error.message}</p>}
 
     <div className="kpi-grid">
-      <article className="kpi-card"><span>Status</span><strong><StatusBadge status={trip.status} /></strong><small>{approval ? `Approval ${approval.status}` : "No approval instance"}</small></article>
+      <article className="kpi-card">
+        <span>Status</span>
+        <strong><StatusBadge status={trip.status} /></strong>
+        <small>
+          {approval ? `Approval ${approval.status}` : "No approval instance"}
+          {bookings.some((b) => b.status === "REFUNDED")
+            ? " · Booking refunded"
+            : bookings.some((b) => ["CANCELLED", "REFUND_PENDING"].includes(b.status))
+              ? " · Booking cancelled"
+              : ""}
+        </small>
+      </article>
       <article className="kpi-card"><span>Policy</span><strong><StatusBadge status={trip.policyResult} /></strong><small>{trip.policyExplanation || "Evaluated on submit"}</small></article>
       <article className="kpi-card"><span>Dates</span><strong>{fmtDate(trip.startDate)} – {fmtDate(trip.endDate)}</strong><small>{trip.purpose || "No purpose"}{trip.international ? " · International" : ""}</small></article>
     </div>
@@ -260,7 +271,28 @@ function TravelTripDetailInner() {
                 {booking.confirmationNumber ? ` · Conf ${booking.confirmationNumber}` : ""}
               </div>
               <div className="muted">Cancellation terms: {booking.cancellationTerms || (booking.refundable ? "Refundable in sandbox" : "Non-refundable")}</div>
-              {booking.cancelledAt && <div className="muted">Cancelled {fmtDate(booking.cancelledAt)} · Refund status {booking.refundedAt ? "REFUNDED" : booking.refundable ? "ELIGIBLE" : "NOT_ELIGIBLE"}{booking.refundedAt ? ` · ${money(booking.currency, booking.amount)}` : ""}</div>}
+              {["CANCELLED", "REFUND_PENDING", "REFUNDED"].includes(booking.status) && (
+                <dl className="detail-list travel-refund-summary">
+                  <div>
+                    <dt>Cancel / refund</dt>
+                    <dd>
+                      <StatusBadge status={booking.status} />
+                      {booking.cancelledAt ? ` · cancelled ${fmtDate(booking.cancelledAt)}` : ""}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Refund amount</dt>
+                    <dd>
+                      {booking.status === "REFUNDED"
+                        ? money(booking.currency, booking.amount)
+                        : booking.refundable
+                          ? `${money(booking.currency, booking.amount)} (eligible)`
+                          : "Not eligible"}
+                      {booking.refundedAt ? ` · refunded ${fmtDate(booking.refundedAt)}` : ""}
+                    </dd>
+                  </div>
+                </dl>
+              )}
               <div className="detail-actions">
                 {canBook && bookable && ["QUOTED", "PENDING_APPROVAL"].includes(booking.status) && (
                   <>
@@ -404,7 +436,13 @@ function TravelTripDetailInner() {
         <h2>Activity</h2>
         <ul className="plain-list">
           {(audit ?? []).map((event) => (
-            <li key={event.id}><code>{event.action}</code> · {fmtDate(event.createdAt)}</li>
+            <li key={event.id}>
+              <code>{event.action}</code>
+              {event.action === "travel.refund" ? " · refund recorded" : ""}
+              {event.action === "travel.cancel" ? " · booking cancelled" : ""}
+              {" · "}
+              {fmtDate(event.createdAt)}
+            </li>
           ))}
           {!(audit ?? []).length && <li className="muted">No audit events yet.</li>}
         </ul>

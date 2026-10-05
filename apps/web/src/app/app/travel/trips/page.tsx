@@ -50,7 +50,7 @@ function personLabel(people: Person[], id?: string) {
 
 const ACTIVE = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "READY_TO_BOOK", "BOOKING", "BLOCKED", "IN_REVIEW"];
 const NEEDS_BOOKING = ["APPROVED", "READY_TO_BOOK", "BOOKING"];
-const DONE = ["BOOKED", "COMPLETED", "CANCELLED", "REJECTED"];
+const DONE = ["BOOKED", "COMPLETED", "CANCELLED", "REJECTED", "REFUNDED"];
 
 const focusLinks = [
   { href: "/app/travel/trips", label: "All", focus: null as string | null },

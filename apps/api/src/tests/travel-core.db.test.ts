@@ -130,7 +130,7 @@ describe.runIf(runDb)("M9/GF5 core travel", () => {
     await prisma.$disconnect();
   });
 
-  it("in-policy trip ready-to-book; mock hold ≠ confirmed; provisions fund/card", async () => {
+  it("in-policy trip still needs approval before mock book; provisions fund/card after approve", async () => {
     const traveler = ctx({ userId: travelerId, organizationId: orgId });
     const trip = await travel.createTrip(traveler, {
       name: `NYC in-policy ${suffix}`,
@@ -166,8 +166,14 @@ describe.runIf(runDb)("M9/GF5 core travel", () => {
     expect(selected.booking.offerSnapshot).toBeTruthy();
 
     const submitted = await travel.submit(traveler, trip.id);
-    expect(submitted.requiresApproval).toBe(false);
-    expect(submitted.trip.status).toBe("READY_TO_BOOK");
+    expect(submitted.requiresApproval).toBe(true);
+    expect(submitted.trip.status).toBe("PENDING_APPROVAL");
+
+    await expect(travel.bookMock(traveler, selected.booking.id)).rejects.toMatchObject({ code: "APPROVAL_REQUIRED" });
+
+    const approver = ctx({ userId: approverId, organizationId: orgId });
+    const approved = await travel.approve(approver, trip.id);
+    expect(approved.trip.status).toBe("READY_TO_BOOK");
 
     await expect(travel.bookMock(traveler, selected.booking.id)).resolves.toMatchObject({
       status: "BOOKED_MOCK",
@@ -261,6 +267,7 @@ describe.runIf(runDb)("M9/GF5 core travel", () => {
       itinerary: quote.itinerary,
     });
     await travel.submit(traveler, trip.id);
+    await travel.approve(ctx({ userId: approverId, organizationId: orgId }), trip.id);
 
     await expect(travel.reprice(traveler, selected.booking.id, { forceHigh: true })).rejects.toMatchObject({
       code: "REPRICE_TOLERANCE_EXCEEDED",
@@ -308,6 +315,7 @@ describe.runIf(runDb)("M9/GF5 core travel", () => {
       itinerary: quote.itinerary,
     });
     await travel.submit(traveler, trip.id);
+    await travel.approve(ctx({ userId: approverId, organizationId: orgId }), trip.id);
     const key = `travel-idem-${suffix}`;
     const first = await travel.bookMock(traveler, selected.booking.id, { idempotencyKey: key, skipReprice: true });
     const second = await travel.bookMock(traveler, selected.booking.id, { idempotencyKey: key, skipReprice: true });

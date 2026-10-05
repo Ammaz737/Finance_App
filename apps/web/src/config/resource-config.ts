@@ -54,7 +54,7 @@ export const resourceConfig: Record<string, ResourceConfig> = {
     { key: "vendorId", label: "Vendor", type: "select", source: { path: "vendors", labelKey: "name", entityField: "legalEntityId", statuses: ["ACTIVE"] } },
     { key: "memo", label: "Memo" },
   ] },
-  "purchase-orders": { description: "Approved commitments with lines, receiving, and 2/3-way match.", columns: ["number", "vendorId", "amount", "receivedAmount", "billedAmount", "matchStatus", "status"] },
+  "purchase-orders": { description: "Approved commitments with lines, receiving, and 2/3-way match.", columns: ["number", "vendorId", "amount", "receivedAmount", "billedAmount", "matchStatus", "createdAt", "status"] },
   receiving: { description: "Goods and services received against approved purchase orders.", columns: ["purchaseOrderId", "amount", "memo", "receivedBy", "createdAt"], createLabel: "Record receipt", fields: [
     { key: "purchaseOrderId", label: "Purchase order", required: true, type: "select", source: { path: "purchase-orders", labelKey: "number", statuses: ["OPEN", "PARTIALLY_RECEIVED"] } },
     amount,

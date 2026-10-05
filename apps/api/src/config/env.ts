@@ -32,6 +32,10 @@ export const env = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
   stripeIssuingCurrency: (process.env.STRIPE_ISSUING_CURRENCY ?? "usd").trim().toLowerCase() || "usd",
   stripeFinancialAccountId: (process.env.STRIPE_FINANCIAL_ACCOUNT_ID ?? "").trim(),
+  paymentRailProvider: (process.env.PAYMENT_RAIL_PROVIDER ?? process.env.CARD_ISSUER_PROVIDER ?? "mock").trim().toLowerCase() === "stripe"
+    ? "stripe" as const
+    : "mock" as const,
+  stripeBillPayCardId: (process.env.STRIPE_BILL_PAY_CARD_ID ?? "").trim(),
   travelProvider: travelProvider(),
   duffelAccessToken: (process.env.DUFFEL_ACCESS_TOKEN ?? "").trim(),
   duffelApiVersion: (process.env.DUFFEL_API_VERSION ?? "v2").trim() || "v2",

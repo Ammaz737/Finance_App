@@ -20,7 +20,7 @@ import {
 import { StripeCardIssuerAdapter } from "../integrations/card-issuer/stripe.card-issuer.adapter";
 import { MockOcrAdapter } from "../integrations/ocr/mock.ocr.adapter";
 import { MockPayoutAdapter } from "../integrations/payout/mock.payout.adapter";
-import { MockPaymentRailAdapter } from "../integrations/payment-rail/mock.payment-rail.adapter";
+import { getPaymentRailProvider } from "../integrations/payment-rail";
 import { MockAccountingAdapter } from "../integrations/accounting/mock.accounting.adapter";
 import { getTravelProvider } from "../integrations/travel";
 import { evaluateCardAuthorizationRules } from "../modules/cards/domain/authorization-rules";
@@ -178,11 +178,17 @@ async function ensureHolderVirtualCard(
     velocityMaxAmount?: Prisma.Decimal | null;
     velocityMaxCount?: number | null;
     providerPrefix?: string;
+    /**
+     * consolidate (default): keep card on its current fund; move new fund balance into it (spend fulfill).
+     * reassign: point the card at input.fundId and leave balances where they are (travel temp wallet).
+     */
+    fundAttachment?: "consolidate" | "reassign";
   },
 ) {
+  const attachment = input.fundAttachment ?? "consolidate";
   const existing = await findHolderLiveCard(tx, input.organizationId, input.holderId);
   if (existing) {
-    if (existing.fundId !== input.fundId) {
+    if (existing.fundId !== input.fundId && attachment === "consolidate") {
       const requestFund = await tx.fund.findFirstOrThrow({ where: { id: input.fundId, organizationId: input.organizationId } });
       const move = requestFund.availableAmount;
       if (move.greaterThan(0)) {
@@ -204,6 +210,7 @@ async function ensureHolderVirtualCard(
       input.merchantLock && existing.merchantLock && input.merchantLock !== existing.merchantLock
         ? null
         : (input.merchantLock ?? existing.merchantLock);
+    const nextFundId = attachment === "reassign" ? input.fundId : existing.fundId;
 
     // Seed/mock cards are reused for balance, but must be linked to Stripe on first Stripe-mode fulfill.
     if (cardNeedsIssuerProvisioning(existing)) {
@@ -211,7 +218,7 @@ async function ensureHolderVirtualCard(
         organizationId: input.organizationId,
         legalEntityId: input.legalEntityId,
         holderId: input.holderId,
-        fundId: existing.fundId,
+        fundId: nextFundId,
         appCardId: existing.id,
         allowedMccs: input.allowedMccs ?? existing.allowedMccs,
         perTransactionLimit: input.perTransactionLimit ?? existing.perTransactionLimit,
@@ -219,6 +226,7 @@ async function ensureHolderVirtualCard(
       return tx.card.update({
         where: { id: existing.id },
         data: {
+          fundId: nextFundId,
           status: issued.status === "active" ? "ACTIVE" : "INACTIVE",
           last4: issued.last4,
           token: issued.providerCardId,
@@ -239,6 +247,7 @@ async function ensureHolderVirtualCard(
     return tx.card.update({
       where: { id: existing.id },
       data: {
+        fundId: nextFundId,
         status: "ACTIVE",
         merchantLock: nextLock,
         ...(input.allowedMccs != null ? { allowedMccs: input.allowedMccs } : {}),
@@ -297,8 +306,11 @@ async function ensureHolderVirtualCard(
 
 const ocrProvider = new MockOcrAdapter();
 const payoutProvider = new MockPayoutAdapter();
-const paymentRail = new MockPaymentRailAdapter();
 const accountingProvider = new MockAccountingAdapter();
+
+function paymentRail() {
+  return getPaymentRailProvider();
+}
 
 function travelProvider() {
   return getTravelProvider();
@@ -4049,13 +4061,22 @@ export const payments = {
       if (payment.status === "SETTLED" || payment.status === "COMPLETED") return payment;
       if (payment.status !== "SCHEDULED") throw new AppError("INVALID_STATE", "Payment is not scheduled", 409);
       if (payment.createdBy === ctx.userId) throw new AppError("SOD_VIOLATION", "Payment creator cannot release payment", 403);
-      const accepted = paymentRail.release({
+      const billForRail = await tx.bill.findFirst({ where: { id: payment.billId, organizationId: ctx.organizationId } });
+      const vendorForRail = billForRail
+        ? await tx.vendor.findFirst({ where: { id: billForRail.vendorId, organizationId: ctx.organizationId } })
+        : null;
+      const accepted = await paymentRail().release({
         paymentId: payment.id,
         amount: String(payment.amount),
         currency: payment.currency,
         rail: payment.rail,
+        description: vendorForRail
+          ? `${vendorForRail.displayName || vendorForRail.name} · ${payment.rail}`
+          : `Bill pay ${payment.rail}`,
       });
-      if (accepted.status !== "ACCEPTED") throw new AppError("RAIL_REJECTED", "Payment rail rejected release", 409);
+      if (accepted.status !== "ACCEPTED") {
+        throw new AppError("RAIL_REJECTED", accepted.failureReason || "Payment rail rejected release", 409);
+      }
       const claim = await tx.payment.updateMany({
         where: { id, organizationId: ctx.organizationId, status: "SCHEDULED" },
         data: { status: "PROCESSING", releasedBy: ctx.userId, providerRef: accepted.providerRef },
@@ -4114,7 +4135,9 @@ export const payments = {
       releaser,
       timeline,
       sandbox: env.nodeEnv !== "production",
-      providerLabel: env.nodeEnv !== "production" ? "SANDBOX / MOCK PAYMENT" : "Payment rail",
+      providerLabel: paymentRail().name === "stripe"
+        ? "STRIPE / FINANCIAL ACCOUNT DEBIT"
+        : env.nodeEnv !== "production" ? "SANDBOX / MOCK PAYMENT" : "Payment rail",
     };
   },
 };
@@ -4136,7 +4159,7 @@ async function settlePaymentRecord(ctx: RequestContext, paymentId: string) {
     if (!payment.providerRef) throw new AppError("MISSING_PROVIDER_REF", "Payment was not released to a rail", 409);
     if (payment.settlementId) throw new AppError("ALREADY_SETTLED", "Payment already has a settlement id", 409);
 
-    const settled = paymentRail.settle({ providerRef: payment.providerRef });
+    const settled = await paymentRail().settle({ providerRef: payment.providerRef });
     if (settled.status !== "COMPLETED") {
       await tx.payment.updateMany({
         where: { id: paymentId, status: { in: ["PROCESSING", "SENT"] } },
@@ -4368,13 +4391,16 @@ export const paymentRuns = {
         if (payment.createdBy === ctx.userId) {
           throw new AppError("SOD_VIOLATION", "Cannot release a payment you scheduled", 403);
         }
-        const accepted = paymentRail.release({
+        const accepted = await paymentRail().release({
           paymentId: payment.id,
           amount: String(payment.amount),
           currency: payment.currency,
           rail: payment.rail,
+          description: `Bill pay run ${payment.rail}`,
         });
-        if (accepted.status !== "ACCEPTED") throw new AppError("RAIL_REJECTED", "Payment rail rejected release", 409);
+        if (accepted.status !== "ACCEPTED") {
+          throw new AppError("RAIL_REJECTED", accepted.failureReason || "Payment rail rejected release", 409);
+        }
         const claim = await tx.payment.updateMany({
           where: { id: payment.id, organizationId: ctx.organizationId, status: "SCHEDULED" },
           data: { status: "PROCESSING", releasedBy: ctx.userId, providerRef: accepted.providerRef },
@@ -5279,21 +5305,30 @@ export const procurement = {
         take: 100,
       }),
     ]);
+    const commitment = Number(po.commitmentAmount);
+    const matched = Number(po.matchedAmount ?? 0);
+    const billed = Number(po.billedAmount ?? 0);
     return {
       purchaseOrder: po,
-      lines,
-      receiving,
-      matches,
-      request,
-      bills,
+      lines: lines ?? [],
+      receiving: receiving ?? [],
+      matches: matches ?? [],
+      request: request
+        ? { id: request.id, name: request.name, status: request.status }
+        : null,
+      bills: (bills ?? []).map((bill) => ({
+        id: bill.id,
+        invoiceNumber: bill.invoiceNumber,
+        amount: bill.amount,
+        status: bill.status,
+      })),
       vendor,
-      changeOrders,
-      timeline,
-      remainingCommitment: Number(po.commitmentAmount) - Number(po.matchedAmount || po.billedAmount),
+      changeOrders: changeOrders ?? [],
+      timeline: timeline ?? [],
+      remainingCommitment: commitment - (Number.isFinite(matched) && matched > 0 ? matched : billed),
     };
   },
 };
-
 export const accounting = {
   async code(ctx: RequestContext, id: string, body: { category?: string; memo?: string; coding?: Record<string, string> }) {
     const category = body.category?.trim() ?? "";
@@ -5768,21 +5803,20 @@ async function provisionTravelInstruments(
       },
     });
   }
-  let card = trip.cardId
-    ? await tx.card.findFirst({ where: { id: trip.cardId, organizationId: ctx.organizationId } })
-    : null;
-  if (!card) {
-    card = await ensureHolderVirtualCard(tx, {
-      organizationId: ctx.organizationId,
-      legalEntityId: trip.legalEntityId,
-      holderId: trip.travelerId,
-      fundId: fund.id,
-      merchantLock: null,
-      allowedMccs: TRAVEL_MCCS,
-      perTransactionLimit: limit,
-      providerPrefix: "sandbox_travel",
-    });
-  }
+
+  // Travel uses a dedicated temp wallet: point the traveler card at this fund (do not
+  // consolidate into the software/spend fund — that hid travel funds on My card).
+  const card = await ensureHolderVirtualCard(tx, {
+    organizationId: ctx.organizationId,
+    legalEntityId: trip.legalEntityId,
+    holderId: trip.travelerId,
+    fundId: fund.id,
+    merchantLock: null,
+    allowedMccs: TRAVEL_MCCS,
+    perTransactionLimit: limit,
+    providerPrefix: "sandbox_travel",
+    fundAttachment: "reassign",
+  });
   return { fund, card };
 }
 
@@ -6045,36 +6079,6 @@ export const travel = {
         ],
       });
 
-      // In-policy trips skip approval → READY_TO_BOOK (bookable). Out-of-policy must approve first.
-      if (policy.result === "PASS" && !anyOop) {
-        const claim = await tx.travelTrip.updateMany({
-          where: { id: tripId, organizationId: ctx.organizationId, status: "DRAFT" },
-          data: {
-            status: "READY_TO_BOOK",
-            policyResult: policy.result,
-            policyExplanation: policy.explanation || "In-policy trip ready to book",
-            policyMatchedRules: policy.matchedRules as never,
-            policyRequiredActions: policy.requiredActions as never,
-            policyVersion: 1,
-            policyEvaluatedAt: new Date(),
-          },
-        });
-        if (claim.count !== 1) throw new AppError("TRAVEL_CONFLICT", "Trip changed; refresh and try again", 409);
-        const updated = await tx.travelTrip.findUniqueOrThrow({ where: { id: tripId } });
-        await tx.auditEvent.create({
-          data: {
-            organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.submit_in_policy",
-            objectType: "TravelTrip", objectId: tripId,
-            newValue: { status: "READY_TO_BOOK", policyResult: policy.result },
-            correlationId: ctx.correlationId,
-          },
-        });
-        await tx.outboxEvent.create({
-          data: { organizationId: ctx.organizationId, type: "travel.ready_to_book", payload: { tripId } },
-        });
-        return { trip: updated, requiresApproval: false, policy };
-      }
-
       if (policy.result === "BLOCK") {
         const blocked = await tx.travelTrip.updateMany({
           where: { id: tripId, organizationId: ctx.organizationId, status: "DRAFT" },
@@ -6091,12 +6095,14 @@ export const travel = {
         throw new AppError("TRAVEL_POLICY_BLOCK", policy.explanation, 400);
       }
 
+      // Always start manager → finance approval (seeded travel workflow). Policy PASS still
+      // needs the chain so Manager inbox / Trip requests stay in sync with operating flow.
       const claim = await tx.travelTrip.updateMany({
         where: { id: tripId, organizationId: ctx.organizationId, status: "DRAFT" },
         data: {
           status: "PENDING_APPROVAL",
           policyResult: policy.result,
-          policyExplanation: policy.explanation,
+          policyExplanation: policy.explanation || (policy.result === "PASS" ? "In-policy — awaiting manager approval" : policy.explanation),
           policyMatchedRules: policy.matchedRules as never,
           policyRequiredActions: policy.requiredActions as never,
           policyVersion: 1,
@@ -6483,6 +6489,25 @@ export const travel = {
           providerStatus: result.status,
         },
       });
+      // Keep trip header in sync when every booking is cancelled / awaiting refund.
+      const siblings = await tx.travelBooking.findMany({
+        where: { organizationId: ctx.organizationId, tripId: trip.id },
+        select: { status: true },
+      });
+      if (
+        siblings.length
+        && siblings.every((row) => ["CANCELLED", "REFUND_PENDING", "REFUNDED"].includes(row.status))
+      ) {
+        const tripStatus = siblings.every((row) => row.status === "REFUNDED")
+          ? "REFUNDED"
+          : siblings.some((row) => row.status === "REFUND_PENDING")
+            ? "CANCELLED"
+            : "CANCELLED";
+        await tx.travelTrip.update({
+          where: { id: trip.id },
+          data: { status: tripStatus },
+        });
+      }
       await tx.auditEvent.create({
         data: {
           organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.cancel",
@@ -6541,11 +6566,31 @@ export const travel = {
           }
         }
       }
+
+      const siblings = await tx.travelBooking.findMany({
+        where: { organizationId: ctx.organizationId, tripId: trip.id },
+        select: { status: true },
+      });
+      if (siblings.length && siblings.every((row) => row.status === "REFUNDED")) {
+        await tx.travelTrip.update({ where: { id: trip.id }, data: { status: "REFUNDED" } });
+      } else if (
+        siblings.length
+        && siblings.every((row) => ["CANCELLED", "REFUND_PENDING", "REFUNDED"].includes(row.status))
+      ) {
+        await tx.travelTrip.update({ where: { id: trip.id }, data: { status: "CANCELLED" } });
+      }
+
       await tx.auditEvent.create({
         data: {
           organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.refund",
           objectType: "TravelBooking", objectId: bookingId,
-          newValue: { status: "REFUNDED", expenseId: expense?.id ?? null, amount: String(booking.amount) },
+          newValue: {
+            status: "REFUNDED",
+            expenseId: expense?.id ?? null,
+            amount: String(booking.amount),
+            currency: booking.currency,
+            refundedAt: updated.refundedAt,
+          },
           correlationId: ctx.correlationId,
         },
       });

@@ -44,7 +44,8 @@ const rules: Record<string, AccessRule> = {
   travel: { read: ["travel.book", "travel.approve"], create: "travel.book", actions: { search: "travel.book", "select-quote": "travel.book", submit: "travel.book", approve: "travel.approve", "link-fund": "travel.book", "link-expense": "travel.book", provision: "travel.book", "import-booking": "travel.book" }, ownerField: "travelerId", entityField: "legalEntityId" },
   "travel-bookings": { read: ["travel.book", "travel.approve"], actions: { "book-mock": "travel.book", confirm: "travel.book", reprice: "travel.book", cancel: "travel.book", refund: "travel.book" } },
   procurement: { read: ["procurement.request", "procurement.review"], create: "procurement.request", actions: { submit: "procurement.request", approve: "procurement.review" }, ownerField: "requesterId", entityField: "legalEntityId" },
-  "purchase-orders": { read: ["procurement.review", "po.create"], actions: { receive: "procurement.review", match: "procurement.review", "request-change": "procurement.review" }, entityField: "legalEntityId" },
+  // ownerId is the procurement requester (set on PO issue) so Manager DIRECT_REPORTS scopes work.
+  "purchase-orders": { read: ["procurement.review", "po.create"], actions: { receive: "procurement.review", match: "procurement.review", "request-change": "procurement.review" }, ownerField: "ownerId", entityField: "legalEntityId" },
   receiving: { read: ["procurement.review"], create: "procurement.review" },
   matches: { read: ["procurement.review", "bill.approve"], actions: { resolve: "procurement.review" } },
   "po-change-orders": { read: ["procurement.review"], actions: { approve: "procurement.review" } },

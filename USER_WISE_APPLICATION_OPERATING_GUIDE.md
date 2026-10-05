@@ -303,9 +303,9 @@ Trip detail par:
 2. **Search quotes** click karein.
 3. In-policy quote choose karke **Select**.
 4. **Submit**.
-5. In-policy trip `READY_TO_BOOK` ho sakti hai.
-6. Out-of-policy trip Manager aur Finance approval ke paas jayegi.
-7. 4 2.
+5. Submit ke baad trip `PENDING_APPROVAL` hoti hai (manager → finance), chahe policy PASS ho.
+6. Out-of-policy / high-value trips pe policy `REVIEW` dikhegi; phir bhi wahi approval chain.
+7. Manager aur Finance approve ke baad trip `READY_TO_BOOK` hoti hai.
 8. **Place mock hold**.
 9. **Confirm (sandbox)**.
 
@@ -335,7 +335,7 @@ Manager approve karega:
 - Employee expenses.
 - Reimbursements.
 - Procurement requests ka manager step.
-- Out-of-policy travel ka manager step.
+- Travel requests ka manager step (in-policy aur out-of-policy dono).
 
 Manager ka daily operating pattern:
 

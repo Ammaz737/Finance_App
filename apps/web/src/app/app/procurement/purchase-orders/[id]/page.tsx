@@ -46,6 +46,8 @@ export default function PurchaseOrderDetailPage() {
   const detail = useQuery({
     queryKey: ["po-detail", params.id],
     queryFn: () => api.get<Detail>(`/purchase-orders/${params.id}`),
+    enabled: Boolean(params.id),
+    retry: 1,
   });
 
   const receive = useMutation({
@@ -71,9 +73,23 @@ export default function PurchaseOrderDetailPage() {
   });
 
   if (detail.isError) {
+    const err = detail.error as Error & { code?: string; message?: string };
+    const code = err.code ?? "";
+    const msg = err.message ?? "";
+    const hint =
+      code === "UNAUTHENTICATED" || /auth|session|token/i.test(msg)
+        ? "Your session may have expired — sign in again, then reopen this PO."
+        : /No applicable scope|Missing access/i.test(msg)
+          ? "Managers only see POs for their direct reports. Use admin@acme.test or ap@acme.test for all purchase orders."
+          : code === "FORBIDDEN"
+            ? "You need procurement.review (or Owner) to open purchase orders."
+            : code === "NOT_FOUND"
+              ? "This purchase order was not found in your workspace."
+              : null;
     return (
       <div className="error-panel" role="alert">
-        Could not load PO.{" "}
+        <p>Could not load PO{err.message ? `: ${err.message}` : "."}</p>
+        {hint ? <p className="muted">{hint}</p> : null}
         <button className="text-button" type="button" onClick={() => void detail.refetch()}>
           Try again
         </button>

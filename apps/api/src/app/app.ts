@@ -6,6 +6,8 @@ import { requireAuth } from "../platform/auth";
 import { allowedCorsOrigins } from "../config/env";
 import { stripeWebhookRouter } from "../modules/cards/api/stripe-webhook.routes";
 import { duffelWebhookRouter } from "../modules/travel/api/duffel-webhook.routes";
+import { getTravelCapabilities } from "../integrations/travel/factory";
+import { quickBooksOAuthCallbackRouter, quickBooksWebhookRouter } from "../modules/accounting/api/quickbooks.routes";
 
 export function createApp() {
   const app = express();
@@ -21,6 +23,10 @@ export function createApp() {
   // Provider webhooks need the raw body for signature verification — mount before json parser.
   app.use("/api/v1/webhooks/stripe", express.raw({ type: "application/json" }), stripeWebhookRouter);
   app.use("/api/v1/webhooks/duffel", express.raw({ type: "application/json" }), duffelWebhookRouter);
+  app.use("/api/v1/webhooks/quickbooks", express.raw({ type: "application/json" }), quickBooksWebhookRouter);
+
+  // OAuth callback is authenticated by a short-lived, single-use state record.
+  app.use("/api/v1/integrations/quickbooks/callback", quickBooksOAuthCallbackRouter);
 
   app.use(express.json({ limit: "8mb" }));
   app.use(requestId);
@@ -39,6 +45,7 @@ export function createApp() {
     }
     return requireAuth(req, res, next);
   });
+  app.get("/api/v1/travel-capabilities", (_req, res) => res.json({ data: getTravelCapabilities() }));
   app.use("/api/v1", buildApiRouter());
   app.use(errorHandler);
   return app;

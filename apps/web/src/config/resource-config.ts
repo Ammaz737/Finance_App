@@ -26,7 +26,7 @@ export const resourceConfig: Record<string, ResourceConfig> = {
   ] },
   departments: { description: "Departments used for people, policies, and reporting.", columns: ["name"], createLabel: "Add department", fields: [{ key: "name", label: "Department name", required: true }] },
   locations: { description: "Office locations and regional assignments.", columns: ["name"], createLabel: "Add location", fields: [{ key: "name", label: "Location name", required: true }] },
-  rbac: { description: "Additive roles that define finance access.", columns: ["name", "description"] },
+  rbac: { description: "Additive roles that define finance access. Use Create role for the permission funnel.", columns: ["name", "description"] },
   policies: { description: "Company rules applied to financial work.", columns: ["name", "objectType", "enabled", "createdAt"] },
   approvals: { description: "Approval workflows and routing by object type.", columns: ["name", "objectType", "createdAt"] },
   integrations: { description: "Connected providers and synchronization state.", columns: ["family", "provider", "status"] },
@@ -38,7 +38,7 @@ export const resourceConfig: Record<string, ResourceConfig> = {
     { key: "name", label: "Program name", required: true }, entity,
     { key: "maxAmount", label: "Maximum request amount", required: true, type: "number" }, currency,
     { key: "budgetId", label: "Budget", type: "select", source: { path: "budgets", labelKey: "name", entityField: "legalEntityId" } },
-    { key: "defaultFulfillmentType", label: "Default fulfillment", type: "select", options: [{ value: "VIRTUAL_CARD", label: "Virtual card" }, { value: "FUND_ONLY", label: "Fund only" }] },
+    { key: "defaultFulfillmentType", label: "Default fulfillment", type: "select", options: [{ value: "VIRTUAL_CARD", label: "Virtual card" }, { value: "FUND_ONLY", label: "Fund only" }], defaultValue: "VIRTUAL_CARD" },
     { key: "merchantLockDefault", label: "Default merchant lock" },
     { key: "allowedMccsDefault", label: "Default allowed MCCs (comma-separated)" },
     { key: "perTransactionLimitDefault", label: "Default per-transaction limit", type: "number" },
@@ -56,8 +56,9 @@ export const resourceConfig: Record<string, ResourceConfig> = {
   ] },
   "purchase-orders": { description: "Approved commitments with lines, receiving, and 2/3-way match.", columns: ["number", "vendorId", "amount", "receivedAmount", "billedAmount", "matchStatus", "createdAt", "status"] },
   receiving: { description: "Goods and services received against approved purchase orders.", columns: ["purchaseOrderId", "amount", "memo", "receivedBy", "createdAt"], createLabel: "Record receipt", fields: [
-    { key: "purchaseOrderId", label: "Purchase order", required: true, type: "select", source: { path: "purchase-orders", labelKey: "number", statuses: ["OPEN", "PARTIALLY_RECEIVED"] } },
-    amount,
+    { key: "purchaseOrderId", label: "Purchase order", required: true, type: "select", source: { path: "purchase-orders", labelKey: "number", statuses: ["ISSUED", "OPEN", "PARTIALLY_RECEIVED"] } },
+    { key: "amount", label: "Amount (or use quantity)", type: "number" },
+    { key: "quantity", label: "Quantity (or use amount)", type: "number" },
     { key: "memo", label: "Memo" },
   ] },
   matches: { description: "2-way and 3-way match results against purchase orders.", columns: ["purchaseOrderId", "billId", "matchType", "status", "variance", "createdAt"] },
@@ -111,7 +112,7 @@ export const resourceConfig: Record<string, ResourceConfig> = {
     { key: "billId", label: "Approved bill", required: true, type: "select", source: { path: "bills", labelKey: "invoiceNumber", statuses: ["APPROVED", "PARTIAL"] } }, amount,
     { key: "rail", label: "Payment method", required: true, type: "select", options: [{ value: "ACH", label: "ACH" }, { value: "WIRE", label: "Wire" }, { value: "CHECK", label: "Check" }] },
   ] },
-  "payment-runs": { description: "Batch scheduled payments for a separate release gate.", columns: ["name", "legalEntityId", "status", "createdBy", "createdAt"], createLabel: "New payment run", fields: [
+  "payment-runs": { description: "Batch container for already-scheduled payments — separate from bill approval.", columns: ["name", "legalEntityId", "status", "createdBy", "createdAt"], createLabel: "Create run", fields: [
     { key: "name", label: "Run name", required: true }, entity,
     { key: "sourceAccountId", label: "Source account", required: true, type: "select", source: { path: "banking", labelKey: "name", entityField: "legalEntityId" } },
   ] },
@@ -137,8 +138,9 @@ export const resourceConfig: Record<string, ResourceConfig> = {
     { key: "managerId", label: "Manager", type: "select", source: { path: "people", labelKey: "email", statuses: ["ACTIVE"] } },
   ] },
   audit: { description: "A chronological record of material changes.", columns: ["createdAt", "actorId", "action", "objectType", "objectId"] },
-  travel: { description: "Trip requests with dates, destination, cost, policy, and mock booking holds (not live confirmations).", columns: ["name", "destination", "travelerId", "startDate", "endDate", "estimatedAmount", "currency", "policyResult", "status"], createLabel: "New trip", fields: [
+  travel: { description: "Trip requests with search, reprice, approvals, sandbox hold/confirm, and cancel/refund. Live Duffel search does not issue live tickets.", columns: ["name", "destination", "travelerId", "startDate", "endDate", "estimatedAmount", "currency", "policyResult", "status"], createLabel: "New trip", fields: [
     { key: "name", label: "Trip name", required: true }, entity,
+    { key: "origin", label: "Origin" },
     { key: "destination", label: "Destination", required: true },
     { key: "purpose", label: "Purpose" },
     { key: "startDate", label: "Start date", required: true, type: "date" },
@@ -166,7 +168,7 @@ export const actionPermissions: Record<string, Record<string, string>> = {
   reimbursements: { submit: "reimbursement.create", approve: "reimbursement.approve", schedule: "reimbursement.pay", "confirm-payout": "reimbursement.pay", "attach-receipt": "reimbursement.create" },
   procurement: { submit: "procurement.request", approve: "procurement.review" },
   "purchase-orders": { receive: "procurement.review", match: "procurement.review" },
-  travel: { submit: "travel.book", approve: "travel.approve", search: "travel.book", "select-quote": "travel.book", "link-fund": "travel.book", "link-expense": "travel.book" },
+  travel: { update: "travel.book", delete: "travel.book", submit: "travel.book", approve: "travel.approve", search: "travel.book", "select-quote": "travel.book", "link-fund": "travel.book", "link-expense": "travel.book" },
   "travel-bookings": { "book-mock": "travel.book", confirm: "travel.book" },
   receiving: {},
   bills: { submit: "bill.create", approve: "bill.approve" },

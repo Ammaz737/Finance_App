@@ -2,8 +2,9 @@ import dotenv from "dotenv";
 import path from "node:path";
 
 // Must run before any app imports — ESM hoists static imports above these calls otherwise.
+// Explicit process values win, followed by app-local defaults, then workspace defaults.
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
-dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
 
 async function main() {
   const { assertRuntimeConfiguration } = await import("../config/env");

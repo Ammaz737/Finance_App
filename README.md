@@ -266,6 +266,23 @@ Then re-run migrate/seed (users stay; you get a fresh DB) and repeat the flow ab
 | Open payables / Budget / PO | No | App modules — not Stripe Issuing |
 | Bill payments / reimbursements | No | Mock payment rail locally |
 
+### G. QuickBooks Online OAuth
+
+Create an Accounting app in the [Intuit Developer portal](https://developer.intuit.com/), then configure.
+
+Add these values to both `apps/api/.env` and `apps/worker/.env` because each development process loads its package-local environment file:
+
+```dotenv
+ENCRYPTION_KEY=replace-with-one-stable-secret-at-least-16-characters
+QUICKBOOKS_CLIENT_ID=...
+QUICKBOOKS_CLIENT_SECRET=...
+QUICKBOOKS_ENVIRONMENT=sandbox
+QUICKBOOKS_REDIRECT_URI=http://localhost:3001/api/v1/integrations/quickbooks/callback
+QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN=...
+```
+
+Configure the same redirect URI in Intuit. Intuit must reach the webhook over public HTTPS, so use `https://<your-api-domain>/api/v1/webhooks/quickbooks` (or an HTTPS tunnel to the local API) as the development webhook endpoint. Start the API and worker, then open **Accounting → Integrations → Connect QuickBooks**. After authorization, verify the four account mappings before syncing entries.
+
 ---
 
 ## Repository layout
@@ -323,6 +340,12 @@ Copy from `.env.example`. Variables must exist in **`.env`**, **`apps/api/.env`*
 | `STRIPE_WEBHOOK_SECRET` | When stripe | `whsec_…` from `stripe listen` output |
 | `STRIPE_ISSUING_CURRENCY` | No | Default `usd` |
 | `STRIPE_FINANCIAL_ACCOUNT_ID` | When stripe | `fa_…` from Dashboard (status must be **open**) |
+| `ENCRYPTION_KEY` | QuickBooks/prod | Encrypts tenant OAuth tokens; use a stable secret of at least 16 characters |
+| `QUICKBOOKS_CLIENT_ID` | When QuickBooks | Intuit app client id |
+| `QUICKBOOKS_CLIENT_SECRET` | When QuickBooks | Intuit app secret; server and worker only |
+| `QUICKBOOKS_ENVIRONMENT` | When QuickBooks | `sandbox` or `production` |
+| `QUICKBOOKS_REDIRECT_URI` | When QuickBooks | Must exactly match the Intuit app redirect URI |
+| `QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN` | QuickBooks prod | Validates `intuit-signature` on webhooks |
 
 ---
 

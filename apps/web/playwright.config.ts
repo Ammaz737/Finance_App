@@ -2,7 +2,8 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 60_000,
+  // Full journeys visit several routes; a cold Next dev compile can take over a minute.
+  timeout: 120_000,
   fullyParallel: false,
   workers: 1,
   reporter: [["list"], ["json", { outputFile: "test-results/golden-report.json" }]],

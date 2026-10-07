@@ -64,7 +64,7 @@ test("A: spend request to accounting golden journey", async ({ page }) => {
   expect(approved.request.status).toBe("FULFILLED");
 
   await page.goto(`/app/spend/cards/${approved.card!.id}`);
-  await expect(page.getByText(/SANDBOX \/ MOCK CARD/)).toBeVisible();
+  await expect(page.getByText(/Sandbox \/ mock issuer/i)).toBeVisible();
   await page.getByLabel("Amount").last().fill("25.00");
   await page.getByLabel("Merchant", { exact: true }).fill("OpenAI");
   await page.getByRole("button", { name: "Authorize" }).click();
@@ -85,7 +85,7 @@ test("A: spend request to accounting golden journey", async ({ page }) => {
 
   await page.goto("/app/accounting/card");
   await expect(page.getByRole("heading", { name: "Card accounting" })).toBeVisible();
-  await expect(page.getByText("CARD_TRANSACTION").first()).toBeVisible();
+  await expect(page.getByText("Card", { exact: true }).first()).toBeVisible();
 
   const entries = await api<Array<Row & { sourceType: string; sourceId: string; status: string }>>(page, admin, "get", "/accounting");
   const entry = entries.find((row) => row.sourceType === "CARD_TRANSACTION");
@@ -166,7 +166,7 @@ test("B: bill approval, release, settlement, and accounting golden journey", asy
   await expect(page.getByText(/Approval|Activity|Duplicate/i).first()).toBeVisible();
   await page.goto("/app/accounting/bill-pay");
   await expect(page.getByRole("heading", { name: "Bill Pay accounting" })).toBeVisible();
-  await expect(page.getByText(/BILL|PAYMENT/).first()).toBeVisible();
+  await expect(page.getByText(/^(Bill|Payment)$/).first()).toBeVisible();
 
   const dash = await api<{ pendingBills: number; paidBills?: number; openPayablesByCurrency: unknown[] }>(page, admin, "get", "/reporting");
   expect(dash.openPayablesByCurrency).toBeTruthy();
@@ -590,8 +590,12 @@ test("E: travel request → book → fund/card → expense → accounting", asyn
   expect(selected.booking.id).toBeTruthy();
 
   const submitted = await api<{ trip: { status: string }; requiresApproval: boolean }>(page, employee, "post", `/travel/${trip.id}/submit`, {});
-  expect(submitted.requiresApproval).toBe(false);
-  expect(submitted.trip.status).toBe("READY_TO_BOOK");
+  expect(submitted.requiresApproval).toBe(true);
+  expect(submitted.trip.status).toBe("PENDING_APPROVAL");
+  const managerApproval = await login(page, "manager@acme.test");
+  await api(page, managerApproval, "post", `/travel/${trip.id}/approve`, {});
+  const adminApproval = await login(page, "admin@acme.test");
+  await api(page, adminApproval, "post", `/travel/${trip.id}/approve`, {});
 
   await api(page, employee, "post", `/travel-bookings/${selected.booking.id}/reprice`, {});
   const held = await api<Row & { status: string; providerStatus: string }>(
@@ -608,12 +612,13 @@ test("E: travel request → book → fund/card → expense → accounting", asyn
   expect(confirmed.fund?.id).toBeTruthy();
   expect(confirmed.card?.id).toBeTruthy();
 
+  await login(page, "employee@acme.test");
   await page.goto(`/app/travel/trips/${trip.id}`);
-  await expect(page.getByText(/SANDBOX \/ MOCK CARD/)).toBeVisible();
+  await expect(page.getByText(/Sandbox \/ mock issuer/i)).toBeVisible();
 
   const admin = await login(page, "admin@acme.test");
   await page.goto(`/app/spend/cards/${confirmed.card!.id}`);
-  await expect(page.getByText(/SANDBOX \/ MOCK CARD/)).toBeVisible();
+  await expect(page.getByText(/Sandbox \/ mock issuer/i)).toBeVisible();
   await page.getByLabel("Amount").last().fill("50.00");
   await page.getByLabel("Merchant", { exact: true }).fill(inPolicy!.supplier);
   await page.getByLabel("Merchant category").fill("airlines");
@@ -739,6 +744,10 @@ test("E4: cancel and refund travel booking", async ({ page }) => {
     outOfPolicy: false, refundable: true,
   });
   await api(page, employee, "post", `/travel/${trip.id}/submit`, {});
+  const bookingManager = await login(page, "manager@acme.test");
+  await api(page, bookingManager, "post", `/travel/${trip.id}/approve`, {});
+  const bookingAdmin = await login(page, "admin@acme.test");
+  await api(page, bookingAdmin, "post", `/travel/${trip.id}/approve`, {});
   await api(page, employee, "post", `/travel-bookings/${selected.booking.id}/book-mock`, { skipReprice: true });
   await api(page, employee, "post", `/travel-bookings/${selected.booking.id}/confirm`, {});
   const cancelled = await api<Row & { status: string }>(page, employee, "post", `/travel-bookings/${selected.booking.id}/cancel`, {});
@@ -889,6 +898,10 @@ test("F: integrated finance coexistence journey", async ({ page }) => {
     amount: inPolicy.amount, currency: inPolicy.currency, outOfPolicy: false,
   });
   await api(page, employee, "post", `/travel/${trip.id}/submit`, {});
+  const bookingManager = await login(page, "manager@acme.test");
+  await api(page, bookingManager, "post", `/travel/${trip.id}/approve`, {});
+  const bookingAdmin = await login(page, "admin@acme.test");
+  await api(page, bookingAdmin, "post", `/travel/${trip.id}/approve`, {});
   await api(page, employee, "post", `/travel-bookings/${selected.booking.id}/book-mock`, { skipReprice: true });
   await api(page, employee, "post", `/travel-bookings/${selected.booking.id}/confirm`, {});
 

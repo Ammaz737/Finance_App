@@ -37,7 +37,7 @@ async function applyBudgetCapture(
 ) {
   const budget = await resolveBudgetForFund(tx, organizationId, legalEntityId, fundId);
   if (!budget) return;
-  const committedRelease = Prisma.Decimal.min(budget.committedAmount, amount);
+  const committedRelease = amount.greaterThan(0) ? Prisma.Decimal.min(budget.committedAmount, amount) : dec(0);
   await tx.budget.update({
     where: { id: budget.id },
     data: {
@@ -117,14 +117,15 @@ export async function settleStripeIssuingTransaction(input: {
   amount: Prisma.Decimal;
   currency: string;
   merchant: string;
-}) {
-  await prisma.$transaction(async (tx) => {
+}, transaction?: Prisma.TransactionClient) {
+  const settle = async (tx: Prisma.TransactionClient) => {
     await applyBudgetCapture(tx, input.organizationId, input.legalEntityId, input.fundId, input.amount);
 
     const existingExpense = await tx.expense.findFirst({
       where: { organizationId: input.organizationId, transactionId: input.transactionId },
     });
-    if (!existingExpense) {
+    // Credits are accounting reversals, not new expenses requiring receipts/approval.
+    if (!existingExpense && input.amount.greaterThan(0)) {
       try {
         await tx.expense.create({
           data: {
@@ -161,5 +162,7 @@ export async function settleStripeIssuingTransaction(input: {
         payload: { objectType: "Transaction", objectId: input.transactionId, source: "stripe" },
       },
     });
-  });
+  };
+  if (transaction) await settle(transaction);
+  else await prisma.$transaction(settle);
 }

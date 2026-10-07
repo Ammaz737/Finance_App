@@ -28,6 +28,11 @@ const SEARCHABLE = ["DRAFT", "APPROVED", "READY_TO_BOOK", "PENDING_APPROVAL", "B
 
 export default function TravelSearchPage() {
   const session = useSession();
+  const capabilities = useQuery({
+    queryKey: ["travel-capabilities"],
+    queryFn: () => api.get<{ provider: string; booking: boolean; message: string; searchTypes: string[] }>("/travel-capabilities"),
+    enabled: Boolean(session),
+  });
   const canBook = session
     ? canSeeItem(findNavItem("/app/me/travel") ?? { href: "/app/me/travel", permission: "travel.book" }, session)
     : false;
@@ -54,7 +59,7 @@ export default function TravelSearchPage() {
     <div className="travel-search-page linked-dest-page spend-detail">
       <PageHeader
         title="Travel search"
-        subtitle="Mock flights, hotels, and cars — search runs on a trip, not as a standalone booking engine"
+        subtitle={capabilities.data?.message ?? "Search available travel offers from a trip"}
       />
 
       <div className="overview-stat-grid" style={{ marginBottom: 8 }}>
@@ -65,13 +70,13 @@ export default function TravelSearchPage() {
         </article>
         <article className="overview-stat">
           <span>2. Search quotes</span>
-          <strong>Flight · Hotel · Car</strong>
-          <small>Normalized mock offers with policy flags</small>
+          <strong>{capabilities.data?.searchTypes.join(" · ") ?? "Loading availability"}</strong>
+          <small>Available provider offers with policy flags</small>
         </article>
         <article className="overview-stat">
           <span>3. Hold & confirm</span>
-          <strong>Sandbox only</strong>
-          <small>Reprice, mock hold, then confirm — not live inventory</small>
+          <strong>{capabilities.data?.booking ? "Sandbox only" : "Booking unavailable"}</strong>
+          <small>{capabilities.data?.booking ? "Sandbox holds do not create real tickets" : "Provider booking and payment are not connected"}</small>
         </article>
       </div>
 

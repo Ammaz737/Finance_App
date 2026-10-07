@@ -10,6 +10,7 @@ export type EventDefinition = {
 export const eventCatalog = {
   "payment.released": { classification: "actionable", queue: "payments", purpose: "Settle a released payment through the configured rail" },
   "accounting.sync_requested": { classification: "actionable", queue: "accounting-sync", purpose: "Post ready accounting entries through the ERP adapter" },
+  "quickbooks.webhook_received": { classification: "actionable", queue: "accounting-sync", purpose: "Refresh QuickBooks provider catalogs after a signed webhook" },
   "document.quarantined": { classification: "actionable", queue: "documents", purpose: "Scan a quarantined attachment" },
   "receipt.ocr_requested": { classification: "actionable", queue: "ocr", purpose: "Extract receipt fields after a clean scan" },
   "invoice.ocr_requested": { classification: "actionable", queue: "ocr", purpose: "Extract invoice fields after a clean scan (sandbox mock)" },

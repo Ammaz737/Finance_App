@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DataTable, PageHeader, StatusBadge, type Column } from "@finance/design-system";
 import { VirtualCardFace } from "@/components/VirtualCardFace";
 import { canSeeItem, findNavItem } from "@/config/navigation";
@@ -21,6 +21,32 @@ type MoneyRow = {
   authorizedAt?: string;
   createdAt?: string;
   clearedAt?: string;
+};
+type FundRow = {
+  id: string;
+  name: string;
+  availableAmount: string | number;
+  limitAmount: string | number;
+  currency: string;
+  status: string;
+  validFrom?: string;
+  validTo?: string | null;
+  spendRequestId?: string | null;
+  isCurrent?: boolean;
+  travelTrip?: { id: string; name: string; status: string; destination?: string } | null;
+};
+type ActivityRow = {
+  id: string;
+  at: string;
+  type: "TRANSACTION" | "AUTHORIZATION" | "TRAVEL" | "FUND" | "LEDGER" | "CARD";
+  title: string;
+  detail: string;
+  fundId: string | null;
+  fundName: string | null;
+  amount: string | null;
+  currency: string | null;
+  status: string | null;
+  href: string | null;
 };
 type CardDetail = {
   card: {
@@ -47,8 +73,42 @@ type CardDetail = {
     currency: string;
     status: string;
   } | null;
+  funds?: FundRow[];
+  activity?: ActivityRow[];
   holder: { id: string; firstName: string; lastName: string; email: string } | null;
   spendRequest: { id: string; name: string; amount: string | number; currency: string; status: string } | null;
+  travelTrip?: {
+    id: string;
+    name: string;
+    destination?: string;
+    status: string;
+    currency?: string;
+    estimatedAmount?: string | number | null;
+    expenseId?: string | null;
+  } | null;
+  travelTrips?: Array<{
+    id: string;
+    name: string;
+    destination?: string;
+    status: string;
+    currency?: string;
+    estimatedAmount?: string | number | null;
+    fundId?: string | null;
+  }>;
+  expense?: {
+    id: string;
+    merchant: string;
+    amount: string | number;
+    currency: string;
+    status: string;
+    memo?: string;
+  } | null;
+  ledger?: Array<{
+    id: string;
+    memo: string;
+    createdAt: string;
+    entries: Array<{ account: string; direction: string; amount: string | number; currency: string }>;
+  }>;
   controls: {
     merchantLock: string | null;
     allowedMccs: string | null;
@@ -88,7 +148,7 @@ export default function CardDetailPage() {
   const [message, setMessage] = useState("");
   const [authForm, setAuthForm] = useState({
     amount: "25.00",
-    merchant: "Amazon",
+    merchant: "OpenAI",
     merchantCategory: "software",
     idempotencyKey: "",
   });
@@ -128,6 +188,12 @@ export default function CardDetailPage() {
       return payload;
     },
   });
+
+  useEffect(() => {
+    const lock = detail.data?.controls.merchantLock;
+    if (!lock) return;
+    setAuthForm((prev) => (prev.merchant === "OpenAI" || prev.merchant === "Amazon" ? { ...prev, merchant: lock } : prev));
+  }, [detail.data?.controls.merchantLock]);
 
   const freeze = useMutation({
     mutationFn: () => api.post(`/cards/${params.id}/freeze`, {}),
@@ -195,10 +261,18 @@ export default function CardDetailPage() {
         idempotencyKey: authForm.idempotencyKey || `web-${params.id}-${Date.now()}`,
       }),
     onSuccess: () => {
-      setMessage("Sandbox authorization recorded.");
+      setMessage(
+        detail.data?.issuer?.sandboxMode === "stripe_test_helpers"
+          ? "Stripe test spend authorized and captured. Expense is linked under transactions."
+          : "Sandbox authorization recorded. Capture it from the transactions table.",
+      );
       setAuthForm((prev) => ({ ...prev, idempotencyKey: "" }));
       void queryClient.invalidateQueries({ queryKey: ["card-detail", params.id] });
       void queryClient.invalidateQueries({ queryKey: ["resource", "transactions"] });
+      void queryClient.invalidateQueries({ queryKey: ["resource", "expenses"] });
+    },
+    onError: (error: Error) => {
+      setMessage(error.message);
     },
   });
 
@@ -225,6 +299,83 @@ export default function CardDetailPage() {
       ? "Sandbox / mock issuer"
       : (data?.card.providerRef ?? data?.card.provider ?? "Issuer");
 
+  const fundColumns: Column<FundRow>[] = [
+    {
+      key: "name",
+      header: "Fund",
+      render: (row) => (
+        <>
+          {row.name}
+          {row.isCurrent ? <span className="muted"> · current</span> : null}
+        </>
+      ),
+    },
+    {
+      key: "travelTrip",
+      header: "Source",
+      render: (row) =>
+        row.travelTrip
+          ? `Travel · ${row.travelTrip.name}`
+          : row.spendRequestId
+            ? "Spend request"
+            : "Wallet",
+    },
+    {
+      key: "availableAmount",
+      header: "Available",
+      render: (row) => money(row.currency, row.availableAmount),
+    },
+    {
+      key: "limitAmount",
+      header: "Limit",
+      render: (row) => money(row.currency, row.limitAmount),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => <StatusBadge status={row.status} />,
+    },
+  ];
+  const activityColumns: Column<ActivityRow>[] = [
+    {
+      key: "at",
+      header: "When",
+      render: (row) => new Date(row.at).toLocaleString(),
+    },
+    {
+      key: "type",
+      header: "Type",
+      render: (row) => <StatusBadge status={row.type} />,
+    },
+    {
+      key: "title",
+      header: "Activity",
+      render: (row) => (
+        <>
+          <strong>{row.title}</strong>
+          {row.detail ? <div className="muted">{row.detail}</div> : null}
+        </>
+      ),
+    },
+    {
+      key: "fundName",
+      header: "Fund",
+      render: (row) => row.fundName || "—",
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      render: (row) =>
+        row.amount != null && row.currency
+          ? money(row.currency, row.amount)
+          : "—",
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => (row.status ? <StatusBadge status={row.status} /> : "—"),
+    },
+  ];
   const authColumns: Column<MoneyRow>[] = [
     {
       key: "createdAt",
@@ -346,6 +497,8 @@ export default function CardDetailPage() {
         ? `/app/spend/requests/${data.spendRequest.id}?from=mine`
         : null
     : null;
+  const travelHref = data.travelTrip ? `/app/travel/trips/${data.travelTrip.id}` : null;
+  const expenseHref = data.expense ? `/app/expenses/${data.expense.id}` : null;
 
   return (
     <div className="detail-page">
@@ -480,6 +633,35 @@ export default function CardDetailPage() {
                     ) : (
                       data.spendRequest.name
                     )
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Travel trip</dt>
+                <dd>
+                  {data.travelTrip && travelHref ? (
+                    <>
+                      <Link className="detail-link" href={travelHref}>
+                        {data.travelTrip.name}
+                        {data.travelTrip.destination ? ` · ${data.travelTrip.destination}` : ""}
+                      </Link>
+                      {" "}
+                      <StatusBadge status={data.travelTrip.status} />
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Expense</dt>
+                <dd>
+                  {data.expense && expenseHref ? (
+                    <Link className="detail-link" href={expenseHref}>
+                      {data.expense.merchant} · {money(data.expense.currency, data.expense.amount)}
+                    </Link>
                   ) : (
                     "—"
                   )}
@@ -725,6 +907,38 @@ export default function CardDetailPage() {
 
       <section className="panel">
         <div className="section-title" style={{ marginTop: 0 }}>
+          <h2>Funds on this card</h2>
+          <span>{(data.funds ?? (data.fund ? [data.fund] : [])).length}</span>
+        </div>
+        <div className="table-wrap">
+          <DataTable
+            rows={(data.funds ?? (data.fund ? [{ ...data.fund, isCurrent: true }] : [])) as FundRow[]}
+            columns={fundColumns}
+            onRowClick={(row) => {
+              if (canSeeFunds) router.push(`/app/spend/funds/${row.id}`);
+            }}
+          />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-title" style={{ marginTop: 0 }}>
+          <h2>Card activity</h2>
+          <span>{(data.activity ?? []).length} records</span>
+        </div>
+        <div className="table-wrap">
+          <DataTable
+            rows={data.activity ?? []}
+            columns={activityColumns}
+            onRowClick={(row) => {
+              if (row.href) router.push(row.href);
+            }}
+          />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-title" style={{ marginTop: 0 }}>
           <h2>Authorizations</h2>
           <span>{data.authorizations.length} recent</span>
         </div>
@@ -746,23 +960,6 @@ export default function CardDetailPage() {
           />
         </div>
       </section>
-
-      {data.audit.length > 0 && (
-        <section className="panel">
-          <div className="section-title" style={{ marginTop: 0 }}>
-            <h2>Activity</h2>
-            <span>{data.audit.length}</span>
-          </div>
-          <div className="timeline">
-            {data.audit.map((item) => (
-              <div key={item.id} className="timeline-item">
-                <strong>{item.action}</strong> · {item.objectType}
-                <div className="muted">{new Date(item.createdAt).toLocaleString()}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

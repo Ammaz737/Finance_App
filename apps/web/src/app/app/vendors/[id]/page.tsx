@@ -76,6 +76,7 @@ export default function VendorDetailPage() {
   const [last4, setLast4] = useState("");
   const [routing, setRouting] = useState("");
   const [reason, setReason] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("ACH");
   const [vendorForm, setVendorForm] = useState({
     name: "",
     legalName: "",
@@ -115,12 +116,18 @@ export default function VendorDetailPage() {
 
   const setBank = useMutation({
     mutationFn: () =>
-      api.post(`/vendors/${params.id}/set-bank`, { last4, routingMasked: routing, changeReason: reason }),
+      api.post(`/vendors/${params.id}/set-bank`, {
+        last4,
+        routingMasked: routing,
+        paymentMethod,
+        changeReason: reason || "Initial setup",
+      }),
     onSuccess: () => {
       setMessage("Bank details updated. Prior account kept in history. Verification required.");
       setLast4("");
       setRouting("");
       setReason("");
+      setPaymentMethod("ACH");
       void queryClient.invalidateQueries({ queryKey: ["vendor-detail", params.id] });
     },
   });
@@ -374,15 +381,23 @@ export default function VendorDetailPage() {
             >
               <label>
                 Last 4
-                <input className="input" value={last4} onChange={(e) => setLast4(e.target.value)} required maxLength={4} />
+                <input className="input" value={last4} onChange={(e) => setLast4(e.target.value)} required maxLength={4} pattern="\d{4}" inputMode="numeric" />
               </label>
               <label>
                 Routing (masked)
-                <input className="input" value={routing} onChange={(e) => setRouting(e.target.value)} required />
+                <input className="input" value={routing} onChange={(e) => setRouting(e.target.value)} required placeholder="****111" />
+              </label>
+              <label>
+                Payment method
+                <select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+                  <option value="ACH">ACH</option>
+                  <option value="WIRE">Wire</option>
+                  <option value="CHECK">Check</option>
+                </select>
               </label>
               <label>
                 Change reason
-                <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} />
+                <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Initial setup" />
               </label>
               <button className="btn btn-primary" type="submit" disabled={setBank.isPending}>
                 Update bank details

@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { postQuickBooksEntry } from "../integrations/quickbooks";
 
 function mockExternalId(entryId: string, existing?: string | null) {
   return existing?.trim() || `qbo_${entryId}`;
@@ -12,14 +13,25 @@ export async function processAccountingSyncJob(
   if (!data.jobId) throw new Error("Accounting sync job is incomplete");
   const job = await prisma.syncJob.findUnique({ where: { id: data.jobId } });
   if (!job || job.status === "COMPLETED" || job.status === "COMPLETED_WITH_ERRORS") return;
-  if (job.provider !== "MOCK_QBO" || process.env.NODE_ENV === "production") {
+  if (job.provider !== "MOCK_QBO" && job.provider !== "QUICKBOOKS_ONLINE") {
     throw new Error(`Accounting adapter ${job.provider} is not configured for this environment`);
   }
+  if (job.provider === "MOCK_QBO" && process.env.NODE_ENV === "production") {
+    throw new Error("Mock accounting is not allowed in production");
+  }
 
-  const entryIds = Array.isArray(job.entryIds) && (job.entryIds as unknown[]).length
+  const rawEntryIds = Array.isArray(job.entryIds) && (job.entryIds as unknown[]).length
     ? (job.entryIds as unknown[]).map(String)
     : (data.entryIds ?? []);
-  if (!entryIds.length) throw new Error("Accounting sync job has no entries");
+  if (!rawEntryIds.length) throw new Error("Accounting sync job has no entries");
+  const dependencyOrder: Record<string, number> = { BILL: 0, CARD_TRANSACTION: 1, EXPENSE: 1, REIMBURSEMENT: 1, PAYMENT: 2 };
+  const orderedEntries = await prisma.accountingEntry.findMany({
+    where: { organizationId: job.organizationId, id: { in: rawEntryIds } },
+    select: { id: true, sourceType: true },
+  });
+  const sourceTypeById = new Map(orderedEntries.map((entry) => [entry.id, entry.sourceType]));
+  const entryIds = [...rawEntryIds].sort((left, right) =>
+    (dependencyOrder[sourceTypeById.get(left) ?? ""] ?? 1) - (dependencyOrder[sourceTypeById.get(right) ?? ""] ?? 1));
 
   const claim = await prisma.syncJob.updateMany({
     where: { id: job.id, status: { in: ["PENDING", "PROCESSING"] } },
@@ -52,7 +64,10 @@ export async function processAccountingSyncJob(
         successCount += 1;
         continue;
       }
-      const externalId = mockExternalId(entry.id, entry.externalId);
+      const providerResult = job.provider === "QUICKBOOKS_ONLINE"
+        ? await postQuickBooksEntry(prisma, entry)
+        : { externalId: mockExternalId(entry.id, entry.externalId), reused: Boolean(entry.externalId) };
+      const externalId = providerResult.externalId;
       const updated = await prisma.accountingEntry.updateMany({
         where: {
           id: entryId,
@@ -89,7 +104,7 @@ export async function processAccountingSyncJob(
           organizationId: job.organizationId,
           syncJobId: job.id,
           entryId,
-          status: entry.externalId ? "REUSED" : "SUCCEEDED",
+          status: providerResult.reused ? "REUSED" : "SUCCEEDED",
           externalId,
         },
       });

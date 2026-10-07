@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { evaluateCardAuthorizationRules } from "../modules/cards/domain/authorization-rules";
+import { evaluateCardAuthorizationRules, merchantMatchesLock, mergeMerchantLocks } from "../modules/cards/domain/authorization-rules";
 import { MockCardIssuerAdapter } from "../integrations/card-issuer/mock.card-issuer.adapter";
 import { resetCardIssuerForTests } from "../integrations/card-issuer/factory";
 
@@ -46,6 +46,20 @@ describe("evaluateCardAuthorizationRules", () => {
       merchantCategory: "grocery_stores_supermarkets",
       allowedMccs: "software",
     }).reason).toBe("MCC_BLOCKED");
+  });
+
+  it("enforces merchant descriptors without unsafe reverse partial matches", () => {
+    expect(merchantMatchesLock("OPENAI *CHATGPT", "OpenAI")).toBe(true);
+    expect(merchantMatchesLock("OpenAI, LLC", "openai")).toBe(true);
+    expect(merchantMatchesLock("AI", "OpenAI")).toBe(false);
+    expect(merchantMatchesLock("Walmart", "Amazon, Microsoft")).toBe(false);
+  });
+
+  it("keeps all approved vendor locks when a holder card is reused", () => {
+    expect(mergeMerchantLocks("Amazon", "Microsoft")).toBe("Amazon, Microsoft");
+    expect(mergeMerchantLocks("Amazon", "amazon")).toBe("Amazon");
+    expect(mergeMerchantLocks("Amazon", null)).toBe("Amazon");
+    expect(mergeMerchantLocks(null, null)).toBeNull();
   });
 });
 

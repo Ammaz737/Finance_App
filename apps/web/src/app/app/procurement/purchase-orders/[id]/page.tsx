@@ -41,7 +41,10 @@ export default function PurchaseOrderDetailPage() {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
+  const [receiveQuantity, setReceiveQuantity] = useState("");
+  const [receiveMemo, setReceiveMemo] = useState("");
   const [billId, setBillId] = useState("");
+  const [invoicedQuantity, setInvoicedQuantity] = useState("");
 
   const detail = useQuery({
     queryKey: ["po-detail", params.id],
@@ -51,10 +54,26 @@ export default function PurchaseOrderDetailPage() {
   });
 
   const receive = useMutation({
-    mutationFn: () => api.post(`/purchase-orders/${params.id}/receive`, { amount: receiveAmount }),
+    mutationFn: () => {
+      const qty = receiveQuantity.trim();
+      const amount = receiveAmount.trim();
+      if (!qty && !amount) {
+        throw Object.assign(new Error("Enter an amount or quantity to receive"), {
+          message: "Enter an amount or quantity to receive",
+        });
+      }
+      return api.post(`/purchase-orders/${params.id}/receive`, {
+        ...(qty
+          ? { quantity: qty, receiptType: "QUANTITY" as const }
+          : { amount, receiptType: "AMOUNT" as const }),
+        memo: receiveMemo.trim() || undefined,
+      });
+    },
     onSuccess: () => {
       setMessage("Receiving recorded.");
       setReceiveAmount("");
+      setReceiveQuantity("");
+      setReceiveMemo("");
       void queryClient.invalidateQueries({ queryKey: ["po-detail", params.id] });
       void queryClient.invalidateQueries({ queryKey: ["resource", "purchase-orders"] });
       void queryClient.invalidateQueries({ queryKey: ["resource", "receiving"] });
@@ -62,10 +81,19 @@ export default function PurchaseOrderDetailPage() {
   });
 
   const match = useMutation({
-    mutationFn: () => api.post(`/purchase-orders/${params.id}/match`, { billId }),
-    onSuccess: () => {
-      setMessage("Match evaluated.");
+    mutationFn: () =>
+      api.post<{ status?: string; id?: string }>(`/purchase-orders/${params.id}/match`, {
+        billId,
+        ...(invoicedQuantity.trim() ? { invoicedQuantity: invoicedQuantity.trim() } : {}),
+      }),
+    onSuccess: (result: { status?: string; id?: string }) => {
+      setMessage(
+        result?.status === "EXCEPTION" || result?.status === "BLOCKED"
+          ? "Match exception opened — review in Match exceptions."
+          : "Match evaluated.",
+      );
       setBillId("");
+      setInvoicedQuantity("");
       void queryClient.invalidateQueries({ queryKey: ["po-detail", params.id] });
       void queryClient.invalidateQueries({ queryKey: ["resource", "matches"] });
       void queryClient.invalidateQueries({ queryKey: ["resource", "matches", "exceptions"] });
@@ -255,16 +283,41 @@ export default function PurchaseOrderDetailPage() {
                 receive.mutate();
               }}
             >
+              <h3 style={{ marginTop: 12 }}>Record receiving</h3>
               <label>
                 Amount
                 <input
                   className="input"
                   value={receiveAmount}
                   onChange={(event) => setReceiveAmount(event.target.value)}
-                  required
+                  placeholder="e.g. 600.00"
+                  disabled={Boolean(receiveQuantity.trim())}
                 />
               </label>
-              <button className="btn btn-primary" type="submit" disabled={receive.isPending}>
+              <label>
+                Quantity
+                <input
+                  className="input"
+                  value={receiveQuantity}
+                  onChange={(event) => setReceiveQuantity(event.target.value)}
+                  placeholder="e.g. 2"
+                  disabled={Boolean(receiveAmount.trim())}
+                />
+              </label>
+              <label>
+                Memo
+                <input
+                  className="input"
+                  value={receiveMemo}
+                  onChange={(event) => setReceiveMemo(event.target.value)}
+                  placeholder="Partial delivery received"
+                />
+              </label>
+              <button
+                className="btn btn-primary"
+                type="submit"
+                disabled={receive.isPending || (!receiveAmount.trim() && !receiveQuantity.trim())}
+              >
                 Record receipt
               </button>
             </form>
@@ -320,6 +373,15 @@ export default function PurchaseOrderDetailPage() {
               }}
             >
               <p className="muted">{selectedBill ? `Selected: ${selectedBill.invoiceNumber}` : "Select a linked bill above."}</p>
+              <label>
+                Invoiced quantity (optional)
+                <input
+                  className="input"
+                  value={invoicedQuantity}
+                  onChange={(event) => setInvoicedQuantity(event.target.value)}
+                  placeholder="For qty 3-way match exceptions"
+                />
+              </label>
               <button className="btn btn-primary" type="submit" disabled={match.isPending || !billId}>
                 Run 2/3-way match
               </button>

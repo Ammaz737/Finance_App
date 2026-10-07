@@ -8,7 +8,6 @@ export const permissions = {
     read: "expense.read",
     create: "expense.create",
     approve: "expense.approve",
-    reject: "expense.reject",
   },
   bill: {
     read: "bill.read",
@@ -26,6 +25,7 @@ export const permissions = {
   },
 } as const;
 
+/** Canonical named permission keys (excludes Owner wildcard `*`). */
 export const ALL_PERMISSIONS = [
   "people.read",
   "people.invite",
@@ -44,20 +44,28 @@ export const ALL_PERMISSIONS = [
   "reimbursement.create",
   "reimbursement.approve",
   "reimbursement.pay",
+  "bill.read",
   "bill.create",
   "bill.approve",
   "payment.create",
   "payment.release",
+  "payment_run.manage",
   "procurement.request",
+  "procurement.review",
+  "po.create",
   "travel.book",
   "travel.approve",
-  "budget.manage",
-  "report.read",
+  "vendor.read",
+  "vendor.create",
+  "vendor.bank_details.manage",
   "accounting.read",
   "accounting.code",
   "accounting.sync",
   "treasury.transfer.create",
+  "treasury.transfer.approve",
+  "treasury.transfer.release",
   "report.read",
+  "budget.manage",
   "audit.read",
 ] as const;
 
@@ -74,3 +82,23 @@ export const scopes = [
   "VENDOR_SCOPED",
   "CUSTOM_SCOPE",
 ] as const;
+
+export {
+  ROLE_CRUD,
+  ROLE_PAGE_MODULES,
+  ROLE_SCOPES,
+  SYSTEM_ROLE_NAMES,
+  assertValidMatrixSelection,
+  groupModulesBySection,
+  isCapabilityAvailable,
+  isSystemRoleName,
+  moduleById,
+  permissionKeysFromSelection,
+  selectionFromPermissionKeys,
+  type PageCapability,
+  type PageGrantSelection,
+  type RoleCrud,
+  type RoleMatrixSelection,
+  type RolePageModule,
+  type RoleScope,
+} from "./role-matrix";

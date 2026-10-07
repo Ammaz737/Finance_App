@@ -28,6 +28,7 @@ type Detail = {
   vendorPayment?: { last4: string; status: string; paymentMethod: string } | null;
   timeline?: Array<{ action: string; createdAt: string; actorId?: string | null }>;
   sandbox?: boolean;
+  providerLabel?: string;
   readyForPayment?: boolean;
 };
 
@@ -243,7 +244,13 @@ function BillDetailInner() {
           {(approve.error ?? schedule.error ?? paymentAction.error ?? submit.error ?? editDraft.error ?? cancelBill.error)?.message}
         </p>
       )}
-      {detail.data.sandbox && <p className="muted">SANDBOX / MOCK PAYMENT rail for settlement confirmation.</p>}
+      {detail.data.sandbox && (
+        <p className="muted">
+          {detail.data.providerLabel
+            ? `${detail.data.providerLabel} — settlement confirmation is a separate step after release.`
+            : "Sandbox payment rail — settlement confirmation is a separate step after release."}
+        </p>
+      )}
 
       <div className="overview-stat-grid">
         <article className="overview-stat">

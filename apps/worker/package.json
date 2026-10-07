@@ -14,6 +14,7 @@
     "@prisma/client": "^6.16.0",
     "@finance/config": "workspace:*",
     "@finance/logger": "workspace:*",
+    "@finance/quickbooks": "workspace:*",
     "bullmq": "^5.58.5",
     "ioredis": "^5.7.0"
   },

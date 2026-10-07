@@ -1,0 +1,909 @@
+[
+  {
+    "name": "employee entity scope",
+    "method": "GET",
+    "path": "/entities",
+    "input": null,
+    "http": 200,
+    "expected": [
+      200
+    ],
+    "result": {
+      "data": [
+        {
+          "id": "960b56ee-ca86-4715-bec9-761565bd3cab",
+          "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+          "name": "Acme US LLC",
+          "country": "US",
+          "currency": "USD",
+          "status": "ACTIVE",
+          "createdAt": "2026-10-06T11:30:11.499Z",
+          "updatedAt": "2026-10-06T11:30:11.499Z"
+        }
+      ],
+      "meta": {
+        "requestId": "0460ae41-10f5-400e-ac26-98de2d4410ba"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel negative amount",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "-1",
+      "currency": "USD"
+    },
+    "http": 400,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "error": {
+        "code": "INVALID_AMOUNT",
+        "message": "Amount must be a non-negative decimal with at most 2 fraction digits",
+        "details": {},
+        "requestId": "d9e39086-ad94-4081-bcdb-3452a953c83f"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel zero amount",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "0",
+      "currency": "USD"
+    },
+    "http": 400,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "error": {
+        "code": "INVALID_AMOUNT",
+        "message": "Amount must be greater than zero",
+        "details": {},
+        "requestId": "ad881a47-d254-4d65-b62a-5ffaac29bffb"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel invalid money",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "abc",
+      "currency": "USD"
+    },
+    "http": 400,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "error": {
+        "code": "INVALID_AMOUNT",
+        "message": "Amount must be a non-negative decimal with at most 2 fraction digits",
+        "details": {},
+        "requestId": "e8be1096-2ab9-4348-96e2-2b85e7cb7621"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel excess precision",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "1.234",
+      "currency": "USD"
+    },
+    "http": 400,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "error": {
+        "code": "INVALID_AMOUNT",
+        "message": "Amount must be a non-negative decimal with at most 2 fraction digits",
+        "details": {},
+        "requestId": "decef073-56af-4f21-bbff-39eaa33a9304"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel bad currency",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "100",
+      "currency": "XYZ"
+    },
+    "http": 400,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "error": {
+        "code": "CURRENCY_MISMATCH",
+        "message": "Currency must match USD",
+        "details": {},
+        "requestId": "722fe8b1-6ac7-4021-b564-ac791cea199c"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel reverse dates",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-15",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "100",
+      "currency": "USD"
+    },
+    "http": 400,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "error": {
+        "code": "INVALID_DATES",
+        "message": "Trip end date must be on or after the start date",
+        "details": {},
+        "requestId": "21222f67-08e8-4adf-9711-c6782dafa686"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel invalid date",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "bad-date",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "100",
+      "currency": "USD"
+    },
+    "http": 400,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "error": {
+        "code": "INVALID_DATES",
+        "message": "Trip end date must be on or after the start date",
+        "details": {},
+        "requestId": "56e7a7af-f298-44ac-91c8-007aac1cf0a7"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel blank destination",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "100",
+      "currency": "USD"
+    },
+    "http": 400,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "error": {
+        "code": "INVALID_DESTINATION",
+        "message": "Destination is required",
+        "details": {},
+        "requestId": "68dfc1f7-696f-416a-81c4-d7706d704f09"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel blank name",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "100",
+      "currency": "USD"
+    },
+    "http": 201,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "data": {
+        "id": "2f641903-5e55-4703-b123-bf5b383762c8",
+        "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+        "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+        "travelerId": "5234e164-4a5d-4a63-8178-64a6acd9b80a",
+        "name": "",
+        "origin": "SFO",
+        "destination": "Chicago",
+        "purpose": "QA input validation",
+        "department": "",
+        "international": false,
+        "startDate": "2026-11-10T00:00:00.000Z",
+        "endDate": "2026-11-12T00:00:00.000Z",
+        "estimatedAmount": "100",
+        "currency": "USD",
+        "status": "DRAFT",
+        "policyResult": "PASS",
+        "policyExplanation": "No blocking policy matched.",
+        "policyMatchedRules": [],
+        "policyRequiredActions": [],
+        "policyVersion": 1,
+        "policyEvaluatedAt": "2026-10-06T11:42:50.335Z",
+        "repriceTolerance": "25",
+        "fundId": null,
+        "cardId": null,
+        "expenseId": null,
+        "createdAt": "2026-10-06T11:42:50.336Z",
+        "updatedAt": "2026-10-06T11:42:50.336Z"
+      },
+      "meta": {
+        "requestId": "a022a0f7-ceca-4f09-b1d5-c343afaad0ca"
+      }
+    },
+    "status": "FAIL"
+  },
+  {
+    "name": "travel past trip",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2020-01-01",
+      "endDate": "2020-01-02",
+      "estimatedAmount": "100",
+      "currency": "USD"
+    },
+    "http": 201,
+    "expected": [
+      400,
+      422
+    ],
+    "result": {
+      "data": {
+        "id": "bd4c71ff-7d75-4758-b107-9c114d5b6545",
+        "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+        "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+        "travelerId": "5234e164-4a5d-4a63-8178-64a6acd9b80a",
+        "name": "QA input 1791286969987",
+        "origin": "SFO",
+        "destination": "Chicago",
+        "purpose": "QA input validation",
+        "department": "",
+        "international": false,
+        "startDate": "2020-01-01T00:00:00.000Z",
+        "endDate": "2020-01-02T00:00:00.000Z",
+        "estimatedAmount": "100",
+        "currency": "USD",
+        "status": "DRAFT",
+        "policyResult": "PASS",
+        "policyExplanation": "No blocking policy matched.",
+        "policyMatchedRules": [],
+        "policyRequiredActions": [],
+        "policyVersion": 1,
+        "policyEvaluatedAt": "2026-10-06T11:42:50.480Z",
+        "repriceTolerance": "25",
+        "fundId": null,
+        "cardId": null,
+        "expenseId": null,
+        "createdAt": "2026-10-06T11:42:50.481Z",
+        "updatedAt": "2026-10-06T11:42:50.481Z"
+      },
+      "meta": {
+        "requestId": "4a10ea0d-7a44-4a1f-83a5-c29986011378"
+      }
+    },
+    "status": "FAIL"
+  },
+  {
+    "name": "travel valid trip",
+    "method": "POST",
+    "path": "/travel",
+    "input": {
+      "name": "QA input 1791286969987",
+      "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+      "destination": "Chicago",
+      "origin": "SFO",
+      "purpose": "QA input validation",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-12",
+      "estimatedAmount": "100",
+      "currency": "USD"
+    },
+    "http": 201,
+    "expected": [
+      200,
+      201
+    ],
+    "result": {
+      "data": {
+        "id": "0c7f9dab-5939-4e15-92f3-63c5694d4a69",
+        "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+        "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+        "travelerId": "5234e164-4a5d-4a63-8178-64a6acd9b80a",
+        "name": "QA input 1791286969987",
+        "origin": "SFO",
+        "destination": "Chicago",
+        "purpose": "QA input validation",
+        "department": "",
+        "international": false,
+        "startDate": "2026-11-10T00:00:00.000Z",
+        "endDate": "2026-11-12T00:00:00.000Z",
+        "estimatedAmount": "100",
+        "currency": "USD",
+        "status": "DRAFT",
+        "policyResult": "PASS",
+        "policyExplanation": "No blocking policy matched.",
+        "policyMatchedRules": [],
+        "policyRequiredActions": [],
+        "policyVersion": 1,
+        "policyEvaluatedAt": "2026-10-06T11:42:50.580Z",
+        "repriceTolerance": "25",
+        "fundId": null,
+        "cardId": null,
+        "expenseId": null,
+        "createdAt": "2026-10-06T11:42:50.582Z",
+        "updatedAt": "2026-10-06T11:42:50.582Z"
+      },
+      "meta": {
+        "requestId": "5d349c41-383e-4c9b-8ed8-2484834b8e92"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel flight search",
+    "method": "POST",
+    "path": "/travel/0c7f9dab-5939-4e15-92f3-63c5694d4a69/search",
+    "input": {
+      "type": "FLIGHT"
+    },
+    "http": 200,
+    "expected": [
+      200
+    ],
+    "result": {
+      "data": {
+        "trip": {
+          "id": "0c7f9dab-5939-4e15-92f3-63c5694d4a69",
+          "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+          "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+          "travelerId": "5234e164-4a5d-4a63-8178-64a6acd9b80a",
+          "name": "QA input 1791286969987",
+          "origin": "SFO",
+          "destination": "Chicago",
+          "purpose": "QA input validation",
+          "department": "",
+          "international": false,
+          "startDate": "2026-11-10T00:00:00.000Z",
+          "endDate": "2026-11-12T00:00:00.000Z",
+          "estimatedAmount": "100",
+          "currency": "USD",
+          "status": "DRAFT",
+          "policyResult": "PASS",
+          "policyExplanation": "No blocking policy matched.",
+          "policyMatchedRules": [],
+          "policyRequiredActions": [],
+          "policyVersion": 1,
+          "policyEvaluatedAt": "2026-10-06T11:42:50.580Z",
+          "repriceTolerance": "25",
+          "fundId": null,
+          "cardId": null,
+          "expenseId": null,
+          "createdAt": "2026-10-06T11:42:50.582Z",
+          "updatedAt": "2026-10-06T11:42:50.582Z"
+        },
+        "quotes": [
+          {
+            "quoteId": "mock_quote_flight_in_chicago",
+            "provider": "mock-travel",
+            "providerOfferId": "mock_quote_flight_in_chicago",
+            "type": "FLIGHT",
+            "supplier": "MockAir",
+            "description": "FLIGHT to Chicago from SFO",
+            "amount": "90.00",
+            "currency": "USD",
+            "refundable": true,
+            "cancellationTerms": "Free cancellation within 24h",
+            "offerExpiry": "2026-10-06T12:12:50.631Z",
+            "outOfPolicy": false,
+            "policyResult": "PASS",
+            "itinerary": {
+              "destination": "Chicago",
+              "origin": "SFO",
+              "segments": [
+                {
+                  "from": "SFO",
+                  "to": "Chicago",
+                  "type": "FLIGHT",
+                  "cabinOrClass": "ECONOMY"
+                }
+              ],
+              "nights": 2,
+              "mock": true
+            },
+            "startsAt": "2026-11-10T00:00:00.000Z",
+            "endsAt": "2026-11-12T00:00:00.000Z",
+            "metadata": {
+              "cabinOrClass": "ECONOMY",
+              "sandbox": true
+            }
+          },
+          {
+            "quoteId": "mock_quote_flight_oop_chicago",
+            "provider": "mock-travel",
+            "providerOfferId": "mock_quote_flight_oop_chicago",
+            "type": "FLIGHT",
+            "supplier": "PremiumAir",
+            "description": "FLIGHT to Chicago from SFO",
+            "amount": "464.00",
+            "currency": "USD",
+            "refundable": false,
+            "cancellationTerms": "Non-refundable",
+            "offerExpiry": "2026-10-06T12:12:50.631Z",
+            "outOfPolicy": true,
+            "policyResult": "REVIEW",
+            "itinerary": {
+              "destination": "Chicago",
+              "origin": "SFO",
+              "segments": [
+                {
+                  "from": "SFO",
+                  "to": "Chicago",
+                  "type": "FLIGHT",
+                  "cabinOrClass": "BUSINESS"
+                }
+              ],
+              "nights": 2,
+              "mock": true
+            },
+            "startsAt": "2026-11-10T00:00:00.000Z",
+            "endsAt": "2026-11-12T00:00:00.000Z",
+            "metadata": {
+              "cabinOrClass": "BUSINESS",
+              "sandbox": true
+            }
+          }
+        ]
+      },
+      "meta": {
+        "requestId": "5502f306-5c35-4d50-8990-8d72b4b8b221"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel quote tamper amount and policy",
+    "method": "POST",
+    "path": "/travel/0c7f9dab-5939-4e15-92f3-63c5694d4a69/select-quote",
+    "input": {
+      "quoteId": "mock_quote_flight_oop_chicago",
+      "provider": "mock-travel",
+      "providerOfferId": "mock_quote_flight_oop_chicago",
+      "type": "FLIGHT",
+      "supplier": "PremiumAir",
+      "description": "FLIGHT to Chicago from SFO",
+      "amount": "0.01",
+      "currency": "USD",
+      "refundable": false,
+      "cancellationTerms": "Non-refundable",
+      "offerExpiry": "2026-10-06T12:12:50.631Z",
+      "outOfPolicy": false,
+      "policyResult": "PASS",
+      "itinerary": {
+        "destination": "Chicago",
+        "origin": "SFO",
+        "segments": [
+          {
+            "from": "SFO",
+            "to": "Chicago",
+            "type": "FLIGHT",
+            "cabinOrClass": "BUSINESS"
+          }
+        ],
+        "nights": 2,
+        "mock": true
+      },
+      "startsAt": "2026-11-10T00:00:00.000Z",
+      "endsAt": "2026-11-12T00:00:00.000Z",
+      "metadata": {
+        "cabinOrClass": "BUSINESS",
+        "sandbox": true
+      }
+    },
+    "http": 200,
+    "expected": [
+      400,
+      403,
+      409,
+      422
+    ],
+    "result": {
+      "data": {
+        "booking": {
+          "id": "8ec3ec57-af5a-4f41-8c2c-0cebce61d69c",
+          "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+          "tripId": "0c7f9dab-5939-4e15-92f3-63c5694d4a69",
+          "type": "FLIGHT",
+          "supplier": "PremiumAir",
+          "description": "FLIGHT to Chicago from SFO",
+          "amount": "0.01",
+          "quotedAmount": "0.01",
+          "approvedAmount": null,
+          "currency": "USD",
+          "status": "QUOTED",
+          "outOfPolicy": false,
+          "providerOfferId": "mock_quote_flight_oop_chicago",
+          "providerRef": null,
+          "providerStatus": "NONE",
+          "confirmationNumber": "",
+          "cancellationTerms": "Non-refundable",
+          "refundable": false,
+          "offerExpiry": "2026-10-06T12:12:50.631Z",
+          "offerSnapshot": {
+            "type": "FLIGHT",
+            "quoteId": "mock_quote_flight_oop_chicago",
+            "currency": "USD",
+            "metadata": {
+              "sandbox": true,
+              "cabinOrClass": "BUSINESS"
+            },
+            "provider": "mock-travel",
+            "supplier": "PremiumAir",
+            "refundable": false,
+            "selectedAt": "2026-10-06T11:42:50.678Z",
+            "offerExpiry": "2026-10-06T12:12:50.631Z",
+            "outOfPolicy": false,
+            "policyResult": "PASS",
+            "quotedAmount": "0.01",
+            "providerOfferId": "mock_quote_flight_oop_chicago",
+            "cancellationTerms": "Non-refundable",
+            "policyExplanation": "No blocking policy matched."
+          },
+          "itinerary": {
+            "mock": true,
+            "nights": 2,
+            "origin": "SFO",
+            "segments": [
+              {
+                "to": "Chicago",
+                "from": "SFO",
+                "type": "FLIGHT",
+                "cabinOrClass": "BUSINESS"
+              }
+            ],
+            "destination": "Chicago"
+          },
+          "startsAt": "2026-11-10T00:00:00.000Z",
+          "endsAt": "2026-11-12T00:00:00.000Z",
+          "cancelledAt": null,
+          "refundedAt": null,
+          "idempotencyKey": null,
+          "createdAt": "2026-10-06T11:42:50.682Z",
+          "updatedAt": "2026-10-06T11:42:50.682Z"
+        },
+        "policy": {
+          "result": "PASS",
+          "rule": "default_allow",
+          "reason": "No blocking policy matched.",
+          "explanation": "No blocking policy matched.",
+          "evidence": [],
+          "requiredActions": [],
+          "matchedRules": []
+        }
+      },
+      "meta": {
+        "requestId": "194aee78-43ed-4cad-8dbe-07864c054446"
+      }
+    },
+    "status": "FAIL"
+  },
+  {
+    "name": "travel fabricated quote",
+    "method": "POST",
+    "path": "/travel/0c7f9dab-5939-4e15-92f3-63c5694d4a69/select-quote",
+    "input": {
+      "quoteId": "fabricated-qa-quote",
+      "type": "FLIGHT",
+      "supplier": "Fake QA Airline",
+      "amount": "1",
+      "currency": "USD",
+      "outOfPolicy": false,
+      "policyResult": "PASS"
+    },
+    "http": 200,
+    "expected": [
+      400,
+      404,
+      422
+    ],
+    "result": {
+      "data": {
+        "booking": {
+          "id": "de59d9f1-c03f-40a2-9ab3-a004f880f54e",
+          "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+          "tripId": "0c7f9dab-5939-4e15-92f3-63c5694d4a69",
+          "type": "FLIGHT",
+          "supplier": "Fake QA Airline",
+          "description": "FLIGHT option",
+          "amount": "1",
+          "quotedAmount": "1",
+          "approvedAmount": null,
+          "currency": "USD",
+          "status": "QUOTED",
+          "outOfPolicy": false,
+          "providerOfferId": "fabricated-qa-quote",
+          "providerRef": null,
+          "providerStatus": "NONE",
+          "confirmationNumber": "",
+          "cancellationTerms": "",
+          "refundable": true,
+          "offerExpiry": null,
+          "offerSnapshot": {
+            "type": "FLIGHT",
+            "quoteId": "fabricated-qa-quote",
+            "currency": "USD",
+            "metadata": {},
+            "provider": "mock-travel",
+            "supplier": "Fake QA Airline",
+            "refundable": true,
+            "selectedAt": "2026-10-06T11:42:50.735Z",
+            "offerExpiry": null,
+            "outOfPolicy": false,
+            "policyResult": "PASS",
+            "quotedAmount": "1.00",
+            "providerOfferId": "fabricated-qa-quote",
+            "cancellationTerms": "",
+            "policyExplanation": "No blocking policy matched."
+          },
+          "itinerary": {
+            "mock": true,
+            "quoteId": "fabricated-qa-quote"
+          },
+          "startsAt": "2026-11-10T00:00:00.000Z",
+          "endsAt": "2026-11-12T00:00:00.000Z",
+          "cancelledAt": null,
+          "refundedAt": null,
+          "idempotencyKey": null,
+          "createdAt": "2026-10-06T11:42:50.736Z",
+          "updatedAt": "2026-10-06T11:42:50.736Z"
+        },
+        "policy": {
+          "result": "PASS",
+          "rule": "default_allow",
+          "reason": "No blocking policy matched.",
+          "explanation": "No blocking policy matched.",
+          "evidence": [],
+          "requiredActions": [],
+          "matchedRules": []
+        }
+      },
+      "meta": {
+        "requestId": "98d94e9a-530c-49eb-82c0-d9bddd39b4eb"
+      }
+    },
+    "status": "FAIL"
+  },
+  {
+    "name": "travel submit",
+    "method": "POST",
+    "path": "/travel/0c7f9dab-5939-4e15-92f3-63c5694d4a69/submit",
+    "input": {},
+    "http": 200,
+    "expected": [
+      200
+    ],
+    "result": {
+      "data": {
+        "trip": {
+          "id": "0c7f9dab-5939-4e15-92f3-63c5694d4a69",
+          "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+          "legalEntityId": "960b56ee-ca86-4715-bec9-761565bd3cab",
+          "travelerId": "5234e164-4a5d-4a63-8178-64a6acd9b80a",
+          "name": "QA input 1791286969987",
+          "origin": "SFO",
+          "destination": "Chicago",
+          "purpose": "QA input validation",
+          "department": "",
+          "international": false,
+          "startDate": "2026-11-10T00:00:00.000Z",
+          "endDate": "2026-11-12T00:00:00.000Z",
+          "estimatedAmount": "1",
+          "currency": "USD",
+          "status": "PENDING_APPROVAL",
+          "policyResult": "PASS",
+          "policyExplanation": "No blocking policy matched.",
+          "policyMatchedRules": [],
+          "policyRequiredActions": [],
+          "policyVersion": 1,
+          "policyEvaluatedAt": "2026-10-06T11:42:50.867Z",
+          "repriceTolerance": "25",
+          "fundId": null,
+          "cardId": null,
+          "expenseId": null,
+          "createdAt": "2026-10-06T11:42:50.582Z",
+          "updatedAt": "2026-10-06T11:42:50.868Z"
+        },
+        "requiresApproval": true,
+        "policy": {
+          "result": "PASS",
+          "rule": "default_allow",
+          "reason": "No blocking policy matched.",
+          "explanation": "No blocking policy matched.",
+          "evidence": [],
+          "requiredActions": [],
+          "matchedRules": []
+        }
+      },
+      "meta": {
+        "requestId": "ece3363c-3caa-4e8e-bd80-2091001d31b4"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "travel self approval blocked",
+    "method": "POST",
+    "path": "/travel/0c7f9dab-5939-4e15-92f3-63c5694d4a69/approve",
+    "input": {},
+    "http": 403,
+    "expected": [
+      403
+    ],
+    "result": {
+      "error": {
+        "code": "FORBIDDEN",
+        "message": "Missing permission travel.approve",
+        "details": {},
+        "requestId": "bbac60ae-0c85-456d-bd1a-0364fa0de0d8"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "employee accounting denied",
+    "method": "GET",
+    "path": "/accounting",
+    "input": null,
+    "http": 403,
+    "expected": [
+      403
+    ],
+    "result": {
+      "error": {
+        "code": "FORBIDDEN",
+        "message": "Missing access to accounting",
+        "details": {},
+        "requestId": "06c1fc87-1f93-4722-8de1-4d5f385ba22e"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "employee payment creation denied",
+    "method": "POST",
+    "path": "/payments",
+    "input": {
+      "billId": "fake",
+      "amount": "1",
+      "rail": "ACH",
+      "idempotencyKey": "qa"
+    },
+    "http": 403,
+    "expected": [
+      403
+    ],
+    "result": {
+      "error": {
+        "code": "FORBIDDEN",
+        "message": "Missing permission payment.create",
+        "details": {},
+        "requestId": "151fb5e6-a3e4-42e6-b61b-e08762c2ff4f"
+      }
+    },
+    "status": "PASS"
+  },
+  {
+    "name": "unauthenticated people denied",
+    "method": "GET",
+    "path": "/people",
+    "input": null,
+    "http": 401,
+    "expected": [
+      401
+    ],
+    "result": {
+      "error": {
+        "code": "UNAUTHENTICATED",
+        "message": "Invalid token",
+        "details": {},
+        "requestId": "e03dbdf8-ccc8-4c12-8a1f-7625d5195637"
+      }
+    },
+    "status": "PASS"
+  }
+]

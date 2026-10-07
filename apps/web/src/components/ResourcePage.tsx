@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useDeferredValue, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
@@ -61,6 +62,10 @@ export function ResourcePage(props: {
   filter?: Record<string, string[]>;
   predicate?: (row: Row) => boolean;
   onRowNavigate?: (row: Row) => void;
+  /** Called after a successful create so callers can deep-link into a detail screen. */
+  onCreated?: (row: Row) => void;
+  /** Shown in the detail drawer when row click opens the drawer (not onRowNavigate). */
+  getDetailHref?: (row: Row) => string | null;
   pageSize?: number;
   /** Opt-in chips: All / New / Needs action + status filters for My work lists. */
   myWorkFilters?: boolean;
@@ -74,7 +79,7 @@ export function ResourcePage(props: {
   );
 }
 
-function ResourcePageInner({ title, path, columns, actions = [], mineField, filter, predicate, onRowNavigate, pageSize, myWorkFilters, needsActionStatuses, newWithinDays = DEFAULT_NEW_WITHIN_DAYS }: {
+function ResourcePageInner({ title, path, columns, actions = [], mineField, filter, predicate, onRowNavigate, onCreated, getDetailHref, pageSize, myWorkFilters, needsActionStatuses, newWithinDays = DEFAULT_NEW_WITHIN_DAYS }: {
   title: string;
   path: string;
   columns?: Column<Row>[];
@@ -83,6 +88,8 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
   filter?: Record<string, string[]>;
   predicate?: (row: Row) => boolean;
   onRowNavigate?: (row: Row) => void;
+  onCreated?: (row: Row) => void;
+  getDetailHref?: (row: Row) => string | null;
   pageSize?: number;
   myWorkFilters?: boolean;
   needsActionStatuses?: string[];
@@ -99,7 +106,15 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
   const [selected, setSelected] = useState<Row | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
-  const [accountingDraft, setAccountingDraft] = useState({ category: "", memo: "", glAccount: "", department: "" });
+  const [accountingDraft, setAccountingDraft] = useState({
+    category: "",
+    memo: "",
+    glAccount: "",
+    department: "",
+    location: "",
+    project: "",
+    class: "",
+  });
   const [creating, setCreating] = useState(false);
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(fields));
   const [createKey, setCreateKey] = useState("");
@@ -191,6 +206,7 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
       setSandboxLink(activationPath);
       setMessage(activationPath ? `${title} invited. Email is not configured; use the sandbox activation link below.` : `${title} record created.`);
       void queryClient.invalidateQueries({ queryKey: ["resource", path] });
+      if (created?.id && onCreated) onCreated(created);
     },
   });
   const action = useMutation({
@@ -208,7 +224,15 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
     mutationFn: ({ id, draft }: { id: string; draft: typeof accountingDraft }) => api.post(`/accounting/${id}/code`, {
       category: draft.category,
       memo: draft.memo,
-      coding: Object.fromEntries(Object.entries({ glAccount: draft.glAccount, department: draft.department }).filter(([, value]) => value.trim())),
+      coding: Object.fromEntries(
+        Object.entries({
+          glAccount: draft.glAccount,
+          department: draft.department,
+          location: draft.location,
+          project: draft.project,
+          class: draft.class,
+        }).filter(([, value]) => value.trim()),
+      ),
     }),
     onSuccess: () => {
       setMessage("Accounting code saved. Review the entry, then mark it ready.");
@@ -216,6 +240,20 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
       void queryClient.invalidateQueries({ queryKey: ["resource", "accounting"] });
     },
   });
+  type DimRow = { id: string; key: string; label: string; values: Array<{ id: string; label: string; active?: boolean } | string> };
+  const dimensions = useQuery({
+    queryKey: ["accounting-dimensions"],
+    queryFn: () => api.get<DimRow[]>("/accounting-dimensions"),
+    enabled: path === "accounting",
+  });
+  function dimOptions(keys: string[]) {
+    const rows = dimensions.data ?? [];
+    const match = rows.find((row) => keys.includes(row.key));
+    if (!match || !Array.isArray(match.values)) return [] as Array<{ id: string; label: string }>;
+    return match.values
+      .map((value) => (typeof value === "string" ? { id: value, label: value } : { id: String(value.id), label: String(value.label || value.id), active: value.active }))
+      .filter((value) => value.active !== false);
+  }
 
   const allRows = query.data ?? [];
   const filteredRows = filter ? allRows.filter((row) => Object.entries(filter).every(([field, values]) => values.includes(String(row[field])))) : allRows;
@@ -273,20 +311,45 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
     setPage(1);
   }
 
+  function selectedProgramMerchantLock(): string {
+    if (path !== "spend-requests" || !values.programId) return "";
+    const program = (optionsQuery.data?.["spend-programs"] ?? []).find((item) => item.id === values.programId);
+    return String(program?.merchantLockDefault ?? "").trim();
+  }
+
+  function merchantMatchesLock(merchant: string, lock: string) {
+    const tokens = lock.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+    if (!tokens.length) return true;
+    const normalize = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+    const name = normalize(merchant);
+    if (!name) return false;
+    return tokens.some((token) => {
+      const normalizedToken = normalize(token);
+      return normalizedToken.length > 0 && (name === normalizedToken || name.includes(normalizedToken));
+    });
+  }
+
   function fieldOptions(field: FieldConfig) {
     if (field.options) return field.options;
     const items = optionsQuery.data?.[field.source?.path ?? ""] ?? [];
+    const merchantLock = field.key === "vendorId" ? selectedProgramMerchantLock() : "";
     return items.filter((item) =>
       (!field.source?.entityField || !values.legalEntityId || item[field.source.entityField] === values.legalEntityId) &&
-      (!field.source?.statuses || field.source.statuses.includes(String(item.status))),
+      (!field.source?.statuses || field.source.statuses.includes(String(item.status))) &&
+      (!merchantLock || merchantMatchesLock(String(item.name ?? ""), merchantLock)),
     ).map((item) => {
       const base = String(item[field.source?.labelKey ?? "name"] ?? item.id);
       // Bank accounts: show masked last4 so payment-run source matches demo copy ("Operating ••••1111").
       if (field.source?.path === "banking" && item.last4) {
         return { value: item.id, label: `${base} ••••${String(item.last4)}` };
       }
+      // People picker: show "Name (email)" so invite manager selection is unambiguous.
+      if (field.source?.path === "people") {
+        const fullName = [item.firstName, item.lastName].filter(Boolean).join(" ").trim();
+        return { value: item.id, label: fullName ? `${fullName} (${base})` : base };
+      }
       return { value: item.id, label: base };
-    });
+    }).sort((a, b) => a.label.localeCompare(b.label));
   }
 
   const formOptionsLoading = optionsQuery.isPending && sourcePaths.length > 0;
@@ -301,6 +364,18 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
       if (vendor?.legalEntityId && vendor.legalEntityId !== value) next.vendorId = "";
       const program = (optionsQuery.data?.["spend-programs"] ?? []).find((item) => item.id === values.programId);
       if (program?.legalEntityId && program.legalEntityId !== value) next.programId = "";
+    }
+    if (key === "programId" && path === "spend-requests") {
+      const program = (optionsQuery.data?.["spend-programs"] ?? []).find((item) => item.id === value);
+      const lock = String(program?.merchantLockDefault ?? "").trim();
+      if (program?.legalEntityId && (!next.legalEntityId || next.legalEntityId !== program.legalEntityId)) {
+        next.legalEntityId = String(program.legalEntityId);
+        if (program.currency && "currency" in next) next.currency = String(program.currency);
+      }
+      if (lock && next.vendorId) {
+        const vendor = (optionsQuery.data?.vendors ?? []).find((item) => item.id === next.vendorId);
+        if (!vendor || !merchantMatchesLock(String(vendor.name ?? ""), lock)) next.vendorId = "";
+      }
     }
     setValues(next);
   }
@@ -358,10 +433,18 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
   function runAction(item: Action, row: Row) {
     if (item.name === "update") {
       setEditing(row);
-      setEditValues(Object.fromEntries(fields.map((field) => [field.key, String(row[field.key] ?? "")] )));
+      setEditValues(Object.fromEntries(fields.map((field) => {
+        let value = String(row[field.key] ?? "");
+        if (field.type === "date" && value.includes("T")) value = value.slice(0, 10);
+        if (field.type === "number" && value !== "") {
+          const amount = Number(value);
+          if (Number.isFinite(amount)) value = String(amount);
+        }
+        return [field.key, value];
+      })));
       return;
     }
-    if (["release", "terminate", "freeze", "deactivate", "archive", "cancel"].includes(item.name) && !window.confirm(`Confirm ${item.label.toLowerCase()} for this record?`)) return;
+    if (["release", "terminate", "freeze", "deactivate", "archive", "cancel", "delete"].includes(item.name) && !window.confirm(`Confirm ${item.label.toLowerCase()} for this record?`)) return;
     setMessage("");
     action.mutate({ id: row.id, name: item.name });
   }
@@ -375,8 +458,13 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
     if (path === "accounting") {
       const coding = typeof row.coding === "object" && row.coding !== null ? row.coding as Record<string, unknown> : {};
       setAccountingDraft({
-        category: String(row.category ?? ""), memo: String(row.memo ?? ""),
-        glAccount: String(coding.glAccount ?? ""), department: String(coding.department ?? ""),
+        category: String(row.category ?? ""),
+        memo: String(row.memo ?? ""),
+        glAccount: String(coding.glAccount ?? ""),
+        department: String(coding.department ?? ""),
+        location: String(coding.location ?? ""),
+        project: String(coding.project ?? ""),
+        class: String(coding.class ?? ""),
       });
       codeAccounting.reset();
     }
@@ -411,6 +499,8 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
       "purchase-orders.receive": ["OPEN", "PARTIALLY_RECEIVED"],
       "purchase-orders.match": ["OPEN", "PARTIALLY_RECEIVED", "RECEIVED"],
       "travel.submit": ["DRAFT"], "travel.approve": ["PENDING_APPROVAL"],
+      "travel.update": ["DRAFT", "PENDING_APPROVAL", "IN_REVIEW", "REJECTED", "BLOCKED"],
+      "travel.delete": ["DRAFT", "PENDING_APPROVAL", "IN_REVIEW", "REJECTED", "BLOCKED"],
       "expenses.submit": ["DRAFT", "INCOMPLETE", "REJECTED"], "expenses.approve": ["SUBMITTED", "IN_REVIEW"],
       "spend-requests.approve": ["SUBMITTED", "IN_REVIEW"],
       "spend-programs.deactivate": ["ACTIVE"],
@@ -506,6 +596,9 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
     <DrawerReview open={Boolean(selected)} title={selected ? `${title} detail` : title} onClose={() => setSelected(null)}>
       {selected && <div className="detail-panel">
         {selected.status && <StatusBadge status={selected.status} />}
+        {getDetailHref?.(selected) ? (
+          <p><Link className="detail-link" href={getDetailHref(selected)!}>Open full trip →</Link></p>
+        ) : null}
         <dl className="detail-list">{Object.entries(selected)
           .filter(([key]) => !hiddenKeys.has(key) && !key.endsWith("Id") && key !== "id" && key !== "organizationId" && key !== "coding" && typeof selected[key] !== "object")
           .map(([key, value]) => <div key={key}><dt>{labelForKey(key)}</dt><dd>{displayValue(key, value, selected, labels)}</dd></div>)}</dl>
@@ -517,15 +610,62 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
         </details>
         {path === "accounting" && ["NEEDS_REVIEW", "SYNC_ERROR", "READY_TO_SYNC"].includes(selected.status ?? "") && (session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes("accounting.code")) && <form className="record-form" onSubmit={(event) => { event.preventDefault(); codeAccounting.mutate({ id: selected.id, draft: accountingDraft }); }}>
           <h3>Accounting coding</h3>
-          <label>Category<input className="input" value={accountingDraft.category} onChange={(event) => setAccountingDraft({ ...accountingDraft, category: event.target.value })} maxLength={120} /></label>
-          <label>GL account<input className="input" value={accountingDraft.glAccount} onChange={(event) => setAccountingDraft({ ...accountingDraft, glAccount: event.target.value })} maxLength={120} /></label>
-          <label>Department<input className="input" value={accountingDraft.department} onChange={(event) => setAccountingDraft({ ...accountingDraft, department: event.target.value })} maxLength={120} /></label>
-          <label>Memo<input className="input" value={accountingDraft.memo} onChange={(event) => setAccountingDraft({ ...accountingDraft, memo: event.target.value })} maxLength={500} /></label>
+          <p className="muted">Use controlled dimensions where configured. Free text remains available when a list is empty.</p>
+          {(() => {
+            const categoryOpts = dimOptions(["category"]);
+            const glOpts = dimOptions(["glAccount", "gl_account"]);
+            const deptOpts = dimOptions(["department"]);
+            const locOpts = dimOptions(["location"]);
+            const projectOpts = dimOptions(["project"]);
+            const classOpts = dimOptions(["class"]);
+            const selectOrInput = (
+              fieldLabel: string,
+              fieldKey: keyof typeof accountingDraft,
+              options: Array<{ id: string; label: string }>,
+            ) => (
+              <label key={fieldKey}>
+                {fieldLabel}
+                {options.length ? (
+                  <select
+                    className="input"
+                    value={accountingDraft[fieldKey]}
+                    onChange={(event) => setAccountingDraft({ ...accountingDraft, [fieldKey]: event.target.value })}
+                  >
+                    <option value="">Select {fieldLabel.toLowerCase()}</option>
+                    {options.map((opt) => (
+                      <option key={opt.id} value={opt.id}>{opt.id} · {opt.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="input"
+                    value={accountingDraft[fieldKey]}
+                    onChange={(event) => setAccountingDraft({ ...accountingDraft, [fieldKey]: event.target.value })}
+                    maxLength={fieldKey === "memo" ? 500 : 120}
+                  />
+                )}
+              </label>
+            );
+            return (
+              <>
+                {selectOrInput("Category", "category", categoryOpts)}
+                {selectOrInput("GL account", "glAccount", glOpts)}
+                {selectOrInput("Department", "department", deptOpts)}
+                {selectOrInput("Location", "location", locOpts)}
+                {selectOrInput("Project", "project", projectOpts)}
+                {selectOrInput("Class", "class", classOpts)}
+                <label>
+                  Memo
+                  <input className="input" value={accountingDraft.memo} onChange={(event) => setAccountingDraft({ ...accountingDraft, memo: event.target.value })} maxLength={500} />
+                </label>
+              </>
+            );
+          })()}
           {codeAccounting.isError && <p className="error" role="alert">{codeAccounting.error.message}</p>}
           <button className="btn btn-primary" type="submit" disabled={codeAccounting.isPending}>{codeAccounting.isPending ? "Saving…" : "Save coding"}</button>
         </form>}
         {action.isError && <p className="error" role="alert">{action.error.message}</p>}
-        {permittedActions.length > 0 && <div className="detail-actions">{permittedActions.filter((item) => actionApplies(item.name, selected)).map((item) => <button key={item.name} className={`btn ${item.name === "terminate" ? "btn-danger" : "btn-primary"}`} type="button" disabled={action.isPending || (item.name === "approve" && (selected.requesterId === session?.userId || selected.travelerId === session?.userId))} onClick={() => runAction(item, selected)}>{item.label}</button>)}</div>}
+        {permittedActions.length > 0 && <div className="detail-actions">{permittedActions.filter((item) => actionApplies(item.name, selected)).map((item) => <button key={item.name} className={`btn ${item.name === "terminate" || item.name === "delete" ? "btn-danger" : "btn-primary"}`} type="button" disabled={action.isPending || (item.name === "approve" && (selected.requesterId === session?.userId || selected.travelerId === session?.userId))} onClick={() => runAction(item, selected)}>{item.label}</button>)}</div>}
       </div>}
     </DrawerReview>
 
@@ -537,9 +677,14 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
             {fieldOptions(field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select> : <input className="input" type={field.type ?? "text"} min={field.type === "number" ? "0.01" : undefined} step={field.type === "number" ? "0.01" : undefined} value={values[field.key] ?? ""} required={field.required} onChange={(event) => updateValue(field.key, event.target.value)} />}
         </label>)}
+        {path === "spend-requests" && selectedProgramMerchantLock() ? (
+          <p className="muted">Merchant lock on this program: <strong>{selectedProgramMerchantLock()}</strong>. Vendor list is filtered to allowed merchants.</p>
+        ) : path === "spend-requests" && values.programId ? (
+          <p className="muted">This spend program has no merchant lock — any vendor can be selected. Lock is enforced later on the card only if set on the program.</p>
+        ) : null}
         {optionsQuery.isError && <p className="error">Could not load form options.</p>}
         {create.isError && <p className="error" role="alert">{create.error.message}</p>}
-        <button className="btn btn-primary" type="submit" disabled={create.isPending || optionsQuery.isPending && sourcePaths.length > 0}>{create.isPending ? "Saving…" : "Create"}</button>
+        <button className="btn btn-primary" type="submit" disabled={create.isPending || optionsQuery.isPending && sourcePaths.length > 0}>{create.isPending ? "Saving…" : path === "people" ? "Send invite" : "Create"}</button>
       </form>
     </DrawerReview>
     <DrawerReview open={Boolean(editing)} title={`Edit ${title}`} onClose={() => setEditing(null)}><form className="record-form" onSubmit={(event) => { event.preventDefault(); if (editing) update.mutate({ id: editing.id, body: editValues }); }}>{fields.map((field) => <label key={field.key}>{field.label}{field.type === "select" ? <select className="input" value={editValues[field.key] ?? ""} onChange={(event) => setEditValues({ ...editValues, [field.key]: event.target.value })}>{fieldOptions(field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input className="input" type={field.type ?? "text"} value={editValues[field.key] ?? ""} onChange={(event) => setEditValues({ ...editValues, [field.key]: event.target.value })} />}</label>)}{update.isError && <p className="error">{update.error.message}</p>}<button className="btn btn-primary" disabled={update.isPending}>Save changes</button></form></DrawerReview>

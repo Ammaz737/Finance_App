@@ -1,0 +1,42 @@
+[
+  {
+    "type": "FLIGHT",
+    "status": "PASS",
+    "quotes": 12,
+    "example": {
+      "supplier": "Iberia",
+      "amount": "134.38",
+      "currency": "USD",
+      "provider": "duffel",
+      "providerOfferId": "off_0000BB8NE2HdwNZBcQw6qD"
+    }
+  },
+  {
+    "type": "HOTEL",
+    "status": "FAIL",
+    "code": "DUFFEL_ERROR",
+    "message": "This feature is not enabled for your account. Please contact sales to get access: https://duffel.com/contact-us"
+  },
+  {
+    "type": "CAR",
+    "status": "FAIL",
+    "code": "DUFFEL_ERROR",
+    "message": "This feature is not enabled for your account. Please contact sales to get access: https://duffel.com/contact-us"
+  },
+  {
+    "type": "FAKE_CONFIRM",
+    "result": {
+      "providerRef": "duffel_conf_fake_qa_reference",
+      "providerStatus": "CONFIRMED",
+      "status": "CONFIRMED",
+      "confirmationNumber": "DCNF-EFERENCE"
+    }
+  },
+  {
+    "type": "FAKE_REFUND",
+    "result": {
+      "providerRef": "duffel_conf_fake_qa_reference",
+      "status": "REFUNDED"
+    }
+  }
+]

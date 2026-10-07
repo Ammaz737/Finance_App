@@ -55,17 +55,15 @@ export default function PaymentRunsPage() {
         myWorkFilters
         needsActionStatuses={["OPEN"]}
         onRowNavigate={(row) => router.push(`/app/bill-pay/payment-runs/${row.id}`)}
+        onCreated={(row) => router.push(`/app/bill-pay/payment-runs/${row.id}`)}
       />
       <p className="muted my-expenses-hint">
-        Open runs can collect scheduled payments; the creator cannot release. Build individual payments from{" "}
-        <Link className="detail-link" href="/app/bill-pay/payments">
-          Payments
-        </Link>{" "}
-        or approved{" "}
+        Create an empty OPEN run, add already-scheduled payments for the same entity, then have a different user release.
+        Schedule payments from approved{" "}
         <Link className="detail-link" href="/app/bill-pay/bills?stage=payment">
           bills
-        </Link>
-        .
+        </Link>{" "}
+        first — bills do not appear in a run until a payment exists.
       </p>
     </div>
   );

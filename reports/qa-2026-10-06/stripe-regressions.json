@@ -1,0 +1,29 @@
+{
+  "duplicateAuthorization": {
+    "first": {
+      "decision": "APPROVED",
+      "reason": ""
+    },
+    "second": {
+      "decision": "APPROVED",
+      "reason": ""
+    },
+    "expectedBalanceAfterReplay": "90",
+    "actualAfterFirst": "90",
+    "actualAfterReplay": "80"
+  },
+  "refund": {
+    "inputAmountMinor": -1000,
+    "inputType": "refund",
+    "storedAmount": "10",
+    "expenseAmount": "10",
+    "accountingAmount": "10"
+  },
+  "fabricatedSettlement": {
+    "input": "nonexistent_qa_reference",
+    "result": {
+      "settlementId": "stripe_settle_nonexistent_qa_reference",
+      "status": "COMPLETED"
+    }
+  }
+}

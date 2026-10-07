@@ -1,0 +1,1263 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Ammaz\\finance\\node_modules\\playwright\\cli.js",
+      "test"
+    ],
+    "configFile": "C:\\Ammaz\\finance\\apps\\web\\playwright.config.ts",
+    "rootDir": "C:/Ammaz/finance/apps/web/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Ammaz/finance/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "C:/Ammaz/finance/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/golden-report.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "golden-flows.spec.ts",
+      "file": "golden-flows.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "A: spend request to accounting golden journey",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 51415,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText(/SANDBOX \\/ MOCK CARD/)\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText(/SANDBOX \\/ MOCK CARD/) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText(/SANDBOX \\/ MOCK CARD/)\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText(/SANDBOX \\/ MOCK CARD/)\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText(/SANDBOX \\/ MOCK CARD/) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText(/SANDBOX \\/ MOCK CARD/)\u001b[22m\n\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:67:56",
+                    "location": {
+                      "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                      "column": 56,
+                      "line": 67
+                    },
+                    "snippet": "  65 |\n  66 |   await page.goto(`/app/spend/cards/${approved.card!.id}`);\n> 67 |   await expect(page.getByText(/SANDBOX \\/ MOCK CARD/)).toBeVisible();\n     |                                                        ^\n  68 |   await page.getByLabel(\"Amount\").last().fill(\"25.00\");\n  69 |   await page.getByLabel(\"Merchant\", { exact: true }).fill(\"OpenAI\");\n  70 |   await page.getByRole(\"button\", { name: \"Authorize\" }).click();"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                        "column": 56,
+                        "line": 67
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText(/SANDBOX \\/ MOCK CARD/)\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText(/SANDBOX \\/ MOCK CARD/) with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText(/SANDBOX \\/ MOCK CARD/)\u001b[22m\n\n\n  65 |\n  66 |   await page.goto(`/app/spend/cards/${approved.card!.id}`);\n> 67 |   await expect(page.getByText(/SANDBOX \\/ MOCK CARD/)).toBeVisible();\n     |                                                        ^\n  68 |   await page.getByLabel(\"Amount\").last().fill(\"25.00\");\n  69 |   await page.getByLabel(\"Merchant\", { exact: true }).fill(\"OpenAI\");\n  70 |   await page.getByRole(\"button\", { name: \"Authorize\" }).click();\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:67:56"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:39:22.230Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-A-spend-request-to-accounting-golden-journey\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-A-spend-request-to-accounting-golden-journey\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-A-spend-request-to-accounting-golden-journey\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                    "column": 56,
+                    "line": 67
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-c4ca5850e9cae140b55a",
+          "file": "golden-flows.spec.ts",
+          "line": 41,
+          "column": 5
+        },
+        {
+          "title": "A2: declined authorization + tenant isolation negatives",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6131,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:41:03.899Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-c1a2e98c71b403fc36cd",
+          "file": "golden-flows.spec.ts",
+          "line": 100,
+          "column": 5
+        },
+        {
+          "title": "B: bill approval, release, settlement, and accounting golden journey",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 54844,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText(/BILL|PAYMENT/).first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText(/BILL|PAYMENT/).first() with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText(/BILL|PAYMENT/).first()\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText(/BILL|PAYMENT/).first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText(/BILL|PAYMENT/).first() with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText(/BILL|PAYMENT/).first()\u001b[22m\n\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:169:56",
+                    "location": {
+                      "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                      "column": 56,
+                      "line": 169
+                    },
+                    "snippet": "  167 |   await page.goto(\"/app/accounting/bill-pay\");\n  168 |   await expect(page.getByRole(\"heading\", { name: \"Bill Pay accounting\" })).toBeVisible();\n> 169 |   await expect(page.getByText(/BILL|PAYMENT/).first()).toBeVisible();\n      |                                                        ^\n  170 |\n  171 |   const dash = await api<{ pendingBills: number; paidBills?: number; openPayablesByCurrency: unknown[] }>(page, admin, \"get\", \"/reporting\");\n  172 |   expect(dash.openPayablesByCurrency).toBeTruthy();"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                        "column": 56,
+                        "line": 169
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText(/BILL|PAYMENT/).first()\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText(/BILL|PAYMENT/).first() with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText(/BILL|PAYMENT/).first()\u001b[22m\n\n\n  167 |   await page.goto(\"/app/accounting/bill-pay\");\n  168 |   await expect(page.getByRole(\"heading\", { name: \"Bill Pay accounting\" })).toBeVisible();\n> 169 |   await expect(page.getByText(/BILL|PAYMENT/).first()).toBeVisible();\n      |                                                        ^\n  170 |\n  171 |   const dash = await api<{ pendingBills: number; paidBills?: number; openPayablesByCurrency: unknown[] }>(page, admin, \"get\", \"/reporting\");\n  172 |   expect(dash.openPayablesByCurrency).toBeTruthy();\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:169:56"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:41:14.887Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-B-bill-approv-52378-d-accounting-golden-journey\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-B-bill-approv-52378-d-accounting-golden-journey\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-B-bill-approv-52378-d-accounting-golden-journey\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                    "column": 56,
+                    "line": 169
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-79f3feef32469f48d171",
+          "file": "golden-flows.spec.ts",
+          "line": 125,
+          "column": 5
+        },
+        {
+          "title": "B2: partial payment then settle remaining",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6319,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:42:42.963Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-01d5918504268fa9a271",
+          "file": "golden-flows.spec.ts",
+          "line": 175,
+          "column": 5
+        },
+        {
+          "title": "B3: AP negatives — duplicate, creator SoD, tenant isolation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1581,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:42:55.172Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-c18fed6469fa26e1e554",
+          "file": "golden-flows.spec.ts",
+          "line": 209,
+          "column": 5
+        },
+        {
+          "title": "C: procurement request → PO → receiving → bill match → GF2 settle",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 53731,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:42:56.783Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-2a4057f36a2aa7eeb1f8",
+          "file": "golden-flows.spec.ts",
+          "line": 234,
+          "column": 5
+        },
+        {
+          "title": "C2: 3-way match exception when invoice exceeds received qty",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6181,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:43:50.559Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-c14d4cd234ba723c4a01",
+          "file": "golden-flows.spec.ts",
+          "line": 311,
+          "column": 5
+        },
+        {
+          "title": "C3: procurement negatives — self-approve, over-receive, duplicate PO",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6239,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:43:56.775Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-90f5469c3acef7d459d3",
+          "file": "golden-flows.spec.ts",
+          "line": 354,
+          "column": 5
+        },
+        {
+          "title": "D: STANDARD reimbursement → approval → payout → accounting",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 50087,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:44:03.044Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-9265a8539928621cf03c",
+          "file": "golden-flows.spec.ts",
+          "line": 393,
+          "column": 5
+        },
+        {
+          "title": "D2: mileage server calc ignores forged amount",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5426,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:44:53.163Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-35fc0624f9bc6d3c36a4",
+          "file": "golden-flows.spec.ts",
+          "line": 450,
+          "column": 5
+        },
+        {
+          "title": "D3: per diem server calc and payout",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6839,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:44:58.619Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-2e75998ab01ee9b85e79",
+          "file": "golden-flows.spec.ts",
+          "line": 476,
+          "column": 5
+        },
+        {
+          "title": "D4: reimbursement negatives — SoD, duplicate, fail payout, forge blocked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5531,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:45:05.504Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-09e38201ba3cf101e211",
+          "file": "golden-flows.spec.ts",
+          "line": 503,
+          "column": 5
+        },
+        {
+          "title": "E: travel request → book → fund/card → expense → accounting",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 22683,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mfalse\u001b[39m\nReceived: \u001b[31mtrue\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mfalse\u001b[39m\nReceived: \u001b[31mtrue\u001b[39m\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:593:38",
+                    "location": {
+                      "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                      "column": 38,
+                      "line": 593
+                    },
+                    "snippet": "  591 |\n  592 |   const submitted = await api<{ trip: { status: string }; requiresApproval: boolean }>(page, employee, \"post\", `/travel/${trip.id}/submit`, {});\n> 593 |   expect(submitted.requiresApproval).toBe(false);\n      |                                      ^\n  594 |   expect(submitted.trip.status).toBe(\"READY_TO_BOOK\");\n  595 |\n  596 |   await api(page, employee, \"post\", `/travel-bookings/${selected.booking.id}/reprice`, {});"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                        "column": 38,
+                        "line": 593
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mfalse\u001b[39m\nReceived: \u001b[31mtrue\u001b[39m\n\n  591 |\n  592 |   const submitted = await api<{ trip: { status: string }; requiresApproval: boolean }>(page, employee, \"post\", `/travel/${trip.id}/submit`, {});\n> 593 |   expect(submitted.requiresApproval).toBe(false);\n      |                                      ^\n  594 |   expect(submitted.trip.status).toBe(\"READY_TO_BOOK\");\n  595 |\n  596 |   await api(page, employee, \"post\", `/travel-bookings/${selected.booking.id}/reprice`, {});\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:593:38"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:45:11.062Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-E-travel-requ-95cca-card-→-expense-→-accounting\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-E-travel-requ-95cca-card-→-expense-→-accounting\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-E-travel-requ-95cca-card-→-expense-→-accounting\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                    "column": 38,
+                    "line": 593
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-e8b2bc3a556e2203d262",
+          "file": "golden-flows.spec.ts",
+          "line": 553,
+          "column": 5
+        },
+        {
+          "title": "E2: out-of-policy travel requires approval before booking",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8722,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:45:56.756Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-e1cfaa1f1056c11135d7",
+          "file": "golden-flows.spec.ts",
+          "line": 654,
+          "column": 5
+        },
+        {
+          "title": "E3: reprice above tolerance blocks automatic booking",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2031,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:46:12.266Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-6adc20e0b497e9ad692c",
+          "file": "golden-flows.spec.ts",
+          "line": 696,
+          "column": 5
+        },
+        {
+          "title": "E4: cancel and refund travel booking",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 4133,
+                  "error": {
+                    "message": "Error: POST /travel-bookings/54aba01e-0873-4557-84c6-718a9ee38755/book-mock: 409 {\"error\":{\"code\":\"APPROVAL_REQUIRED\",\"message\":\"Trip must be ready to book before mock booking\",\"details\":{},\"requestId\":\"b49c196b-ceea-46fb-8c28-ee35d2e74df6\"}}\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                    "stack": "Error: POST /travel-bookings/54aba01e-0873-4557-84c6-718a9ee38755/book-mock: 409 {\"error\":{\"code\":\"APPROVAL_REQUIRED\",\"message\":\"Trip must be ready to book before mock booking\",\"details\":{},\"requestId\":\"b49c196b-ceea-46fb-8c28-ee35d2e74df6\"}}\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at api (C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:20:107)\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:742:3",
+                    "location": {
+                      "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                      "column": 107,
+                      "line": 20
+                    },
+                    "snippet": "  18 |     ...(data === undefined ? {} : { data }),\n  19 |   });\n> 20 |   expect(response.ok(), `${method.toUpperCase()} ${path}: ${response.status()} ${await response.text()}`).toBeTruthy();\n     |                                                                                                           ^\n  21 |   const envelope = await response.json() as { data: T };\n  22 |   return envelope.data;\n  23 | }"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                        "column": 107,
+                        "line": 20
+                      },
+                      "message": "Error: POST /travel-bookings/54aba01e-0873-4557-84c6-718a9ee38755/book-mock: 409 {\"error\":{\"code\":\"APPROVAL_REQUIRED\",\"message\":\"Trip must be ready to book before mock booking\",\"details\":{},\"requestId\":\"b49c196b-ceea-46fb-8c28-ee35d2e74df6\"}}\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  18 |     ...(data === undefined ? {} : { data }),\n  19 |   });\n> 20 |   expect(response.ok(), `${method.toUpperCase()} ${path}: ${response.status()} ${await response.text()}`).toBeTruthy();\n     |                                                                                                           ^\n  21 |   const envelope = await response.json() as { data: T };\n  22 |   return envelope.data;\n  23 | }\n    at api (C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:20:107)\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:742:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:46:14.321Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-E4-cancel-and-refund-travel-booking\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-E4-cancel-and-refund-travel-booking\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-E4-cancel-and-refund-travel-booking\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                    "column": 107,
+                    "line": 20
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-e79aead45276388d507e",
+          "file": "golden-flows.spec.ts",
+          "line": 721,
+          "column": 5
+        },
+        {
+          "title": "E5: travel security negatives — SoD, tenant isolation, MCC, idempotency",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 9276,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:48:03.771Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-f8ab441d161babd2d782",
+          "file": "golden-flows.spec.ts",
+          "line": 752,
+          "column": 5
+        },
+        {
+          "title": "F: integrated finance coexistence journey",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 26802,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7mAPPROV\u001b[27mED\"\u001b[39m\nReceived: \u001b[31m\"\u001b[7mDECLIN\u001b[27mED\"\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7mAPPROV\u001b[27mED\"\u001b[39m\nReceived: \u001b[31m\"\u001b[7mDECLIN\u001b[27mED\"\u001b[39m\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:832:25",
+                    "location": {
+                      "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                      "column": 25,
+                      "line": 832
+                    },
+                    "snippet": "  830 |     merchantCategory: \"software\", idempotencyKey: `f-auth-${stamp}`,\n  831 |   });\n> 832 |   expect(auth.decision).toBe(\"APPROVED\");\n      |                         ^\n  833 |   const txns = await api<Array<Row & { status: string; cardId?: string }>>(page, admin, \"get\", \"/transactions\");\n  834 |   const pending = txns.find((row) => row.cardId === fulfilled.card.id && row.status === \"PENDING\");\n  835 |   expect(pending).toBeTruthy();"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                        "column": 25,
+                        "line": 832
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"\u001b[7mAPPROV\u001b[27mED\"\u001b[39m\nReceived: \u001b[31m\"\u001b[7mDECLIN\u001b[27mED\"\u001b[39m\n\n  830 |     merchantCategory: \"software\", idempotencyKey: `f-auth-${stamp}`,\n  831 |   });\n> 832 |   expect(auth.decision).toBe(\"APPROVED\");\n      |                         ^\n  833 |   const txns = await api<Array<Row & { status: string; cardId?: string }>>(page, admin, \"get\", \"/transactions\");\n  834 |   const pending = txns.find((row) => row.cardId === fulfilled.card.id && row.status === \"PENDING\");\n  835 |   expect(pending).toBeTruthy();\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts:832:25"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:48:20.918Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-F-integrated-finance-coexistence-journey\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-F-integrated-finance-coexistence-journey\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\golden-flows-F-integrated-finance-coexistence-journey\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\golden-flows.spec.ts",
+                    "column": 25,
+                    "line": 832
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "08c379e98cfaebda2019-ed8c81ca00829d3e6a57",
+          "file": "golden-flows.spec.ts",
+          "line": 806,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "p0-5-ux.spec.ts",
+      "file": "p0-5-ux.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "G1 — Invite → Activate → Login",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 25021,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Your account is active.')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText('Your account is active.') with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Your account is active.')\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Your account is active.')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText('Your account is active.') with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Your account is active.')\u001b[22m\n\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts:11:304",
+                    "location": {
+                      "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                      "column": 304,
+                      "line": 11
+                    },
+                    "snippet": "   9 |   const admin = await login(page, \"admin@acme.test\"); const roles = await api<Row[]>(page, admin, \"get\", \"/rbac\"); const email = `g1.${Date.now()}@acme.test`;\n  10 |   const invited = await api<Row & { activationPath: string }>(page, admin, \"post\", \"/people\", { email, firstName: \"Golden\", lastName: \"Invite\", roleId: roles[0].id });\n> 11 |   await page.goto(invited.activationPath); await page.getByLabel(\"New password\").fill(\"ActivationPass123\"); await page.getByLabel(\"Confirm password\").fill(\"ActivationPass123\"); await page.getByRole(\"button\", { name: \"Activate account\" }).click(); await expect(page.getByText(\"Your account is active.\")).toBeVisible();\n     |                                                                                                                                                                                                                                                                                                                ^\n  12 |   await page.getByRole(\"link\", { name: \"Sign in\" }).click(); await page.locator('input[autocomplete=\"organization\"]').fill(\"acme\"); await page.getByLabel(\"Email\", { exact: true }).fill(email); await page.getByLabel(\"Password\", { exact: true }).fill(\"ActivationPass123\"); await page.getByRole(\"button\", { name: \"Sign in\" }).click(); await expect(page).toHaveURL(/\\/app\\/home/);\n  13 | });\n  14 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                        "column": 304,
+                        "line": 11
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByText('Your account is active.')\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByText('Your account is active.') with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Your account is active.')\u001b[22m\n\n\n   9 |   const admin = await login(page, \"admin@acme.test\"); const roles = await api<Row[]>(page, admin, \"get\", \"/rbac\"); const email = `g1.${Date.now()}@acme.test`;\n  10 |   const invited = await api<Row & { activationPath: string }>(page, admin, \"post\", \"/people\", { email, firstName: \"Golden\", lastName: \"Invite\", roleId: roles[0].id });\n> 11 |   await page.goto(invited.activationPath); await page.getByLabel(\"New password\").fill(\"ActivationPass123\"); await page.getByLabel(\"Confirm password\").fill(\"ActivationPass123\"); await page.getByRole(\"button\", { name: \"Activate account\" }).click(); await expect(page.getByText(\"Your account is active.\")).toBeVisible();\n     |                                                                                                                                                                                                                                                                                                                ^\n  12 |   await page.getByRole(\"link\", { name: \"Sign in\" }).click(); await page.locator('input[autocomplete=\"organization\"]').fill(\"acme\"); await page.getByLabel(\"Email\", { exact: true }).fill(email); await page.getByLabel(\"Password\", { exact: true }).fill(\"ActivationPass123\"); await page.getByRole(\"button\", { name: \"Sign in\" }).click(); await expect(page).toHaveURL(/\\/app\\/home/);\n  13 | });\n  14 |\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts:11:304"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:50:09.668Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G1-—-Invite-→-Activate-→-Login\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G1-—-Invite-→-Activate-→-Login\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G1-—-Invite-→-Activate-→-Login\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                    "column": 304,
+                    "line": 11
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "fed96ca3b11f6d4865d1-b8dc4177d9af05bf4df6",
+          "file": "p0-5-ux.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "G2 — Forgot Password → Reset → Login",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 48449,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveURL\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected pattern: \u001b[32m/\\/app\\/home/\u001b[39m\nReceived string:  \u001b[31m\"http://localhost:3122/login\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveURL\" with timeout 5000ms\u001b[22m\n\u001b[2m    13 × locator resolved to <html lang=\"en\">…</html>\u001b[22m\n\u001b[2m       - unexpected value \"http://localhost:3122/login\"\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveURL\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected pattern: \u001b[32m/\\/app\\/home/\u001b[39m\nReceived string:  \u001b[31m\"http://localhost:3122/login\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveURL\" with timeout 5000ms\u001b[22m\n\u001b[2m    13 × locator resolved to <html lang=\"en\">…</html>\u001b[22m\n\u001b[2m       - unexpected value \"http://localhost:3122/login\"\u001b[22m\n\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts:17:909",
+                    "location": {
+                      "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                      "column": 909,
+                      "line": 17
+                    },
+                    "snippet": "  15 | test(\"G2 — Forgot Password → Reset → Login\", async ({ page }) => {\n  16 |   const admin = await login(page, \"admin@acme.test\"); const roles = await api<Row[]>(page, admin, \"get\", \"/rbac\"); const email = `g2.${Date.now()}@acme.test`; const invited = await api<Row & { activationToken: string }>(page, admin, \"post\", \"/people\", { email, firstName: \"Reset\", lastName: \"User\", roleId: roles[0].id }); await page.request.post(\"/api/v1/identity/activate\", { data: { email, workspace: \"acme\", token: invited.activationToken, password: \"OriginalPassword123\" } });\n> 17 |   await page.goto(\"/forgot-password\"); await page.getByLabel(\"Workspace\", { exact: true }).fill(\"acme\"); await page.getByLabel(\"Email\", { exact: true }).fill(email); await page.getByRole(\"button\", { name: \"Send reset link\" }).click(); await expect(page.getByText(\"Sandbox delivery\")).toBeVisible(); await page.getByRole(\"link\", { name: \"Open link\" }).click(); await page.getByLabel(\"New password\").fill(\"EmployeeReset123\"); await page.getByLabel(\"Confirm password\").fill(\"EmployeeReset123\"); await page.getByRole(\"button\", { name: \"Reset password\" }).click(); await page.getByRole(\"link\", { name: \"Sign in\" }).click(); await page.locator('input[autocomplete=\"organization\"]').fill(\"acme\"); await page.getByLabel(\"Email\", { exact: true }).fill(email); await page.getByLabel(\"Password\", { exact: true }).fill(\"EmployeeReset123\"); await page.getByRole(\"button\", { name: \"Sign in\" }).click(); await expect(page).toHaveURL(/\\/app\\/home/);\n     |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             ^\n  18 | });\n  19 |\n  20 | test(\"G3 — approved bill payment → run → release → settlement\", async ({ page }) => {"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                        "column": 909,
+                        "line": 17
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveURL\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected pattern: \u001b[32m/\\/app\\/home/\u001b[39m\nReceived string:  \u001b[31m\"http://localhost:3122/login\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveURL\" with timeout 5000ms\u001b[22m\n\u001b[2m    13 × locator resolved to <html lang=\"en\">…</html>\u001b[22m\n\u001b[2m       - unexpected value \"http://localhost:3122/login\"\u001b[22m\n\n\n  15 | test(\"G2 — Forgot Password → Reset → Login\", async ({ page }) => {\n  16 |   const admin = await login(page, \"admin@acme.test\"); const roles = await api<Row[]>(page, admin, \"get\", \"/rbac\"); const email = `g2.${Date.now()}@acme.test`; const invited = await api<Row & { activationToken: string }>(page, admin, \"post\", \"/people\", { email, firstName: \"Reset\", lastName: \"User\", roleId: roles[0].id }); await page.request.post(\"/api/v1/identity/activate\", { data: { email, workspace: \"acme\", token: invited.activationToken, password: \"OriginalPassword123\" } });\n> 17 |   await page.goto(\"/forgot-password\"); await page.getByLabel(\"Workspace\", { exact: true }).fill(\"acme\"); await page.getByLabel(\"Email\", { exact: true }).fill(email); await page.getByRole(\"button\", { name: \"Send reset link\" }).click(); await expect(page.getByText(\"Sandbox delivery\")).toBeVisible(); await page.getByRole(\"link\", { name: \"Open link\" }).click(); await page.getByLabel(\"New password\").fill(\"EmployeeReset123\"); await page.getByLabel(\"Confirm password\").fill(\"EmployeeReset123\"); await page.getByRole(\"button\", { name: \"Reset password\" }).click(); await page.getByRole(\"link\", { name: \"Sign in\" }).click(); await page.locator('input[autocomplete=\"organization\"]').fill(\"acme\"); await page.getByLabel(\"Email\", { exact: true }).fill(email); await page.getByLabel(\"Password\", { exact: true }).fill(\"EmployeeReset123\"); await page.getByRole(\"button\", { name: \"Sign in\" }).click(); await expect(page).toHaveURL(/\\/app\\/home/);\n     |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             ^\n  18 | });\n  19 |\n  20 | test(\"G3 — approved bill payment → run → release → settlement\", async ({ page }) => {\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts:17:909"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:51:26.375Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G2-—-Forgot-Password-→-Reset-→-Login\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G2-—-Forgot-Password-→-Reset-→-Login\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G2-—-Forgot-Password-→-Reset-→-Login\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                    "column": 909,
+                    "line": 17
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "fed96ca3b11f6d4865d1-900d08fd20905caef0eb",
+          "file": "p0-5-ux.spec.ts",
+          "line": 15,
+          "column": 5
+        },
+        {
+          "title": "G3 — approved bill payment → run → release → settlement",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 32336,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('status')\nExpected substring: \u001b[32m\"Payment added\"\u001b[39m\nReceived string:    \u001b[31m\"Payment\u001b[7ms\u001b[27m added\u001b[7m to run.\u001b[27m\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" getByRole('status') with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('status')\u001b[22m\n\u001b[2m    8 × locator resolved to <p role=\"status\" class=\"notice\">Payments added to run.</p>\u001b[22m\n\u001b[2m      - unexpected value \"Payments added to run.\"\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('status')\nExpected substring: \u001b[32m\"Payment added\"\u001b[39m\nReceived string:    \u001b[31m\"Payment\u001b[7ms\u001b[27m added\u001b[7m to run.\u001b[27m\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" getByRole('status') with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('status')\u001b[22m\n\u001b[2m    8 × locator resolved to <p role=\"status\" class=\"notice\">Payments added to run.</p>\u001b[22m\n\u001b[2m      - unexpected value \"Payments added to run.\"\u001b[22m\n\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts:26:306",
+                    "location": {
+                      "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                      "column": 306,
+                      "line": 26
+                    },
+                    "snippet": "  24 |   const bill = await api<Row>(page, treasury, \"post\", \"/bills\", { vendorId: vendors[0].id, legalEntityId: entityId, invoiceNumber, amount: \"31.00\", currency: \"USD\", memo: \"G3\" }); await api(page, ap, \"post\", `/bills/${bill.id}/approve`, {}); const afterFirst = await api<{ bill: { status: string } }>(page, admin, \"get\", `/bills/${bill.id}`); if (afterFirst.bill.status === \"PENDING_APPROVAL\") await api(page, admin, \"post\", `/bills/${bill.id}/approve`, {});\n  25 |   const payment = await api<Row>(page, treasury, \"post\", \"/payments\", { billId: bill.id, amount: \"31.00\", rail: \"ACH\", idempotencyKey: `g3-${Date.now()}` }); const accounts = await api<Row[]>(page, admin, \"get\", \"/banking\"); const run = await api<Row>(page, treasury, \"post\", \"/payment-runs\", { name: `G3 run ${Date.now()}`, legalEntityId: entityId, sourceAccountId: accounts.find((row) => row.legalEntityId === entityId)?.id });\n> 26 |   await useToken(page, admin); await page.goto(`/app/bill-pay/payment-runs/${run.id}`); await page.locator(\"label.checkbox\").filter({ hasText: invoiceNumber }).getByRole(\"checkbox\").check(); await page.getByRole(\"button\", { name: \"Add selected payments\" }).click(); await expect(page.getByRole(\"status\")).toContainText(\"Payment added\"); await page.getByRole(\"button\", { name: \"Release run\" }).click(); await expect(page.getByRole(\"status\")).toContainText(\"Run released\"); await api(page, admin, \"post\", `/payments/${payment.id}/confirm-settlement`, {}); const settled = await api<Row>(page, admin, \"get\", `/payments/${payment.id}`); expect((settled.payment as { status: string }).status).toBe(\"SETTLED\");\n     |                                                                                                                                                                                                                                                                                                                  ^\n  27 | });\n  28 |\n  29 | test(\"G4 — Vendor payment details → Bill → Payment permission path\", async ({ page }) => {"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                        "column": 306,
+                        "line": 26
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('status')\nExpected substring: \u001b[32m\"Payment added\"\u001b[39m\nReceived string:    \u001b[31m\"Payment\u001b[7ms\u001b[27m added\u001b[7m to run.\u001b[27m\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" getByRole('status') with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('status')\u001b[22m\n\u001b[2m    8 × locator resolved to <p role=\"status\" class=\"notice\">Payments added to run.</p>\u001b[22m\n\u001b[2m      - unexpected value \"Payments added to run.\"\u001b[22m\n\n\n  24 |   const bill = await api<Row>(page, treasury, \"post\", \"/bills\", { vendorId: vendors[0].id, legalEntityId: entityId, invoiceNumber, amount: \"31.00\", currency: \"USD\", memo: \"G3\" }); await api(page, ap, \"post\", `/bills/${bill.id}/approve`, {}); const afterFirst = await api<{ bill: { status: string } }>(page, admin, \"get\", `/bills/${bill.id}`); if (afterFirst.bill.status === \"PENDING_APPROVAL\") await api(page, admin, \"post\", `/bills/${bill.id}/approve`, {});\n  25 |   const payment = await api<Row>(page, treasury, \"post\", \"/payments\", { billId: bill.id, amount: \"31.00\", rail: \"ACH\", idempotencyKey: `g3-${Date.now()}` }); const accounts = await api<Row[]>(page, admin, \"get\", \"/banking\"); const run = await api<Row>(page, treasury, \"post\", \"/payment-runs\", { name: `G3 run ${Date.now()}`, legalEntityId: entityId, sourceAccountId: accounts.find((row) => row.legalEntityId === entityId)?.id });\n> 26 |   await useToken(page, admin); await page.goto(`/app/bill-pay/payment-runs/${run.id}`); await page.locator(\"label.checkbox\").filter({ hasText: invoiceNumber }).getByRole(\"checkbox\").check(); await page.getByRole(\"button\", { name: \"Add selected payments\" }).click(); await expect(page.getByRole(\"status\")).toContainText(\"Payment added\"); await page.getByRole(\"button\", { name: \"Release run\" }).click(); await expect(page.getByRole(\"status\")).toContainText(\"Run released\"); await api(page, admin, \"post\", `/payments/${payment.id}/confirm-settlement`, {}); const settled = await api<Row>(page, admin, \"get\", `/payments/${payment.id}`); expect((settled.payment as { status: string }).status).toBe(\"SETTLED\");\n     |                                                                                                                                                                                                                                                                                                                  ^\n  27 | });\n  28 |\n  29 | test(\"G4 — Vendor payment details → Bill → Payment permission path\", async ({ page }) => {\n    at C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts:26:306"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:52:50.433Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G3-—-approved-bill-b210f--run-→-release-→-settlement\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G3-—-approved-bill-b210f--run-→-release-→-settlement\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Ammaz\\finance\\apps\\web\\test-results\\p0-5-ux-G3-—-approved-bill-b210f--run-→-release-→-settlement\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Ammaz\\finance\\apps\\web\\e2e\\p0-5-ux.spec.ts",
+                    "column": 306,
+                    "line": 26
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "fed96ca3b11f6d4865d1-48cfe950b116e5697d1f",
+          "file": "p0-5-ux.spec.ts",
+          "line": 20,
+          "column": 5
+        },
+        {
+          "title": "G4 — Vendor payment details → Bill → Payment permission path",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 27416,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:54:07.788Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fed96ca3b11f6d4865d1-f8bc7e6d74ff2c1a9368",
+          "file": "p0-5-ux.spec.ts",
+          "line": 29,
+          "column": 5
+        },
+        {
+          "title": "G5 — Procurement match exception → Resolve",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 9758,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:54:37.843Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fed96ca3b11f6d4865d1-c7ea067e5248ab4e64fa",
+          "file": "p0-5-ux.spec.ts",
+          "line": 33,
+          "column": 5
+        },
+        {
+          "title": "G6 — Admin policy + approval workflow configuration",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 25594,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:54:47.631Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fed96ca3b11f6d4865d1-a77417b908adbd9ddb26",
+          "file": "p0-5-ux.spec.ts",
+          "line": 37,
+          "column": 5
+        },
+        {
+          "title": "G7 — Spend request form loads entity and program options",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 13897,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-06T11:55:13.252Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fed96ca3b11f6d4865d1-6839020dda91b8e04dbb",
+          "file": "p0-5-ux.spec.ts",
+          "line": 41,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-06T11:39:20.332Z",
+    "duration": 977420.377,
+    "expected": 17,
+    "skipped": 0,
+    "unexpected": 8,
+    "flaky": 0
+  }
+}

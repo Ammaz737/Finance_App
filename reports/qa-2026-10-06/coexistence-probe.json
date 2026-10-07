@@ -1,0 +1,24 @@
+{
+  "requestId": "1c26e6df-f15b-4135-b0d0-2d18dc03108f",
+  "requestStatus": "FULFILLED",
+  "cardId": "b2bc9d88-a116-4991-97ef-a4e345c3b556",
+  "cardStatus": "ACTIVE",
+  "allowedMccs": "airlines,hotels,car_rental,ground_transportation,4511,7011,7512,4111",
+  "authorization": {
+    "id": "d1164c6b-fdec-4bbd-846a-97bd38c19b61",
+    "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99",
+    "cardId": "b2bc9d88-a116-4991-97ef-a4e345c3b556",
+    "fundId": "9ff6ca65-9ac4-40db-ba55-7fd2653f2f1b",
+    "amount": "1",
+    "currency": "USD",
+    "merchant": "OpenAI",
+    "merchantCategory": "software",
+    "merchantCountry": null,
+    "decision": "DECLINED",
+    "reason": "MCC_BLOCKED",
+    "providerEventId": null,
+    "stripeAuthorizationId": null,
+    "idempotencyKey": "fe484094-094c-40ef-b6b7-b0f7c94f0f99:qa-coexist-1791288204223",
+    "createdAt": "2026-10-06T12:03:24.284Z"
+  }
+}

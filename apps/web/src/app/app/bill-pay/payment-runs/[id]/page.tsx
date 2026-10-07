@@ -87,9 +87,15 @@ export default function PaymentRunDetailPage() {
   });
 
   if (detail.isError) {
+    const errMsg = (detail.error as Error)?.message ?? "";
+    const forbidden = /forbidden|missing access|permission/i.test(errMsg);
     return (
       <div className="error-panel" role="alert">
-        Could not load payment run.{" "}
+        {forbidden
+          ? "You do not have permission to view payment runs. Sign in as AP, Treasury, or Admin."
+          : errMsg
+            ? `Could not load payment run: ${errMsg}`
+            : "Could not load payment run."}{" "}
         <button className="text-button" type="button" onClick={() => void detail.refetch()}>
           Try again
         </button>

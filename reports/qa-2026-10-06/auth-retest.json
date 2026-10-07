@@ -1,0 +1,30 @@
+[
+  {
+    "step": "UI activation",
+    "http": 200,
+    "body": {
+      "data": {
+        "id": "0ccc48ae-f111-4733-88e4-1122e49eeb26",
+        "email": "qa.auth.1791287983669@acme.test",
+        "status": "ACTIVE",
+        "organizationId": "fe484094-094c-40ef-b6b7-b0f7c94f0f99"
+      },
+      "meta": {
+        "requestId": "1af84c49-39e6-415f-9ae1-7e401d121d10"
+      }
+    }
+  },
+  {
+    "step": "UI activated user login",
+    "http": 200
+  },
+  {
+    "step": "UI password reset",
+    "http": 200
+  },
+  {
+    "step": "Reset user login",
+    "status": "PASS",
+    "url": "http://localhost:3122/app/home"
+  }
+]

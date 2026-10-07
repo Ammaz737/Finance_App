@@ -47,6 +47,37 @@ function list(value?: string | null) {
   return (value ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
 }
 
+function normalizedMerchant(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Comma-separated merchant lock (e.g. "OpenAI, Cursorai, Claude"). Empty lock = open. */
+export function merchantMatchesLock(merchant: string, lock?: string | null): boolean {
+  const tokens = list(lock);
+  if (!tokens.length) return true;
+  const name = normalizedMerchant(merchant);
+  if (!name) return false;
+  return tokens.some((token) => {
+    const normalizedToken = normalizedMerchant(token);
+    return normalizedToken.length > 0 && (name === normalizedToken || name.includes(normalizedToken));
+  });
+}
+
+/** Preserve every previously approved merchant when a shared holder card is reused. */
+export function mergeMerchantLocks(existing?: string | null, requested?: string | null): string | null {
+  const values = [...(existing ?? "").split(","), ...(requested ?? "").split(",")]
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!values.length) return null;
+  const seen = new Set<string>();
+  return values.filter((item) => {
+    const key = normalizedMerchant(item);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).join(", ");
+}
+
 /** Fast, deterministic card authorization rules — no AI / OCR / accounting. */
 export function evaluateCardAuthorizationRules(input: CardAuthRuleInput): CardAuthRuleResult {
   const now = input.now ?? new Date();
@@ -69,12 +100,8 @@ export function evaluateCardAuthorizationRules(input: CardAuthRuleInput): CardAu
     return { decision: "DECLINED", reason: "INSUFFICIENT_FUND" };
   }
 
-  if (input.merchantLock) {
-    const lock = input.merchantLock.trim().toLowerCase();
-    const merchant = input.merchant.trim().toLowerCase();
-    if (!merchant.includes(lock) && lock !== merchant) {
-      return { decision: "DECLINED", reason: "MERCHANT_LOCK" };
-    }
+  if (input.merchantLock && !merchantMatchesLock(input.merchant, input.merchantLock)) {
+    return { decision: "DECLINED", reason: "MERCHANT_LOCK" };
   }
 
   const category = input.merchantCategory.trim().toLowerCase();

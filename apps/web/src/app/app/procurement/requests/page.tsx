@@ -127,6 +127,7 @@ export default function ProcurementRequestsPage() {
         myWorkFilters
         needsActionStatuses={needsActionStatuses.length ? needsActionStatuses : ["DRAFT", "IN_REVIEW"]}
         onRowNavigate={(row) => router.push(`/app/procurement/requests/${row.id}`)}
+        onCreated={(row) => router.push(`/app/procurement/requests/${row.id}`)}
       />
       <p className="muted my-expenses-hint">
         {canReview ? (

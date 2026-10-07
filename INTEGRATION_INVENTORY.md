@@ -5,7 +5,7 @@
 | Integration area | Current provider name | Demo status | Paid? |
 |---|---|---|---|
 | ERP / accounting export | `mock-netsuite` | Connected sandbox record; no live NetSuite API calls | No demo charge. A real NetSuite account is a paid commercial service. |
-| Accounting provider | `MOCK_QBO` | Connected sandbox record; idempotent mock sync | No demo charge. QuickBooks Online is a paid subscription service. |
+| Accounting provider | `MOCK_QBO` or `QUICKBOOKS_ONLINE` | Mock remains available for local tests. QuickBooks Online now has tenant OAuth 2.0, encrypted rotating tokens, catalog import, signed webhooks, account mapping, and BullMQ posting. A live connection requires Intuit credentials in `.env`. | Intuit Builder API access can start without a monthly platform fee within its current limits; each customer supplies their own paid QuickBooks Online subscription. |
 | Travel booking | `mock-travel` | Search, hold, confirm, cancel, and refund are simulated | No demo charge. A live travel provider normally charges booking/service fees or requires a commercial contract. |
 | Card issuer | `mock-issuer` | Virtual-card issue, authorization, capture, void, and reversal are simulated | No demo charge. A real issuer/processor normally charges program, network, interchange, or transaction fees. |
 
@@ -32,13 +32,12 @@
 
 Use this wording:
 
-> “The demo currently runs with sandbox adapters for cards, travel, payments, payouts, OCR, and accounting. The integration contracts are provider-neutral, so production providers can be connected later. No live external transaction is being claimed here.”
+> “QuickBooks Online is implemented through Intuit OAuth 2.0 and can be connected to an Intuit sandbox or production company after provider credentials are configured. Mock accounting remains available for isolated local tests.”
 
-Do not say that NetSuite, QuickBooks, a card issuer, a bank, or a travel supplier is actively connected just because a `mock-*` connection appears in **Company → Integrations**.
+Do not say that QuickBooks is actively connected until **Accounting → Integrations** shows the authorized company, healthy status, completed catalog sync, and saved account mappings.
 
 ## 4. Cost conclusion
 
 - Current local/demo mode: no external integration subscription or usage charge is required.
 - Production mode: most real providers in the tables above are paid, either by subscription, per transaction, per document, per user, per API call, or by enterprise contract.
 - The repository does not contain vendor contracts, plan names, or negotiated prices. Exact pricing must be confirmed with each provider before presenting a cost estimate.
-

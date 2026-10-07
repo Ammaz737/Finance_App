@@ -24,7 +24,7 @@ export class StripePaymentRailAdapter implements PaymentRailProvider {
     if (!secretKey.trim()) {
       throw new Error("STRIPE_SECRET_KEY is required for StripePaymentRailAdapter");
     }
-    this.stripe = new Stripe(secretKey, { apiVersion: "2024-11-20.acacia" });
+    this.stripe = new Stripe(secretKey);
   }
 
   private async resolveFinancialAccountId(): Promise<string> {
@@ -116,6 +116,7 @@ export class StripePaymentRailAdapter implements PaymentRailProvider {
 
   async release(input: PaymentRailReleaseInput): Promise<PaymentRailReleaseResult> {
     try {
+      if (!input.paymentId.trim()) throw new Error("Payment ID is required");
       const cardId = await this.ensureBillPayDebitCard();
       const amountCents = this.toCents(input.amount, input.currency);
       const merchant = (input.description?.trim() || `Bill pay ${input.rail}`).slice(0, 200);
@@ -127,7 +128,10 @@ export class StripePaymentRailAdapter implements PaymentRailProvider {
           name: merchant,
           category: "miscellaneous_specialty_retail",
         },
-      });
+      }, { idempotencyKey: `bill-pay:${input.paymentId}` });
+      await this.stripe.issuing.transactions.update(txn.id, {
+        metadata: { app_payment_id: input.paymentId },
+      }, { idempotencyKey: `bill-pay-tag:${input.paymentId}` });
       return {
         providerRef: txn.id,
         status: "ACCEPTED",
@@ -144,19 +148,21 @@ export class StripePaymentRailAdapter implements PaymentRailProvider {
     if (!ref) {
       return { settlementId: "", status: "FAILED", failureReason: "Missing provider ref" };
     }
-    if (ref.startsWith("mock_")) {
-      return { settlementId: `mock_settle_${ref}`, status: "COMPLETED" };
+    if (!ref.startsWith("ipi_") || !input.paymentId || !input.amount || !input.currency) {
+      return { settlementId: "", status: "FAILED", failureReason: "Verified Stripe payment details are required" };
     }
     try {
-      if (ref.startsWith("ipi_")) {
-        const txn = await this.stripe.issuing.transactions.retrieve(ref);
-        return {
-          settlementId: `stripe_settle_${txn.id}`,
-          status: "COMPLETED",
-        };
+      const txn = await this.stripe.issuing.transactions.retrieve(ref);
+      const cardId = await this.ensureBillPayDebitCard();
+      const transactionCard = typeof txn.card === "string" ? txn.card : txn.card.id;
+      if (txn.type !== "capture" || txn.amount >= 0 || transactionCard !== cardId
+        || txn.metadata.app_payment_id !== input.paymentId
+        || Math.abs(txn.amount) !== this.toCents(input.amount, input.currency)
+        || txn.currency !== input.currency.toLowerCase()) {
+        return { settlementId: "", status: "FAILED", failureReason: "Stripe transaction does not match this payment" };
       }
       return {
-        settlementId: `stripe_settle_${ref}`,
+        settlementId: `stripe_settle_${txn.id}`,
         status: "COMPLETED",
       };
     } catch (error) {

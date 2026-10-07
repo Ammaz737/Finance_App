@@ -1,0 +1,26 @@
+{
+  "testMode": true,
+  "first": {
+    "providerRef": "ipi_1UNXVQPZ7gKD4zJQO58AXGJG",
+    "status": "ACCEPTED"
+  },
+  "second": {
+    "providerRef": "ipi_1UNXVQPZ7gKD4zJQO58AXGJG",
+    "status": "ACCEPTED"
+  },
+  "replayPassed": true,
+  "valid": {
+    "settlementId": "stripe_settle_ipi_1UNXVQPZ7gKD4zJQO58AXGJG",
+    "status": "COMPLETED"
+  },
+  "wrongPayment": {
+    "settlementId": "",
+    "status": "FAILED",
+    "failureReason": "Stripe transaction does not match this payment"
+  },
+  "fake": {
+    "settlementId": "",
+    "status": "FAILED",
+    "failureReason": "Verified Stripe payment details are required"
+  }
+}

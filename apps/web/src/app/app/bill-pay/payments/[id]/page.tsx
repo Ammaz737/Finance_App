@@ -131,7 +131,9 @@ export default function PaymentDetailPage() {
           {action.error.message}
         </p>
       )}
-      {detail.data.sandbox && <p className="muted">SANDBOX / MOCK PAYMENT</p>}
+      {detail.data.sandbox && (
+        <p className="muted">{providerLabel ?? "SANDBOX payment rail"}</p>
+      )}
 
       <div className="overview-stat-grid">
         <article className="overview-stat">

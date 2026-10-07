@@ -72,6 +72,7 @@ model User {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@unique([organizationId, email])
+  @@unique([organizationId, id])
   @@index([organizationId, status])
   @@index([organizationId, passwordResetTokenHash])
   @@index([organizationId, stripeCardholderId])
@@ -357,7 +358,80 @@ model IntegrationConnection {
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@index([organizationId, family])
+  @@unique([id, organizationId])
   @@map("integration_connections")
+}
+
+model QuickBooksConnection {
+  id                      String    @id @default(uuid())
+  organizationId          String    @map("organization_id")
+  integrationConnectionId String    @unique @map("integration_connection_id")
+  realmId                 String    @map("realm_id")
+  companyName             String    @default("") @map("company_name")
+  accessTokenEncrypted    String    @map("access_token_encrypted")
+  refreshTokenEncrypted   String    @map("refresh_token_encrypted")
+  accessTokenExpiresAt    DateTime  @map("access_token_expires_at")
+  refreshTokenExpiresAt   DateTime? @map("refresh_token_expires_at")
+  scopes                  String    @default("com.intuit.quickbooks.accounting")
+  environment             String    @default("sandbox")
+  lastCatalogSyncAt       DateTime? @map("last_catalog_sync_at")
+  disconnectedAt          DateTime? @map("disconnected_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@unique([organizationId, realmId])
+  @@unique([id, organizationId])
+  @@index([organizationId, disconnectedAt])
+  @@map("quickbooks_connections")
+}
+
+model QuickBooksEntityMap {
+  id                     String   @id @default(uuid())
+  organizationId         String   @map("organization_id")
+  quickBooksConnectionId String   @map("quickbooks_connection_id")
+  entityType             String   @map("entity_type")
+  localId                String   @default("") @map("local_id")
+  externalId             String   @map("external_id")
+  displayName            String   @default("") @map("display_name")
+  syncToken              String   @default("") @map("sync_token")
+  active                 Boolean  @default(true)
+  metadata               Json     @default("{}")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@unique([quickBooksConnectionId, entityType, externalId])
+  @@index([organizationId, entityType, localId])
+  @@index([organizationId, entityType, displayName])
+  @@map("quickbooks_entity_maps")
+}
+
+model QuickBooksWebhookEvent {
+  id                     String    @id @default(uuid())
+  organizationId         String    @map("organization_id")
+  quickBooksConnectionId String    @map("quickbooks_connection_id")
+  providerEventId        String    @unique @map("provider_event_id")
+  payload                Json
+  processedAt            DateTime? @map("processed_at")
+  error                  String    @default("")
+  createdAt              DateTime  @default(now()) @map("created_at")
+
+  @@index([organizationId, processedAt, createdAt])
+  @@map("quickbooks_webhook_events")
+}
+
+model ProviderOAuthState {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  userId         String    @map("user_id")
+  provider       String
+  stateHash      String    @unique @map("state_hash")
+  returnPath     String    @default("/app/accounting/integrations") @map("return_path")
+  expiresAt      DateTime  @map("expires_at")
+  consumedAt     DateTime? @map("consumed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([organizationId, provider, expiresAt])
+  @@map("provider_oauth_states")
 }
 
 model BusinessLimit {

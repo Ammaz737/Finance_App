@@ -37,7 +37,7 @@ type Detail = {
     limitAmount: string | number;
     currency: string;
   } | null;
-  card: { id: string; last4: string; status: string; holderId?: string } | null;
+  card: { id: string; last4: string; status: string; holderId?: string; provider?: string } | null;
   approval: { status: string; infoRequestComment: string; infoRequestedAt: string | null } | null;
   approvalProgress: Array<{ label: string; status: string }>;
   approvalLabel: string;
@@ -401,7 +401,14 @@ function SpendRequestDetailInner() {
                       •••• {data.card.last4}
                     </Link>{" "}
                     <StatusBadge status={data.card.status} />
-                    {data.sandbox ? <span className="muted"> · SANDBOX / MOCK</span> : null}
+                    <span className="muted">
+                      {" · "}
+                      {(data.card as { provider?: string }).provider === "stripe"
+                        ? "Stripe Issuing"
+                        : data.sandbox
+                          ? "Sandbox / mock"
+                          : "Issuer"}
+                    </span>
                   </>
                 ) : (
                   <span className="muted">

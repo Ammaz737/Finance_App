@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import dotenv from 'dotenv';
+const config=dotenv.parse(fs.readFileSync('apps/api/.env'));
+if(!config.STRIPE_SECRET_KEY?.startsWith('sk_test_')) throw new Error('Only Stripe test mode is allowed');
+Object.assign(process.env,config);
+const {StripePaymentRailAdapter}=await import('../../apps/api/src/integrations/payment-rail/stripe.payment-rail.adapter.ts');
+const rail=new StripePaymentRailAdapter(config.STRIPE_SECRET_KEY);
+const input={paymentId:'qa-fix-idempotency-20261006',amount:'1.00',currency:'USD',rail:'ACH',description:'QA fix regression test $1'};
+const first=await rail.release(input),second=await rail.release(input);
+const valid=await rail.settle({...input,providerRef:first.providerRef});
+const wrongPayment=await rail.settle({...input,paymentId:'another_payment',providerRef:first.providerRef});
+const fake=await rail.settle({...input,providerRef:'mock_fake'});
+const result={testMode:true,first,second,replayPassed:first.status==='ACCEPTED'&&first.providerRef===second.providerRef,valid,wrongPayment,fake};
+fs.writeFileSync('reports/qa-fixes-2026-10-06/stripe-live-test.json',JSON.stringify(result,null,2));
+console.log(JSON.stringify(result,null,2));
+if(!result.replayPassed||valid.status!=='COMPLETED'||wrongPayment.status!=='FAILED'||fake.status!=='FAILED')process.exitCode=1;

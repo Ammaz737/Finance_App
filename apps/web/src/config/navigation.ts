@@ -114,7 +114,7 @@ export const navigation: NavigationSection[] = [
   ] },
 ];
 
-export function canSeeItem(item: NavigationItem, session: { roles: string[]; permissions: string[]; entitlements: string[] }) {
+export function canSeeItem(item: Pick<NavigationItem, "permission" | "permissions" | "feature" | "phase"> & { href?: string }, session: { roles: string[]; permissions: string[]; entitlements: string[] }) {
   if (item.phase === "P1" && process.env.NEXT_PUBLIC_ENABLE_P1_ROUTES !== "true") return false;
   if (item.phase === "P2" && process.env.NEXT_PUBLIC_ENABLE_P2_ROUTES !== "true") return false;
   const privileged = session.roles.includes("Owner") || session.permissions.includes("*");

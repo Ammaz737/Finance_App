@@ -81,6 +81,9 @@ importers:
       '@finance/permissions':
         specifier: workspace:*
         version: link:../../packages/permissions
+      '@finance/quickbooks':
+        specifier: workspace:*
+        version: link:../../packages/quickbooks
       '@prisma/client':
         specifier: ^6.16.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -332,6 +335,9 @@ importers:
       '@finance/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@finance/quickbooks':
+        specifier: workspace:*
+        version: link:../../packages/quickbooks
       '@prisma/client':
         specifier: ^6.16.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -386,6 +392,8 @@ importers:
   packages/money: {}
 
   packages/permissions: {}
+
+  packages/quickbooks: {}
 
 packages:
 

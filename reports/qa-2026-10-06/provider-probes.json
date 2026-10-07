@@ -1,0 +1,25 @@
+[
+  {
+    "label": "Stripe balance",
+    "status": "PASS",
+    "livemode": false
+  },
+  {
+    "label": "Stripe configured financial account",
+    "status": "PASS",
+    "livemode": false,
+    "providerStatus": "open"
+  },
+  {
+    "label": "Stripe configured bill-pay card",
+    "status": "PASS",
+    "livemode": false,
+    "providerStatus": "active",
+    "currency": "usd"
+  },
+  {
+    "label": "Duffel read-only authentication",
+    "status": "PASS",
+    "http": 200
+  }
+]

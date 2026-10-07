@@ -255,7 +255,7 @@ function ReimbursementDetailInner() {
             <strong>
               {detail.data.accounting ? <StatusBadge status={detail.data.accounting.status} /> : "Not yet"}
             </strong>
-            <small>Created only after payout</small>
+            <small>{detail.data.accounting ? "Queued after payout" : "Created only after payout"}</small>
           </article>
         )}
       </div>

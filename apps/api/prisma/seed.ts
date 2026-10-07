@@ -438,8 +438,64 @@ async function main() {
       status: "DRAFT",
     },
   });
-  await prisma.accountingDimension.create({
-    data: { organizationId: org.id, key: "category", label: "GL Category", values: ["Software", "Travel", "Meals"] },
+  await prisma.accountingDimension.createMany({
+    data: [
+      {
+        organizationId: org.id,
+        key: "glAccount",
+        label: "GL Account",
+        source: "LOCAL",
+        values: [
+          { id: "6100", label: "Office equipment", active: true },
+          { id: "6200", label: "Software", active: true },
+          { id: "6300", label: "Travel", active: true },
+          { id: "6400", label: "Meals", active: true },
+        ],
+      },
+      {
+        organizationId: org.id,
+        key: "department",
+        label: "Department",
+        source: "LOCAL",
+        values: [
+          { id: "engineering", label: "Engineering", active: true },
+          { id: "finance", label: "Finance", active: true },
+          { id: "ops", label: "Ops", active: true },
+        ],
+      },
+      {
+        organizationId: org.id,
+        key: "location",
+        label: "Location",
+        source: "LOCAL",
+        values: [
+          { id: "austin", label: "Austin", active: true },
+          { id: "remote", label: "Remote", active: true },
+        ],
+      },
+      {
+        organizationId: org.id,
+        key: "project",
+        label: "Project",
+        source: "LOCAL",
+        values: [
+          { id: "p100", label: "Platform", active: true },
+          { id: "p200", label: "Customer success", active: true },
+        ],
+      },
+      {
+        organizationId: org.id,
+        key: "category",
+        label: "Category",
+        source: "LOCAL",
+        values: [
+          { id: "Software", label: "Software", active: true },
+          { id: "Travel", label: "Travel", active: true },
+          { id: "Meals", label: "Meals", active: true },
+          { id: "Office", label: "Office", active: true },
+        ],
+      },
+    ],
   });
   await prisma.accountingEntry.create({
     data: {
@@ -473,7 +529,7 @@ async function main() {
       status: "SENT",
     },
   });
-  await prisma.travelTrip.create({
+  const trip = await prisma.travelTrip.create({
     data: {
       organizationId: org.id,
       legalEntityId: us.id,
@@ -503,8 +559,9 @@ async function main() {
       type: "TRAVEL",
       title: "Complete your trip request",
       body: "Add dates and a quote before submitting NYC customer visit.",
-      href: "/app/me/travel",
+      href: `/app/travel/trips/${trip.id}`,
       objectType: "travel",
+      objectId: trip.id,
     },
   });
   await prisma.agentIdentity.create({

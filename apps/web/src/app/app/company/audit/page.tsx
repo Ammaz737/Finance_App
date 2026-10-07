@@ -15,6 +15,8 @@ type AuditRow = {
   action?: string;
   objectType?: string;
   objectId?: string;
+  oldValue?: unknown;
+  newValue?: unknown;
 };
 
 type Person = { id: string; firstName?: string; lastName?: string; email?: string };
@@ -25,6 +27,17 @@ function actorLabel(people: Person[], id?: string) {
   if (!person) return id.slice(0, 8);
   const name = `${person.firstName ?? ""} ${person.lastName ?? ""}`.trim();
   return name || person.email || id.slice(0, 8);
+}
+
+function valuePreview(value: unknown) {
+  if (value == null) return "—";
+  if (typeof value === "string") return value.slice(0, 80);
+  try {
+    const text = JSON.stringify(value);
+    return text.length > 100 ? `${text.slice(0, 100)}…` : text;
+  } catch {
+    return "—";
+  }
 }
 
 export default function Page() {
@@ -77,13 +90,23 @@ export default function Page() {
         </span>
       ),
     },
+    {
+      key: "oldValue",
+      header: "Old",
+      render: (row) => <small className="muted">{valuePreview(row.oldValue)}</small>,
+    },
+    {
+      key: "newValue",
+      header: "New",
+      render: (row) => <small className="muted">{valuePreview(row.newValue)}</small>,
+    },
   ];
 
   return (
     <div className="company-audit-page linked-dest-page">
       <ResourcePage title="Audit log" path="audit" columns={columns} pageSize={25} />
       <p className="muted my-expenses-hint">
-        Chronological material changes across the organization.{" "}
+        Chronological material changes: actor, action, object, old/new values, and time.{" "}
         {canSeePeople && (
           <Link className="detail-link" href="/app/company/people">
             People →

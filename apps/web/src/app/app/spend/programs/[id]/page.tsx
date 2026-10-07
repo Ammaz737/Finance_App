@@ -63,6 +63,7 @@ export default function ProgramDetailPage() {
     perTransactionLimitDefault: "",
     velocityMaxAmountDefault: "",
     velocityMaxCountDefault: "",
+    defaultValidDays: "",
   });
   const [message, setMessage] = useState("");
 
@@ -102,6 +103,7 @@ export default function ProgramDetailPage() {
       perTransactionLimitDefault: detail.data.perTransactionLimitDefault != null ? String(detail.data.perTransactionLimitDefault) : "",
       velocityMaxAmountDefault: detail.data.velocityMaxAmountDefault != null ? String(detail.data.velocityMaxAmountDefault) : "",
       velocityMaxCountDefault: detail.data.velocityMaxCountDefault != null ? String(detail.data.velocityMaxCountDefault) : "",
+      defaultValidDays: detail.data.defaultValidDays != null ? String(detail.data.defaultValidDays) : "",
     });
   }, [detail.data]);
 
@@ -180,6 +182,7 @@ export default function ProgramDetailPage() {
         perTransactionLimitDefault: form.perTransactionLimitDefault || undefined,
         velocityMaxAmountDefault: form.velocityMaxAmountDefault || undefined,
         velocityMaxCountDefault: form.velocityMaxCountDefault ? Number(form.velocityMaxCountDefault) : undefined,
+        defaultValidDays: form.defaultValidDays.trim() ? Number(form.defaultValidDays) : "",
       },
     });
   }
@@ -336,6 +339,10 @@ export default function ProgramDetailPage() {
             <label>
               Default velocity max count
               <input className="input" type="number" min="1" step="1" value={form.velocityMaxCountDefault} onChange={(event) => setForm({ ...form, velocityMaxCountDefault: event.target.value })} />
+            </label>
+            <label>
+              Default validity (days)
+              <input className="input" type="number" min="1" max="3650" step="1" value={form.defaultValidDays} onChange={(event) => setForm({ ...form, defaultValidDays: event.target.value })} placeholder="Optional" />
             </label>
             <div className="detail-actions">
               <button className="btn btn-primary" type="submit" disabled={action.isPending}>

@@ -9,7 +9,19 @@ import { canSeeItem, findNavItem } from "@/config/navigation";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
 
-type Row = { id: string; name?: string; email?: string; status?: string };
+type Row = {
+  id: string;
+  name?: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  status?: string;
+};
+
+function rowLabel(row: Row) {
+  const name = `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim() || row.name;
+  return name || row.email || row.id.slice(0, 8);
+}
 type Detail = {
   user: {
     id: string;
@@ -36,6 +48,7 @@ export default function PersonDetailPage() {
   const session = useSession();
   const client = useQueryClient();
   const [message, setMessage] = useState("");
+  const [sandboxLink, setSandboxLink] = useState("");
   const [assignment, setAssignment] = useState({
     managerId: "",
     departmentId: "",
@@ -86,10 +99,11 @@ export default function PersonDetailPage() {
     mutationFn: ({ name, body = {} }: { name: string; body?: Record<string, unknown> }) =>
       api.post(`/people/${id}/${name}`, body),
     onSuccess: (result: unknown, input) => {
-      const activationPath = (result as { activationPath?: string })?.activationPath;
+      const activationPath = (result as { activationPath?: string })?.activationPath ?? "";
+      setSandboxLink(activationPath);
       setMessage(
         activationPath
-          ? `Sandbox activation link: ${window.location.origin}${activationPath}`
+          ? "Credentials reset. Email is not configured; use the sandbox activation link below."
           : `${input.name.replaceAll("-", " ")} completed.`,
       );
       void client.invalidateQueries({ queryKey: ["person", id] });
@@ -124,6 +138,15 @@ export default function PersonDetailPage() {
   const { user, roles, audit } = detail.data;
   const entityName = (entityId?: string | null) =>
     refs.data?.entities.find((row) => row.id === entityId)?.name ?? (entityId ? entityId.slice(0, 8) : "Organization");
+  const personName = (personId?: string | null) => {
+    if (!personId) return "—";
+    const row = refs.data?.people.find((p) => p.id === personId);
+    return row ? rowLabel(row) : personId.slice(0, 8);
+  };
+  const deptName = (departmentId?: string | null) =>
+    refs.data?.departments.find((row) => row.id === departmentId)?.name ?? (departmentId ? departmentId.slice(0, 8) : "—");
+  const locName = (locationId?: string | null) =>
+    refs.data?.locations.find((row) => row.id === locationId)?.name ?? (locationId ? locationId.slice(0, 8) : "—");
 
   return (
     <div className="stack-lg person-detail linked-dest-page">
@@ -139,6 +162,20 @@ export default function PersonDetailPage() {
       </div>
 
       {message && <p className="notice" role="status">{message}</p>}
+      {sandboxLink ? (
+        <div className="policy-box">
+          <strong>Sandbox activation delivery</strong>
+          <p className="muted">Share this single-use link with the person. The raw token is not shown as the primary workflow.</p>
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(`${window.location.origin}${sandboxLink}`)}
+          >
+            Copy activation link
+          </button>{" "}
+          <a href={sandboxLink}>Open activation</a>
+        </div>
+      ) : null}
       {action.isError && <p className="error" role="alert">{action.error.message}</p>}
 
       <div className="work-panels">
@@ -164,7 +201,7 @@ export default function PersonDetailPage() {
                 >
                   <option value="">None</option>
                   {(refs.data?.people ?? []).filter((row) => row.id !== id).map((row) => (
-                    <option value={row.id} key={row.id}>{row.name ?? row.email}</option>
+                    <option value={row.id} key={row.id}>{rowLabel(row)}</option>
                   ))}
                 </select>
               </label>
@@ -213,10 +250,10 @@ export default function PersonDetailPage() {
             </form>
           ) : (
             <dl className="detail-list">
-              <div><dt>Manager</dt><dd>{user.managerId ? user.managerId.slice(0, 8) : "—"}</dd></div>
-              <div><dt>Department</dt><dd>{user.departmentId ? user.departmentId.slice(0, 8) : "—"}</dd></div>
-              <div><dt>Location</dt><dd>{user.locationId ? user.locationId.slice(0, 8) : "—"}</dd></div>
-              <div><dt>Legal entity</dt><dd>{user.legalEntityId ? user.legalEntityId.slice(0, 8) : "—"}</dd></div>
+              <div><dt>Manager</dt><dd>{personName(user.managerId)}</dd></div>
+              <div><dt>Department</dt><dd>{deptName(user.departmentId)}</dd></div>
+              <div><dt>Location</dt><dd>{locName(user.locationId)}</dd></div>
+              <div><dt>Legal entity</dt><dd>{entityName(user.legalEntityId)}</dd></div>
             </dl>
           )}
           {!canEdit && (

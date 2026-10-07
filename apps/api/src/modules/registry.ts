@@ -16,6 +16,13 @@ import { AppError } from "../platform/http";
 import { assertCan } from "../platform/rbac";
 import { inboxRouter } from "./inbox.routes";
 import { getWorkerDiagnostics } from "../platform/queue";
+import {
+  beginQuickBooksOAuth,
+  disconnectQuickBooks,
+  quickBooksStatus,
+  refreshQuickBooksCatalog,
+  updateQuickBooksMappings,
+} from "../integrations/accounting/quickbooks.service";
 
 export const identityRouter = Router();
 identityRouter.post("/login", async (req, res, next) => {
@@ -134,12 +141,45 @@ organizationRouter.patch("/:id", async (req, res, next) => {
 
 async function updateOrganizationUnit(ctx: ReturnType<typeof getContext>, kind: "entity" | "department" | "location", id: string, body: Record<string, unknown>) {
   return prisma.$transaction(async (tx) => {
-    const delegate = kind === "entity" ? tx.legalEntity : kind === "department" ? tx.department : tx.location;
-    const current = await (delegate as typeof tx.department).findFirst({ where: { id, organizationId: ctx.organizationId } });
+    const name = String(body.name ?? "").trim();
+    if (name.length < 2) throw new AppError("INVALID_NAME", "Name is required", 400);
+
+    if (kind === "entity") {
+      const current = await tx.legalEntity.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!current) throw new AppError("NOT_FOUND", "entity not found", 404);
+      const countryRaw = body.country != null ? String(body.country).trim().toUpperCase() : current.country;
+      const currencyRaw = body.currency != null ? String(body.currency).trim().toUpperCase() : current.currency;
+      if (!/^[A-Z]{2}$/.test(countryRaw)) throw new AppError("INVALID_COUNTRY", "Country must be an ISO 2 code", 400);
+      if (!/^[A-Z]{3}$/.test(currencyRaw)) throw new AppError("INVALID_CURRENCY", "Currency must be an ISO 3 code", 400);
+      const updated = await tx.legalEntity.update({
+        where: { id },
+        data: { name, country: countryRaw, currency: currencyRaw },
+      });
+      const oldValue = { name: current.name, country: current.country, currency: current.currency };
+      const newValue = { name, country: countryRaw, currency: currencyRaw };
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "entity.update",
+          objectType: "entity", objectId: id, oldValue, newValue, correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: "entity.updated", payload: { id } } });
+      return updated;
+    }
+
+    const current = kind === "department"
+      ? await tx.department.findFirst({ where: { id, organizationId: ctx.organizationId } })
+      : await tx.location.findFirst({ where: { id, organizationId: ctx.organizationId } });
     if (!current) throw new AppError("NOT_FOUND", `${kind} not found`, 404);
-    const name = String(body.name ?? "").trim(); if (name.length < 2) throw new AppError("INVALID_NAME", "Name is required", 400);
-    const updated = await (delegate as typeof tx.department).update({ where: { id }, data: { name } });
-    await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: `${kind}.update`, objectType: kind, objectId: id, oldValue: { name: current.name }, newValue: { name }, correlationId: ctx.correlationId } });
+    const updated = kind === "department"
+      ? await tx.department.update({ where: { id }, data: { name } })
+      : await tx.location.update({ where: { id }, data: { name } });
+    await tx.auditEvent.create({
+      data: {
+        organizationId: ctx.organizationId, actorId: ctx.userId, action: `${kind}.update`,
+        objectType: kind, objectId: id, oldValue: { name: current.name }, newValue: { name }, correlationId: ctx.correlationId,
+      },
+    });
     await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: `${kind}.updated`, payload: { id } } });
     return updated;
   });
@@ -152,8 +192,23 @@ async function archiveOrganizationUnit(ctx: ReturnType<typeof getContext>, kind:
       const dependencies = await Promise.all([tx.bill.count({ where: { organizationId: ctx.organizationId, legalEntityId: id, status: { notIn: ["PAID", "CANCELLED", "REJECTED"] } } }), tx.card.count({ where: { organizationId: ctx.organizationId, legalEntityId: id, status: { in: ["ACTIVE", "FROZEN"] } } }), tx.payment.count({ where: { organizationId: ctx.organizationId, legalEntityId: id, status: { in: ["SCHEDULED", "PROCESSING", "SENT"] } } })]);
       if (dependencies.some(Boolean)) throw new AppError("ACTIVE_FINANCIAL_STATE", "Entity has active financial records and cannot be archived", 409);
       await tx.legalEntity.update({ where: { id }, data: { status: "ARCHIVED" } });
-    } else if (kind === "department") { const current = await tx.department.findFirst({ where: { id, organizationId: ctx.organizationId } }); if (!current) throw new AppError("NOT_FOUND", "Department not found", 404); await tx.department.update({ where: { id }, data: { status: "ARCHIVED" } }); }
-    else { const current = await tx.location.findFirst({ where: { id, organizationId: ctx.organizationId } }); if (!current) throw new AppError("NOT_FOUND", "Location not found", 404); await tx.location.update({ where: { id }, data: { status: "ARCHIVED" } }); }
+    } else if (kind === "department") {
+      const current = await tx.department.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!current) throw new AppError("NOT_FOUND", "Department not found", 404);
+      const assigned = await tx.user.count({
+        where: { organizationId: ctx.organizationId, departmentId: id, status: { notIn: ["TERMINATED"] } },
+      });
+      if (assigned > 0) throw new AppError("ACTIVE_ASSIGNMENTS", "Department has active people and cannot be archived", 409);
+      await tx.department.update({ where: { id }, data: { status: "ARCHIVED" } });
+    } else {
+      const current = await tx.location.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!current) throw new AppError("NOT_FOUND", "Location not found", 404);
+      const assigned = await tx.user.count({
+        where: { organizationId: ctx.organizationId, locationId: id, status: { notIn: ["TERMINATED"] } },
+      });
+      if (assigned > 0) throw new AppError("ACTIVE_ASSIGNMENTS", "Location has active people and cannot be archived", 409);
+      await tx.location.update({ where: { id }, data: { status: "ARCHIVED" } });
+    }
     await tx.auditEvent.create({ data: { organizationId: ctx.organizationId, actorId: ctx.userId, action: `${kind}.archive`, objectType: kind, objectId: id, newValue: { status: "ARCHIVED" }, correlationId: ctx.correlationId } });
     await tx.outboxEvent.create({ data: { organizationId: ctx.organizationId, type: `${kind}.archived`, payload: { id } } });
     return { id, status: "ARCHIVED" };
@@ -212,14 +267,48 @@ export const routers = {
       "reset-credentials": (ctx, id) => actions.people.resetCredentials(ctx, id),
     },
   }),
-  rbac: createResourceRouter({ getDelegate: () => prisma.role as never, searchField: "name", get: async (ctx, id) => {
-    const role = await prisma.role.findFirst({ where: { id, organizationId: ctx.organizationId } });
-    if (!role) throw new AppError("NOT_FOUND", "Role not found", 404);
-    const grants = await prisma.rolePermission.findMany({ where: { roleId: id } });
-    const permissions = await prisma.permission.findMany({ where: { id: { in: grants.map((grant) => grant.permissionId) } } });
-    const assignments = await prisma.userRole.findMany({ where: { organizationId: ctx.organizationId, roleId: id } });
-    return { role, permissions: grants.map((grant) => ({ ...permissions.find((permission) => permission.id === grant.permissionId), scope: grant.scope })), entityRestrictions: [...new Set(assignments.map((assignment) => assignment.entityId).filter(Boolean))] };
-  } }),
+  rbac: createResourceRouter({
+    getDelegate: () => prisma.role as never,
+    searchField: "name",
+    create: (ctx, body) => actions.rbac.create(ctx, {
+      name: String(body.name ?? ""),
+      description: body.description !== undefined ? String(body.description) : undefined,
+      scope: body.scope !== undefined ? String(body.scope) : undefined,
+      selection: body.selection && typeof body.selection === "object" ? body.selection as never : undefined,
+      permissionKeys: Array.isArray(body.permissionKeys) ? body.permissionKeys.map(String) : undefined,
+    }),
+    get: async (ctx, id) => {
+      const role = await prisma.role.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!role) throw new AppError("NOT_FOUND", "Role not found", 404);
+      const grants = await prisma.rolePermission.findMany({ where: { roleId: id } });
+      const permissions = await prisma.permission.findMany({ where: { id: { in: grants.map((grant) => grant.permissionId) } } });
+      const assignments = await prisma.userRole.findMany({ where: { organizationId: ctx.organizationId, roleId: id } });
+      const permissionRows = grants.map((grant) => ({
+        ...permissions.find((permission) => permission.id === grant.permissionId),
+        scope: grant.scope,
+      }));
+      const permissionKeys = permissionRows.map((row) => row.key).filter((key): key is string => Boolean(key));
+      const defaultScope = grants[0]?.scope ?? "ORGANIZATION";
+      return {
+        role,
+        permissions: permissionRows,
+        permissionKeys,
+        defaultScope,
+        systemRole: role.name === "Owner" || ["Finance Admin", "Manager", "Employee"].includes(role.name),
+        editable: role.name !== "Owner",
+        entityRestrictions: [...new Set(assignments.map((assignment) => assignment.entityId).filter(Boolean))],
+      };
+    },
+    actions: {
+      update: (ctx, id, body) => actions.rbac.update(ctx, id, {
+        name: body.name !== undefined ? String(body.name) : undefined,
+        description: body.description !== undefined ? String(body.description) : undefined,
+        scope: body.scope !== undefined ? String(body.scope) : undefined,
+        selection: body.selection && typeof body.selection === "object" ? body.selection as never : undefined,
+        permissionKeys: Array.isArray(body.permissionKeys) ? body.permissionKeys.map(String) : undefined,
+      }),
+    },
+  }),
   policies: (() => {
     const parsePolicy = (body: Record<string, unknown>) => ({
       name: String(body.name ?? ""), objectType: String(body.objectType ?? ""), priority: Number(body.priority ?? 100),
@@ -243,17 +332,32 @@ export const routers = {
           amount: z.coerce.number().nonnegative(),
           hasReceipt: z.boolean().optional(),
           hasMemo: z.boolean().optional(),
+          hasVendor: z.boolean().optional(),
+          hasAttachment: z.boolean().optional(),
           category: z.string().optional(),
           outOfPolicy: z.boolean().optional(),
+          rules: z.array(z.object({
+            type: z.string().min(2).max(60),
+            threshold: z.coerce.number().optional(),
+            category: z.string().optional(),
+            action: z.string().optional(),
+          }).passthrough()).optional(),
         }).strict().parse(req.body);
         const { loadPolicyRules, evaluatePolicy } = await import("../engines/policy");
-        const { rules, policyNames } = await loadPolicyRules(
-          (args) => prisma.policy.findMany(args as never),
-          ctx.organizationId,
-          input.objectType,
-        );
-        const evaluation = evaluatePolicy({ ...input, rules });
-        return ok(res, { evaluation, policyNames, rulesApplied: rules.length });
+        let rules = input.rules ?? [];
+        let policyNames: string[] = rules.length ? ["draft"] : [];
+        if (!rules.length) {
+          const loaded = await loadPolicyRules(
+            (args) => prisma.policy.findMany(args as never),
+            ctx.organizationId,
+            input.objectType,
+          );
+          rules = loaded.rules;
+          policyNames = loaded.policyNames;
+        }
+        const { rules: _omit, ...evalInput } = input;
+        const evaluation = evaluatePolicy({ ...evalInput, rules });
+        return ok(res, { evaluation, policyNames, rulesApplied: rules.length, draft: Boolean(input.rules?.length) });
       } catch (error) { next(error); }
     });
     return router;
@@ -444,7 +548,20 @@ export const routers = {
       });
     },
     actions: {
-      update: (ctx, id, body) => actions.receipts.updateProgram(ctx, id, { name: String(body.name ?? ""), description: body.description ? String(body.description) : undefined, maxAmount: String(body.maxAmount ?? ""), currency: String(body.currency ?? "USD"), merchantLockDefault: body.merchantLockDefault ? String(body.merchantLockDefault) : undefined, allowedMccsDefault: body.allowedMccsDefault ? String(body.allowedMccsDefault) : undefined, perTransactionLimitDefault: body.perTransactionLimitDefault ? String(body.perTransactionLimitDefault) : undefined, velocityMaxAmountDefault: body.velocityMaxAmountDefault ? String(body.velocityMaxAmountDefault) : undefined, velocityMaxCountDefault: body.velocityMaxCountDefault ? Number(body.velocityMaxCountDefault) : undefined }),
+      update: (ctx, id, body) => actions.receipts.updateProgram(ctx, id, {
+        name: String(body.name ?? ""),
+        description: body.description ? String(body.description) : undefined,
+        maxAmount: String(body.maxAmount ?? ""),
+        currency: String(body.currency ?? "USD"),
+        merchantLockDefault: body.merchantLockDefault ? String(body.merchantLockDefault) : undefined,
+        allowedMccsDefault: body.allowedMccsDefault ? String(body.allowedMccsDefault) : undefined,
+        perTransactionLimitDefault: body.perTransactionLimitDefault ? String(body.perTransactionLimitDefault) : undefined,
+        velocityMaxAmountDefault: body.velocityMaxAmountDefault ? String(body.velocityMaxAmountDefault) : undefined,
+        velocityMaxCountDefault: body.velocityMaxCountDefault ? Number(body.velocityMaxCountDefault) : undefined,
+        defaultValidDays: body.defaultValidDays === "" || body.defaultValidDays == null
+          ? body.defaultValidDays === "" ? null : undefined
+          : Number(body.defaultValidDays),
+      }),
       deactivate: (ctx, id) => actions.spend.deactivateProgram(ctx, id),
     },
   }),
@@ -702,8 +819,8 @@ export const routers = {
     }),
     get: (ctx, id) => actions.vendors.getDetail(ctx, id),
     actions: {
-      update: (ctx, id, body) => actions.paymentRuns.update(ctx, id, { name: String(body.name ?? ""), legalName: body.legalName ? String(body.legalName) : undefined, displayName: body.displayName ? String(body.displayName) : undefined, category: body.category ? String(body.category) : undefined, riskLevel: body.riskLevel ? String(body.riskLevel) : undefined, notes: body.notes ? String(body.notes) : undefined, ownerId: body.ownerId ? String(body.ownerId) : null }),
-      deactivate: (ctx, id) => actions.paymentRuns.deactivate(ctx, id),
+      update: (ctx, id, body) => actions.vendors.update(ctx, id, { name: String(body.name ?? ""), legalName: body.legalName ? String(body.legalName) : undefined, displayName: body.displayName ? String(body.displayName) : undefined, category: body.category ? String(body.category) : undefined, riskLevel: body.riskLevel ? String(body.riskLevel) : undefined, notes: body.notes ? String(body.notes) : undefined, ownerId: body.ownerId ? String(body.ownerId) : null }),
+      deactivate: (ctx, id) => actions.vendors.deactivate(ctx, id),
       "set-bank": (ctx, id, body) => actions.vendors.setBankAccount(ctx, id, {
         last4: String(body.last4 ?? ""),
         routingMasked: String(body.routingMasked ?? ""),
@@ -859,6 +976,20 @@ export const routers = {
     }),
     get: (ctx, id) => actions.travel.getDetail(ctx, id),
     actions: {
+      update: (ctx, id, body) => actions.travel.updateTrip(ctx, id, {
+        name: body.name != null ? String(body.name) : undefined,
+        legalEntityId: body.legalEntityId != null ? String(body.legalEntityId) : undefined,
+        destination: body.destination != null ? String(body.destination) : undefined,
+        origin: body.origin != null ? String(body.origin) : undefined,
+        purpose: body.purpose != null ? String(body.purpose) : undefined,
+        department: body.department != null ? String(body.department) : undefined,
+        international: body.international === undefined ? undefined : body.international === true || body.international === "true",
+        startDate: body.startDate != null ? String(body.startDate) : undefined,
+        endDate: body.endDate != null ? String(body.endDate) : undefined,
+        estimatedAmount: body.estimatedAmount != null ? String(body.estimatedAmount) : body.amount != null ? String(body.amount) : undefined,
+        currency: body.currency != null ? String(body.currency) : undefined,
+      }),
+      delete: (ctx, id) => actions.travel.deleteTrip(ctx, id),
       search: (ctx, id, body) => actions.travel.search(ctx, id, {
         type: String(body.type ?? "FLIGHT").toUpperCase() as "FLIGHT" | "HOTEL" | "CAR",
         origin: body.origin != null ? String(body.origin) : undefined,
@@ -943,7 +1074,7 @@ export const routers = {
       retry: (ctx, id) => actions.accounting.retry(ctx, id),
       sync: async (ctx, id) => {
         const result = await actions.accounting.sync(ctx, [id]);
-        if (process.env.NODE_ENV !== "production") {
+        if (process.env.NODE_ENV !== "production" && result.job.provider === "MOCK_QBO") {
           const confirmed = await actions.accounting.confirmSync(ctx, result.job.id);
           return { ...result, confirmed };
         }
@@ -978,7 +1109,7 @@ export const routers = {
     create: async (ctx, body) => {
       const ids = Array.isArray(body.ids) ? body.ids.map(String) : undefined;
       const result = await actions.accounting.sync(ctx, ids);
-      if (process.env.NODE_ENV !== "production") {
+      if (process.env.NODE_ENV !== "production" && result.job.provider === "MOCK_QBO") {
         const confirmed = await actions.accounting.confirmSync(ctx, result.job.id);
         return { ...result, confirmed };
       }
@@ -1077,6 +1208,38 @@ export const routers = {
   })(),
   integrations: (() => {
     const router = Router();
+    router.get("/quickbooks/status", async (req, res, next) => {
+      try {
+        return ok(res, await quickBooksStatus(getContext(req)));
+      } catch (error) { next(error); }
+    });
+    router.post("/quickbooks/connect", async (req, res, next) => {
+      try {
+        const returnPath = typeof req.body?.returnPath === "string" ? req.body.returnPath : undefined;
+        return ok(res, await beginQuickBooksOAuth(getContext(req), returnPath));
+      } catch (error) { next(error); }
+    });
+    router.post("/quickbooks/refresh", async (req, res, next) => {
+      try {
+        return ok(res, await refreshQuickBooksCatalog(getContext(req)));
+      } catch (error) { next(error); }
+    });
+    router.post("/quickbooks/mappings", async (req, res, next) => {
+      try {
+        const input = z.object({
+          expenseAccountId: z.string().min(1).max(120),
+          cardAccountId: z.string().min(1).max(120),
+          apAccountId: z.string().min(1).max(120),
+          bankAccountId: z.string().min(1).max(120),
+        }).strict().parse(req.body);
+        return ok(res, await updateQuickBooksMappings(getContext(req), input));
+      } catch (error) { next(error); }
+    });
+    router.post("/quickbooks/disconnect", async (req, res, next) => {
+      try {
+        return ok(res, await disconnectQuickBooks(getContext(req)));
+      } catch (error) { next(error); }
+    });
     router.get("/", async (req, res, next) => {
       try {
         const ctx = getContext(req);
@@ -1147,7 +1310,14 @@ export const routers = {
     return router;
   })(),
   "developer-platform": createResourceRouter({ getDelegate: () => prisma.oAuthApp as never, searchField: "name" }),
-  audit: createResourceRouter({ getDelegate: () => prisma.auditEvent as never, select: { id: true, organizationId: true, actorId: true, actorType: true, action: true, objectType: true, objectId: true, correlationId: true, createdAt: true } }),
+  audit: createResourceRouter({
+    getDelegate: () => prisma.auditEvent as never,
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true, organizationId: true, actorId: true, actorType: true, action: true,
+      objectType: true, objectId: true, oldValue: true, newValue: true, correlationId: true, createdAt: true,
+    },
+  }),
   ai: createResourceRouter({ getDelegate: () => prisma.aiRecommendation as never }),
 };
 

@@ -1,6 +1,15 @@
 import crypto from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { assertPositiveMoney, assertSameCurrency, MoneyError } from "@finance/money";
+import {
+  ALL_PERMISSIONS,
+  ROLE_SCOPES,
+  assertValidMatrixSelection,
+  isSystemRoleName,
+  permissionKeysFromSelection,
+  type RoleMatrixSelection,
+  type RoleScope,
+} from "@finance/permissions";
 import { prisma } from "../database/client";
 import { AppError } from "../platform/http";
 import type { RequestContext } from "../platform/auth/context";
@@ -22,8 +31,8 @@ import { MockOcrAdapter } from "../integrations/ocr/mock.ocr.adapter";
 import { MockPayoutAdapter } from "../integrations/payout/mock.payout.adapter";
 import { getPaymentRailProvider } from "../integrations/payment-rail";
 import { MockAccountingAdapter } from "../integrations/accounting/mock.accounting.adapter";
-import { getTravelProvider } from "../integrations/travel";
-import { evaluateCardAuthorizationRules } from "../modules/cards/domain/authorization-rules";
+import { getTravelProvider, getTravelCapabilities } from "../integrations/travel";
+import { evaluateCardAuthorizationRules, merchantMatchesLock, mergeMerchantLocks } from "../modules/cards/domain/authorization-rules";
 import { evaluateExpenseRequirements } from "../modules/expenses/domain/requirements";
 import { evaluateBillDuplicate } from "../modules/ap/domain/duplicate-check";
 import { matchVendor } from "../modules/ap/domain/vendor-match";
@@ -152,15 +161,20 @@ async function provisionIssuerCard(
   return { issuer, issued };
 }
 
-/** One live virtual card per holder — new spend tops up the wallet fund instead of issuing another card. */
+/** Ordinary spend shares a wallet; travel instruments retain their own funds and controls. */
 async function findHolderLiveCard(tx: Prisma.TransactionClient, organizationId: string, holderId: string) {
+  const trips = await tx.travelTrip.findMany({
+    where: { organizationId, travelerId: holderId, fundId: { not: null } },
+    select: { fundId: true },
+  });
+  const travelFunds = trips.flatMap((trip) => trip.fundId ? [trip.fundId] : []);
   const active = await tx.card.findFirst({
-    where: { organizationId, holderId, status: "ACTIVE" },
+    where: { organizationId, holderId, status: "ACTIVE", fundId: { notIn: travelFunds } },
     orderBy: { createdAt: "asc" },
   });
   if (active) return active;
   return tx.card.findFirst({
-    where: { organizationId, holderId, status: "FROZEN" },
+    where: { organizationId, holderId, status: "FROZEN", fundId: { notIn: travelFunds } },
     orderBy: { createdAt: "asc" },
   });
 }
@@ -180,13 +194,15 @@ async function ensureHolderVirtualCard(
     providerPrefix?: string;
     /**
      * consolidate (default): keep card on its current fund; move new fund balance into it (spend fulfill).
-     * reassign: point the card at input.fundId and leave balances where they are (travel temp wallet).
+     * reassign: keep a dedicated card for input.fundId (travel temp wallet).
      */
     fundAttachment?: "consolidate" | "reassign";
   },
 ) {
   const attachment = input.fundAttachment ?? "consolidate";
-  const existing = await findHolderLiveCard(tx, input.organizationId, input.holderId);
+  const existing = attachment === "reassign"
+    ? await tx.card.findFirst({ where: { organizationId: input.organizationId, holderId: input.holderId, fundId: input.fundId, status: { in: ["ACTIVE", "FROZEN"] } } })
+    : await findHolderLiveCard(tx, input.organizationId, input.holderId);
   if (existing) {
     if (existing.fundId !== input.fundId && attachment === "consolidate") {
       const requestFund = await tx.fund.findFirstOrThrow({ where: { id: input.fundId, organizationId: input.organizationId } });
@@ -206,10 +222,7 @@ async function ensureHolderVirtualCard(
         });
       }
     }
-    const nextLock =
-      input.merchantLock && existing.merchantLock && input.merchantLock !== existing.merchantLock
-        ? null
-        : (input.merchantLock ?? existing.merchantLock);
+    const nextLock = mergeMerchantLocks(existing.merchantLock, input.merchantLock);
     const nextFundId = attachment === "reassign" ? input.fundId : existing.fundId;
 
     // Seed/mock cards are reused for balance, but must be linked to Stripe on first Stripe-mode fulfill.
@@ -297,7 +310,7 @@ async function ensureHolderVirtualCard(
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const byFund = await tx.card.findFirst({ where: { organizationId: input.organizationId, fundId: input.fundId } });
       if (byFund) return byFund;
-      const byHolder = await findHolderLiveCard(tx, input.organizationId, input.holderId);
+      const byHolder = attachment === "consolidate" ? await findHolderLiveCard(tx, input.organizationId, input.holderId) : null;
       if (byHolder) return byHolder;
     }
     throw error;
@@ -770,6 +783,218 @@ export const adminConfiguration = {
   },
 };
 
+const ALLOWED_PERMISSION_KEYS = new Set<string>(ALL_PERMISSIONS);
+const ALLOWED_SCOPES = new Set<string>(ROLE_SCOPES);
+
+function normalizeRoleName(name: string) {
+  const trimmed = name.trim().replace(/\s+/g, " ");
+  if (trimmed.length < 2 || trimmed.length > 80) {
+    throw new AppError("INVALID_ROLE", "Role name must be between 2 and 80 characters", 400);
+  }
+  return trimmed;
+}
+
+function isReservedRoleName(name: string) {
+  return isSystemRoleName(name) || ["owner", "finance admin", "manager", "employee"].includes(name.toLowerCase());
+}
+
+function resolvePermissionKeys(selection: RoleMatrixSelection | undefined, permissionKeys: string[] | undefined): string[] {
+  if (selection && typeof selection === "object") {
+    try {
+      assertValidMatrixSelection(selection);
+    } catch (error) {
+      throw new AppError("INVALID_PERMISSIONS", error instanceof Error ? error.message : "Invalid permission selection", 400);
+    }
+    return permissionKeysFromSelection(selection);
+  }
+  if (Array.isArray(permissionKeys)) {
+    const unique = [...new Set(permissionKeys.map((key) => String(key).trim()).filter(Boolean))];
+    for (const key of unique) {
+      if (key === "*" || !ALLOWED_PERMISSION_KEYS.has(key)) {
+        throw new AppError("INVALID_PERMISSIONS", `Permission ${key} cannot be assigned to a custom role`, 400);
+      }
+    }
+    return unique.sort();
+  }
+  throw new AppError("INVALID_PERMISSIONS", "Provide a page permission matrix or permission keys", 400);
+}
+
+function normalizeScope(scope: string | undefined): RoleScope {
+  const value = (scope ?? "ORGANIZATION").toUpperCase();
+  if (!ALLOWED_SCOPES.has(value)) {
+    throw new AppError("INVALID_SCOPE", "Unsupported default scope", 400);
+  }
+  return value as RoleScope;
+}
+
+async function syncRolePermissions(
+  tx: Prisma.TransactionClient,
+  roleId: string,
+  keys: string[],
+  scope: RoleScope,
+) {
+  const permissions = keys.length
+    ? await tx.permission.findMany({ where: { key: { in: keys } } })
+    : [];
+  if (permissions.length !== keys.length) {
+    const found = new Set(permissions.map((row) => row.key));
+    const missing = keys.filter((key) => !found.has(key));
+    throw new AppError("INVALID_PERMISSIONS", `Unknown permissions: ${missing.join(", ")}`, 400);
+  }
+  await tx.rolePermission.deleteMany({ where: { roleId } });
+  if (permissions.length) {
+    await tx.rolePermission.createMany({
+      data: permissions.map((permission) => ({
+        roleId,
+        permissionId: permission.id,
+        scope,
+      })),
+    });
+  }
+  return permissions.map((permission) => permission.key);
+}
+
+export const rbac = {
+  async create(
+    ctx: RequestContext,
+    body: {
+      name: string;
+      description?: string;
+      scope?: string;
+      selection?: RoleMatrixSelection;
+      permissionKeys?: string[];
+    },
+  ) {
+    const name = normalizeRoleName(body.name);
+    if (isReservedRoleName(name)) {
+      throw new AppError("RESERVED_ROLE", "That role name is reserved for system roles", 409);
+    }
+    const scope = normalizeScope(body.scope);
+    const keys = resolvePermissionKeys(body.selection, body.permissionKeys);
+    if (!keys.length) {
+      throw new AppError("INVALID_PERMISSIONS", "Select at least one available permission", 400);
+    }
+
+    const id = crypto.randomUUID();
+    return auditedCommand(ctx, { action: "role.create", objectType: "Role", objectId: id, event: "role.created" }, async (tx) => {
+      const existing = await tx.role.findFirst({
+        where: { organizationId: ctx.organizationId, name: { equals: name, mode: "insensitive" } },
+      });
+      if (existing) throw new AppError("ROLE_EXISTS", "A role with this name already exists", 409);
+
+      const role = await tx.role.create({
+        data: {
+          id,
+          organizationId: ctx.organizationId,
+          name,
+          description: (body.description ?? "").trim().slice(0, 240),
+        },
+      });
+      const granted = await syncRolePermissions(tx, role.id, keys, scope);
+      return {
+        result: { ...role, permissionKeys: granted, scope },
+        newValue: { name: role.name, permissionKeys: granted, scope },
+      };
+    });
+  },
+
+  async update(
+    ctx: RequestContext,
+    id: string,
+    body: {
+      name?: string;
+      description?: string;
+      scope?: string;
+      selection?: RoleMatrixSelection;
+      permissionKeys?: string[];
+    },
+  ) {
+    const role = await prisma.role.findFirst({ where: { id, organizationId: ctx.organizationId } });
+    if (!role) throw new AppError("NOT_FOUND", "Role not found", 404);
+    if (role.name === "Owner") {
+      throw new AppError("FORBIDDEN", "The Owner role cannot be modified", 403);
+    }
+
+    const nextName = body.name !== undefined ? normalizeRoleName(body.name) : role.name;
+    if (isSystemRoleName(role.name) && nextName !== role.name) {
+      throw new AppError("RESERVED_ROLE", "System role names cannot be changed", 409);
+    }
+    if (!isSystemRoleName(role.name) && isReservedRoleName(nextName)) {
+      throw new AppError("RESERVED_ROLE", "That role name is reserved for system roles", 409);
+    }
+
+    const hasPermissionPayload = body.selection !== undefined || body.permissionKeys !== undefined;
+    const scope = body.scope !== undefined ? normalizeScope(body.scope) : undefined;
+    const keys = hasPermissionPayload ? resolvePermissionKeys(body.selection, body.permissionKeys) : undefined;
+    if (keys && !keys.length) {
+      throw new AppError("INVALID_PERMISSIONS", "Select at least one available permission", 400);
+    }
+
+    return auditedCommand(ctx, { action: "role.update", objectType: "Role", objectId: id, event: "role.updated" }, async (tx) => {
+      if (nextName !== role.name) {
+        const clash = await tx.role.findFirst({
+          where: {
+            organizationId: ctx.organizationId,
+            name: { equals: nextName, mode: "insensitive" },
+            NOT: { id },
+          },
+        });
+        if (clash) throw new AppError("ROLE_EXISTS", "A role with this name already exists", 409);
+      }
+
+      const updated = await tx.role.update({
+        where: { id },
+        data: {
+          name: nextName,
+          ...(body.description !== undefined
+            ? { description: body.description.trim().slice(0, 240) }
+            : {}),
+        },
+      });
+
+      let granted: string[] | undefined;
+      let appliedScope = scope;
+      if (keys) {
+        const currentGrant = await tx.rolePermission.findFirst({ where: { roleId: id } });
+        appliedScope = scope ?? (normalizeScope(currentGrant?.scope) as RoleScope);
+        granted = await syncRolePermissions(tx, id, keys, appliedScope);
+      } else if (scope) {
+        await tx.rolePermission.updateMany({ where: { roleId: id }, data: { scope } });
+        appliedScope = scope;
+      }
+
+      return {
+        result: { ...updated, permissionKeys: granted, scope: appliedScope },
+        oldValue: { name: role.name, description: role.description },
+        newValue: { name: updated.name, description: updated.description, permissionKeys: granted, scope: appliedScope },
+      };
+    });
+  },
+};
+
+async function requireAllowedSpendVendor(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; legalEntityId: string; vendorId: string; merchantLock?: string | null },
+) {
+  const vendor = await tx.vendor.findFirst({
+    where: {
+      id: input.vendorId,
+      organizationId: input.organizationId,
+      status: "ACTIVE",
+      OR: [{ legalEntityId: null }, { legalEntityId: input.legalEntityId }],
+    },
+  });
+  if (!vendor) throw new AppError("INVALID_VENDOR", "Vendor is inactive or unavailable for this legal entity", 400);
+  if (input.merchantLock?.trim() && !merchantMatchesLock(vendor.name, input.merchantLock)) {
+    throw new AppError(
+      "VENDOR_LOCK",
+      `Vendor "${vendor.name}" is not allowed for this program. Allowed merchants: ${input.merchantLock}`,
+      400,
+    );
+  }
+  return vendor;
+}
+
 export const spend = {
   async createRequest(ctx: RequestContext, body: {
     programId: string; name: string; amount: string; currency: string; legalEntityId: string;
@@ -816,8 +1041,12 @@ export const spend = {
       if (!entity) throw new AppError("INVALID_ENTITY", "Entity is unavailable", 400);
       requireCurrencyMatch(entity.currency, money.currency);
       if (body.vendorId) {
-        const vendor = await tx.vendor.findFirst({ where: { id: body.vendorId, organizationId: ctx.organizationId } });
-        if (!vendor) throw new AppError("INVALID_VENDOR", "Vendor is unavailable", 400);
+        await requireAllowedSpendVendor(tx, {
+          organizationId: ctx.organizationId,
+          legalEntityId: body.legalEntityId,
+          vendorId: body.vendorId,
+          merchantLock: program.merchantLockDefault,
+        });
       }
       if (body.attachmentId) {
         const attachment = await tx.attachment.findFirst({ where: { id: body.attachmentId, organizationId: ctx.organizationId } });
@@ -954,6 +1183,16 @@ export const spend = {
       }
       if (request.status !== "SUBMITTED" && request.status !== "IN_REVIEW") throw new AppError("INVALID_STATE", "Request is not pending approval", 409);
       assertEntityPermission(ctx, "spend_request.approve", request.legalEntityId);
+      const program = await tx.spendProgram.findFirst({ where: { id: request.programId, organizationId: ctx.organizationId } });
+      if (!program) throw new AppError("INVALID_PROGRAM", "Spend program is unavailable", 400);
+      if (request.vendorId) {
+        await requireAllowedSpendVendor(tx, {
+          organizationId: ctx.organizationId,
+          legalEntityId: request.legalEntityId,
+          vendorId: request.vendorId,
+          merchantLock: program.merchantLockDefault,
+        });
+      }
       const instance = await tx.approvalInstance.findFirst({
         where: { organizationId: ctx.organizationId, objectId: id, objectType: "spend_request", status: { in: ["IN_REVIEW", "INFO_REQUESTED", "ESCALATED"] } },
         orderBy: { createdAt: "desc" },
@@ -971,7 +1210,6 @@ export const spend = {
       });
       if (claim.count !== 1) throw new AppError("REQUEST_CONFLICT", "Request changed; refresh and try again", 409);
 
-      const program = await tx.spendProgram.findFirst({ where: { id: request.programId, organizationId: ctx.organizationId } });
       const fulfillmentType = request.fulfillmentType === "FUND_ONLY" ? "FUND_ONLY" : "VIRTUAL_CARD";
 
       if (program?.budgetId) {
@@ -1963,8 +2201,7 @@ export const cards = {
     const scope = await scopedWhere(ctx, "cards");
     const card = await prisma.card.findFirst({ where: { ...scope, id: cardId } });
     if (!card) throw new AppError("NOT_FOUND", "Card not found", 404);
-    const [fund, holder, authIds, transactions] = await Promise.all([
-      prisma.fund.findFirst({ where: { id: card.fundId, organizationId: ctx.organizationId } }),
+    const [holder, authIds, transactions, travelTrips, authorizations] = await Promise.all([
       prisma.user.findFirst({
         where: { id: card.holderId, organizationId: ctx.organizationId },
         select: { id: true, firstName: true, lastName: true, email: true, status: true },
@@ -1973,38 +2210,281 @@ export const cards = {
       prisma.txn.findMany({
         where: { organizationId: ctx.organizationId, cardId: card.id },
         orderBy: { authorizedAt: "desc" },
-        take: 50,
+        take: 100,
+      }),
+      prisma.travelTrip.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          OR: [{ cardId: card.id }, { fundId: card.fundId }],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 40,
+        select: {
+          id: true, name: true, destination: true, status: true, currency: true,
+          estimatedAmount: true, startDate: true, endDate: true, fundId: true, cardId: true, expenseId: true,
+          createdAt: true,
+        },
+      }),
+      prisma.cardAuthorization.findMany({
+        where: { organizationId: ctx.organizationId, cardId: card.id },
+        orderBy: { createdAt: "desc" },
+        take: 100,
       }),
     ]);
-    const authorizations = await prisma.cardAuthorization.findMany({
-      where: { organizationId: ctx.organizationId, cardId: card.id },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
+    const travelTrip = travelTrips[0] ?? null;
+    const fundIds = [...new Set([
+      card.fundId,
+      ...travelTrips.map((row) => row.fundId).filter((id): id is string => Boolean(id)),
+      ...transactions.map((row) => row.fundId).filter((id): id is string => Boolean(id)),
+      ...authorizations.map((row) => row.fundId).filter((id): id is string => Boolean(id)),
+    ])];
+    const funds = fundIds.length
+      ? await prisma.fund.findMany({
+          where: { organizationId: ctx.organizationId, id: { in: fundIds } },
+          orderBy: { validFrom: "desc" },
+        })
+      : [];
+    const fund = funds.find((row) => row.id === card.fundId) ?? null;
+    const fundById = new Map(funds.map((row) => [row.id, row]));
+    const tripByFundId = new Map(
+      travelTrips.filter((row) => row.fundId).map((row) => [row.fundId as string, row]),
+    );
     const audit = await prisma.auditEvent.findMany({
       where: {
         organizationId: ctx.organizationId,
         OR: [
           { objectType: "Card", objectId: card.id },
           ...(authIds.length ? [{ objectType: "CardAuthorization", objectId: { in: authIds.map((row) => row.id) } }] : []),
+          ...(travelTrips.length ? [{ objectType: "TravelTrip", objectId: { in: travelTrips.map((row) => row.id) } }] : []),
         ],
       },
       orderBy: { createdAt: "desc" },
-      take: 40,
+      take: 80,
     });
+    const bookingIds = travelTrips.length
+      ? (await prisma.travelBooking.findMany({
+          where: { organizationId: ctx.organizationId, tripId: { in: travelTrips.map((row) => row.id) } },
+          select: { id: true },
+          take: 100,
+        })).map((row) => row.id)
+      : [];
+    const bookingAudit = bookingIds.length
+      ? await prisma.auditEvent.findMany({
+          where: {
+            organizationId: ctx.organizationId,
+            objectType: "TravelBooking",
+            objectId: { in: bookingIds },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 40,
+        })
+      : [];
+    const allAudit = [...audit, ...bookingAudit]
+      .filter((row, idx, arr) => arr.findIndex((other) => other.id === row.id) === idx)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 80);
+
     let spendRequest = null;
     if (fund?.spendRequestId) {
       spendRequest = await prisma.spendRequest.findFirst({
         where: { id: fund.spendRequestId, organizationId: ctx.organizationId },
       });
     }
+    let expense = null;
+    if (travelTrip?.expenseId) {
+      expense = await prisma.expense.findFirst({
+        where: { id: travelTrip.expenseId, organizationId: ctx.organizationId },
+        select: { id: true, merchant: true, amount: true, currency: true, status: true, memo: true },
+      });
+    }
+    const ledgerAccounts = [
+      ...fundIds.map((id) => `fund:${id}`),
+      ...travelTrips.map((row) => `travel.prepaid:${row.id}`),
+    ];
+    const ledgerEntries = ledgerAccounts.length
+      ? await prisma.ledgerEntry.findMany({
+          where: { organizationId: ctx.organizationId, account: { in: ledgerAccounts } },
+          orderBy: { id: "desc" },
+          take: 120,
+        })
+      : [];
+    const ledgerTxIds = [...new Set(ledgerEntries.map((row) => row.ledgerTxId))];
+    const ledgerTransactions = ledgerTxIds.length
+      ? await prisma.ledgerTransaction.findMany({
+          where: { organizationId: ctx.organizationId, id: { in: ledgerTxIds } },
+          orderBy: { createdAt: "desc" },
+          take: 60,
+        })
+      : [];
+    const ledger = ledgerTransactions.map((tx) => ({
+      id: tx.id,
+      memo: tx.memo,
+      createdAt: tx.createdAt,
+      entries: ledgerEntries.filter((entry) => entry.ledgerTxId === tx.id),
+    }));
+
+    type ActivityRow = {
+      id: string;
+      at: string;
+      type: "TRANSACTION" | "AUTHORIZATION" | "TRAVEL" | "FUND" | "LEDGER" | "CARD";
+      title: string;
+      detail: string;
+      fundId: string | null;
+      fundName: string | null;
+      amount: string | null;
+      currency: string | null;
+      status: string | null;
+      href: string | null;
+    };
+    const activity: ActivityRow[] = [];
+    for (const row of transactions) {
+      const linkedFund = row.fundId ? fundById.get(row.fundId) : null;
+      activity.push({
+        id: `txn:${row.id}`,
+        at: row.authorizedAt.toISOString(),
+        type: "TRANSACTION",
+        title: row.merchant,
+        detail: row.status === "CLEARED" ? "Captured spend" : row.status === "VOIDED" ? "Voided" : row.status === "REVERSED" ? "Reversed" : "Pending capture",
+        fundId: row.fundId,
+        fundName: linkedFund?.name ?? null,
+        amount: String(row.amount),
+        currency: row.currency,
+        status: row.status,
+        href: `/app/spend/transactions/${row.id}`,
+      });
+    }
+    for (const row of authorizations) {
+      const linkedFund = row.fundId ? fundById.get(row.fundId) : null;
+      activity.push({
+        id: `auth:${row.id}`,
+        at: row.createdAt.toISOString(),
+        type: "AUTHORIZATION",
+        title: row.merchant,
+        detail: row.reason || row.decision,
+        fundId: row.fundId,
+        fundName: linkedFund?.name ?? null,
+        amount: String(row.amount),
+        currency: row.currency,
+        status: row.decision,
+        href: null,
+      });
+    }
+    for (const row of travelTrips) {
+      activity.push({
+        id: `travel:${row.id}`,
+        at: row.createdAt.toISOString(),
+        type: "TRAVEL",
+        title: row.name,
+        detail: [row.destination, row.status].filter(Boolean).join(" · "),
+        fundId: row.fundId,
+        fundName: row.fundId ? fundById.get(row.fundId)?.name ?? null : null,
+        amount: row.estimatedAmount != null ? String(row.estimatedAmount) : null,
+        currency: row.currency,
+        status: row.status,
+        href: `/app/travel/trips/${row.id}`,
+      });
+    }
+    for (const row of funds) {
+      const trip = tripByFundId.get(row.id);
+      activity.push({
+        id: `fund:${row.id}`,
+        at: row.validFrom.toISOString(),
+        type: "FUND",
+        title: row.name,
+        detail: trip
+          ? `Travel wallet · ${trip.name}`
+          : row.spendRequestId
+            ? "Spend request wallet"
+            : row.id === card.fundId
+              ? "Current card wallet"
+              : "Linked wallet",
+        fundId: row.id,
+        fundName: row.name,
+        amount: String(row.availableAmount),
+        currency: row.currency,
+        status: row.status,
+        href: `/app/spend/funds/${row.id}`,
+      });
+    }
+    for (const tx of ledger) {
+      const primary = tx.entries.find((entry) => entry.direction === "DEBIT") ?? tx.entries[0];
+      const fundEntry = tx.entries.find((entry) => entry.account.startsWith("fund:"));
+      const fundId = fundEntry?.account.startsWith("fund:") ? fundEntry.account.slice(5) : null;
+      activity.push({
+        id: `ledger:${tx.id}`,
+        at: tx.createdAt.toISOString(),
+        type: "LEDGER",
+        title: tx.memo,
+        detail: tx.entries.map((entry) => `${entry.direction} ${entry.account}`).join(" · "),
+        fundId,
+        fundName: fundId ? fundById.get(fundId)?.name ?? null : null,
+        amount: primary ? String(primary.amount) : null,
+        currency: primary?.currency ?? null,
+        status: "POSTED",
+        href: null,
+      });
+    }
+    const noisyAudit = new Set([
+      "travel.search",
+      "travel.select_quote",
+      "travel.book_mock",
+      "travel.reprice",
+    ]);
+    for (const row of allAudit) {
+      if (row.objectType === "CardAuthorization") continue; // already covered by auth rows
+      if (noisyAudit.has(row.action)) continue;
+      // Travel confirm/provision/refund already represented as TRAVEL / LEDGER / FUND rows.
+      if (row.action.startsWith("travel.") && ["travel.confirm", "travel.provision", "travel.refund", "travel.cancel"].includes(row.action)) {
+        continue;
+      }
+      activity.push({
+        id: `audit:${row.id}`,
+        at: row.createdAt.toISOString(),
+        type: "CARD",
+        title: row.action,
+        detail: row.objectType,
+        fundId: null,
+        fundName: null,
+        amount: null,
+        currency: null,
+        status: null,
+        href: null,
+      });
+    }
+    activity.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
     const pending = transactions.filter((row) => row.status === "PENDING").reduce((sum, row) => sum + Number(row.amount), 0);
     const cleared = transactions.filter((row) => row.status === "CLEARED").reduce((sum, row) => sum + Number(row.amount), 0);
     return {
       card,
       fund,
+      funds: funds.map((row) => ({
+        id: row.id,
+        name: row.name,
+        availableAmount: row.availableAmount,
+        limitAmount: row.limitAmount,
+        currency: row.currency,
+        status: row.status,
+        validFrom: row.validFrom,
+        validTo: row.validTo,
+        spendRequestId: row.spendRequestId,
+        isCurrent: row.id === card.fundId,
+        travelTrip: tripByFundId.get(row.id)
+          ? {
+              id: tripByFundId.get(row.id)!.id,
+              name: tripByFundId.get(row.id)!.name,
+              status: tripByFundId.get(row.id)!.status,
+              destination: tripByFundId.get(row.id)!.destination,
+            }
+          : null,
+      })),
       holder,
       spendRequest,
+      travelTrip,
+      travelTrips,
+      expense,
+      ledger,
+      activity: activity.slice(0, 150),
       controls: {
         merchantLock: card.merchantLock,
         allowedMccs: card.allowedMccs,
@@ -2032,7 +2512,7 @@ export const cards = {
       },
       authorizations,
       transactions,
-      audit,
+      audit: allAudit,
     };
   },
 
@@ -2451,18 +2931,94 @@ export const receipts = {
   async getLinkCandidates(ctx: RequestContext, id: string, query = "") {
     const receipt = await prisma.receipt.findFirst({ where: { id, organizationId: ctx.organizationId } });
     if (!receipt) throw new AppError("NOT_FOUND", "Receipt not found", 404);
-    const expenses = await prisma.expense.findMany({ where: { organizationId: ctx.organizationId, ...(query ? { OR: [{ merchant: { contains: query, mode: "insensitive" } }, { memo: { contains: query, mode: "insensitive" } }, { id: { contains: query } }] } : {}) }, orderBy: { createdAt: "desc" }, take: 100 });
-    const users = await prisma.user.findMany({ where: { organizationId: ctx.organizationId, id: { in: [...new Set(expenses.map((expense) => expense.userId))] } }, select: { id: true, firstName: true, lastName: true, email: true } });
+
+    const q = query.trim();
+    const amountQuery = q && /^\d+(?:\.\d{1,2})?$/.test(q) ? q : null;
+    const dateQuery = q && !Number.isNaN(Date.parse(q)) ? new Date(q) : null;
+    const matchingUsers = q
+      ? await prisma.user.findMany({
+          where: {
+            organizationId: ctx.organizationId,
+            OR: [
+              { email: { contains: q, mode: "insensitive" } },
+              { firstName: { contains: q, mode: "insensitive" } },
+              { lastName: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          select: { id: true },
+          take: 50,
+        })
+      : [];
+
+    const expenses = await prisma.expense.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        ...(q
+          ? {
+              OR: [
+                { merchant: { contains: q, mode: "insensitive" } },
+                { memo: { contains: q, mode: "insensitive" } },
+                { id: { contains: q, mode: "insensitive" } },
+                { transactionId: { contains: q, mode: "insensitive" } },
+                ...(amountQuery ? [{ amount: new Prisma.Decimal(amountQuery) }] : []),
+                ...(matchingUsers.length ? [{ userId: { in: matchingUsers.map((user) => user.id) } }] : []),
+                ...(dateQuery && !Number.isNaN(dateQuery.getTime())
+                  ? [{
+                      createdAt: {
+                        gte: new Date(dateQuery.getFullYear(), dateQuery.getMonth(), dateQuery.getDate()),
+                        lt: new Date(dateQuery.getFullYear(), dateQuery.getMonth(), dateQuery.getDate() + 1),
+                      },
+                    }]
+                  : []),
+              ],
+            }
+          : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    const users = await prisma.user.findMany({
+      where: { organizationId: ctx.organizationId, id: { in: [...new Set(expenses.map((expense) => expense.userId))] } },
+      select: { id: true, firstName: true, lastName: true, email: true },
+    });
+
     const candidates = expenses.map((expense) => {
-      let score = 0; const reasons: string[] = [];
-      if (receipt.merchantGuess && expense.merchant.toLowerCase().includes(receipt.merchantGuess.toLowerCase())) { score += 60; reasons.push("merchant"); }
-      if (receipt.amountGuess && Math.abs(Number(receipt.amountGuess) - Number(expense.amount)) < 0.01) { score += 35; reasons.push("amount"); }
-      if (expense.transactionId) { score += 5; reasons.push("transaction"); }
+      let score = 0;
+      const reasons: string[] = [];
+      if (receipt.merchantGuess && expense.merchant.toLowerCase().includes(receipt.merchantGuess.toLowerCase())) {
+        score += 60;
+        reasons.push("merchant");
+      }
+      if (receipt.amountGuess && Math.abs(Number(receipt.amountGuess) - Number(expense.amount)) < 0.01) {
+        score += 35;
+        reasons.push("amount");
+      }
+      if (expense.transactionId) {
+        score += 5;
+        reasons.push("transaction");
+      }
+      if (receipt.expenseId && receipt.expenseId === expense.id) {
+        score += 100;
+        reasons.push("already_linked");
+      }
       return { ...expense, employee: users.find((user) => user.id === expense.userId), score, reasons };
     }).sort((a, b) => b.score - a.score || b.createdAt.getTime() - a.createdAt.getTime());
+
     return { receipt, candidates };
   },
-  async updateProgram(ctx: RequestContext, id: string, body: { name: string; description?: string; maxAmount: string; currency: string; merchantLockDefault?: string; allowedMccsDefault?: string; perTransactionLimitDefault?: string; velocityMaxAmountDefault?: string; velocityMaxCountDefault?: number }) {
+  async updateProgram(ctx: RequestContext, id: string, body: {
+    name: string;
+    description?: string;
+    maxAmount: string;
+    currency: string;
+    merchantLockDefault?: string;
+    allowedMccsDefault?: string;
+    perTransactionLimitDefault?: string;
+    velocityMaxAmountDefault?: string;
+    velocityMaxCountDefault?: number;
+    defaultValidDays?: number | null;
+  }) {
     const amount = requireMoney(body.maxAmount, body.currency);
     return auditedCommand(ctx, { action: "spend_program.update", objectType: "SpendProgram", objectId: id, event: "spend_program.updated" }, async (tx) => {
       const program = await tx.spendProgram.findFirst({ where: { id, organizationId: ctx.organizationId } });
@@ -2471,7 +3027,23 @@ export const receipts = {
       const programRequests = await tx.spendRequest.findMany({ where: { organizationId: ctx.organizationId, programId: id }, select: { id: true } });
       const activeFund = await tx.fund.findFirst({ where: { organizationId: ctx.organizationId, status: "ACTIVE", spendRequestId: { in: programRequests.map((request) => request.id) }, limitAmount: { gt: amount.amount } } });
       if (activeFund) throw new AppError("ACTIVE_FINANCIAL_STATE", "Maximum cannot be reduced below an active issued fund", 409);
-      const updated = await tx.spendProgram.update({ where: { id }, data: { name: body.name.trim(), description: (body.description ?? "").trim(), maxAmount: amount.amount, merchantLockDefault: body.merchantLockDefault || null, allowedMccsDefault: body.allowedMccsDefault || null, perTransactionLimitDefault: body.perTransactionLimitDefault ? dec(body.perTransactionLimitDefault) : null, velocityMaxAmountDefault: body.velocityMaxAmountDefault ? dec(body.velocityMaxAmountDefault) : null, velocityMaxCountDefault: body.velocityMaxCountDefault ?? null } });
+      if (body.defaultValidDays != null && (body.defaultValidDays < 1 || body.defaultValidDays > 3650)) {
+        throw new AppError("INVALID_VALIDITY", "Valid days must be between 1 and 3650", 400);
+      }
+      const updated = await tx.spendProgram.update({
+        where: { id },
+        data: {
+          name: body.name.trim(),
+          description: (body.description ?? "").trim(),
+          maxAmount: amount.amount,
+          merchantLockDefault: body.merchantLockDefault || null,
+          allowedMccsDefault: body.allowedMccsDefault || null,
+          perTransactionLimitDefault: body.perTransactionLimitDefault ? dec(body.perTransactionLimitDefault) : null,
+          velocityMaxAmountDefault: body.velocityMaxAmountDefault ? dec(body.velocityMaxAmountDefault) : null,
+          velocityMaxCountDefault: body.velocityMaxCountDefault ?? null,
+          ...(body.defaultValidDays !== undefined ? { defaultValidDays: body.defaultValidDays } : {}),
+        },
+      });
       return { result: updated, oldValue: { name: program.name, maxAmount: program.maxAmount }, newValue: { name: updated.name, maxAmount: updated.maxAmount } };
     });
   },
@@ -3523,6 +4095,37 @@ export const vendors = {
     });
   },
 
+  async update(ctx: RequestContext, id: string, body: { name: string; legalName?: string; displayName?: string; category?: string; riskLevel?: string; notes?: string; ownerId?: string | null }) {
+    return auditedCommand(ctx, { action: "vendor.update", objectType: "Vendor", objectId: id, event: "vendor.updated" }, async (tx) => {
+      const vendor = await tx.vendor.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!vendor) throw new AppError("NOT_FOUND", "Vendor not found", 404);
+      if (vendor.legalEntityId) assertEntityPermission(ctx, "vendor.create", vendor.legalEntityId);
+      const updated = await tx.vendor.update({
+        where: { id },
+        data: {
+          name: body.name.trim(),
+          legalName: (body.legalName ?? "").trim(),
+          displayName: (body.displayName ?? "").trim(),
+          category: (body.category ?? "").trim(),
+          riskLevel: body.riskLevel ?? vendor.riskLevel,
+          notes: (body.notes ?? "").trim(),
+          ownerId: body.ownerId || null,
+        },
+      });
+      return { result: updated, oldValue: { name: vendor.name, status: vendor.status }, newValue: { name: updated.name, category: updated.category, riskLevel: updated.riskLevel } };
+    });
+  },
+
+  async deactivate(ctx: RequestContext, id: string) {
+    return auditedCommand(ctx, { action: "vendor.deactivate", objectType: "Vendor", objectId: id, event: "vendor.deactivated" }, async (tx) => {
+      const vendor = await tx.vendor.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!vendor) throw new AppError("NOT_FOUND", "Vendor not found", 404);
+      if (vendor.legalEntityId) assertEntityPermission(ctx, "vendor.create", vendor.legalEntityId);
+      const updated = await tx.vendor.update({ where: { id }, data: { status: "INACTIVE" } });
+      return { result: updated, oldValue: { status: vendor.status }, newValue: { status: updated.status } };
+    });
+  },
+
   async getDetail(ctx: RequestContext, id: string) {
     const scope = await scopedWhere(ctx, "vendors");
     const vendor = await prisma.vendor.findFirst({ where: { ...scope, id } });
@@ -3670,6 +4273,10 @@ export const bills = {
           where: { id: body.attachmentId, organizationId: ctx.organizationId },
         });
         if (!attachment) throw new AppError("ATTACHMENT_NOT_FOUND", "Invoice document not found", 404);
+        if (attachment.malwareStatus !== "CLEAN" && env.nodeEnv !== "production") {
+          // Local sandbox: acknowledge clean so bill intake works without a worker.
+          await tx.attachment.update({ where: { id: attachment.id }, data: { malwareStatus: "CLEAN" } });
+        }
       }
       if (body.purchaseOrderId) {
         const po = await tx.purchaseOrder.findFirst({
@@ -4002,6 +4609,9 @@ export const bills = {
       vendorMatch: { status: bill.vendorMatchStatus, vendorId: bill.vendorMatchVendorId },
       timeline,
       sandbox: env.nodeEnv !== "production",
+      providerLabel: paymentRail().name === "stripe"
+        ? "STRIPE / FINANCIAL ACCOUNT DEBIT"
+        : env.nodeEnv !== "production" ? "SANDBOX / MOCK PAYMENT" : "Payment rail",
       readyForPayment: bill.status === "APPROVED" || bill.status === "PARTIAL",
     };
   },
@@ -4159,7 +4769,12 @@ async function settlePaymentRecord(ctx: RequestContext, paymentId: string) {
     if (!payment.providerRef) throw new AppError("MISSING_PROVIDER_REF", "Payment was not released to a rail", 409);
     if (payment.settlementId) throw new AppError("ALREADY_SETTLED", "Payment already has a settlement id", 409);
 
-    const settled = await paymentRail().settle({ providerRef: payment.providerRef });
+    const settled = await paymentRail().settle({
+      providerRef: payment.providerRef,
+      paymentId: payment.id,
+      amount: payment.amount.toString(),
+      currency: payment.currency,
+    });
     if (settled.status !== "COMPLETED") {
       await tx.payment.updateMany({
         where: { id: paymentId, status: { in: ["PROCESSING", "SENT"] } },
@@ -4464,30 +5079,15 @@ export const paymentRuns = {
     const billById = new Map(bills.map((bill) => [bill.id, bill]));
     const decorate = (payment: typeof items[number]) => ({ ...payment, bill: billById.get(payment.billId) ?? null });
     const total = items.reduce((sum, payment) => sum + Number(payment.amount), 0);
-    const validationIssues = [
-      ...(!items.length ? ["Add at least one eligible payment."] : []),
-      ...(!run.sourceAccountId ? ["Select a source account before release."] : []),
-      ...(items.some((payment) => payment.status !== "SCHEDULED") ? ["All payments must remain scheduled."] : []),
-    ];
+    // Validation is a pre-release checklist; released/historical runs should not show stale blockers.
+    const validationIssues = run.status === "OPEN"
+      ? [
+          ...(!items.length ? ["Add at least one eligible payment."] : []),
+          ...(!run.sourceAccountId ? ["Select a source account before release."] : []),
+          ...(items.some((payment) => payment.status !== "SCHEDULED") ? ["All payments must remain scheduled."] : []),
+        ]
+      : [];
     return { run, items: items.map(decorate), eligiblePayments: eligiblePayments.map(decorate), sourceAccount, paymentCount: items.length, total, validationIssues };
-  },
-  async update(ctx: RequestContext, id: string, body: { name: string; legalName?: string; displayName?: string; category?: string; riskLevel?: string; notes?: string; ownerId?: string | null }) {
-    return auditedCommand(ctx, { action: "vendor.update", objectType: "Vendor", objectId: id, event: "vendor.updated" }, async (tx) => {
-      const vendor = await tx.vendor.findFirst({ where: { id, organizationId: ctx.organizationId } });
-      if (!vendor) throw new AppError("NOT_FOUND", "Vendor not found", 404);
-      if (vendor.legalEntityId) assertEntityPermission(ctx, "vendor.create", vendor.legalEntityId);
-      const updated = await tx.vendor.update({ where: { id }, data: { name: body.name.trim(), legalName: (body.legalName ?? "").trim(), displayName: (body.displayName ?? "").trim(), category: (body.category ?? "").trim(), riskLevel: body.riskLevel ?? vendor.riskLevel, notes: (body.notes ?? "").trim(), ownerId: body.ownerId || null } });
-      return { result: updated, oldValue: { name: vendor.name, status: vendor.status }, newValue: { name: updated.name, category: updated.category, riskLevel: updated.riskLevel } };
-    });
-  },
-  async deactivate(ctx: RequestContext, id: string) {
-    return auditedCommand(ctx, { action: "vendor.deactivate", objectType: "Vendor", objectId: id, event: "vendor.deactivated" }, async (tx) => {
-      const vendor = await tx.vendor.findFirst({ where: { id, organizationId: ctx.organizationId } });
-      if (!vendor) throw new AppError("NOT_FOUND", "Vendor not found", 404);
-      if (vendor.legalEntityId) assertEntityPermission(ctx, "vendor.create", vendor.legalEntityId);
-      const updated = await tx.vendor.update({ where: { id }, data: { status: "INACTIVE" } });
-      return { result: updated, oldValue: { status: vendor.status }, newValue: { status: updated.status } };
-    });
   },
 };
 
@@ -5346,6 +5946,30 @@ export const accounting = {
       if (!["NEEDS_REVIEW", "SYNC_ERROR", "READY_TO_SYNC"].includes(entry.status)) {
         throw new AppError("INVALID_STATE", "Entry cannot be changed during or after sync", 409);
       }
+      const dimensions = await tx.accountingDimension.findMany({ where: { organizationId: ctx.organizationId } });
+      const allowedByKey = new Map<string, Set<string>>();
+      for (const dim of dimensions) {
+        const values = Array.isArray(dim.values) ? dim.values : [];
+        const ids = new Set(
+          values.map((value) => (typeof value === "string" ? value : String((value as { id?: string }).id ?? ""))).filter(Boolean),
+        );
+        if (ids.size) {
+          allowedByKey.set(dim.key, ids);
+          if (dim.key === "gl_account") allowedByKey.set("glAccount", ids);
+          if (dim.key === "glAccount") allowedByKey.set("gl_account", ids);
+        }
+      }
+      if (category && allowedByKey.get("category") && !allowedByKey.get("category")!.has(category)) {
+        throw new AppError("INVALID_DIMENSION", `Category "${category}" is not in the controlled list`, 400);
+      }
+      for (const [key, value] of Object.entries(coding)) {
+        const trimmed = value.trim();
+        if (!trimmed) continue;
+        const allowed = allowedByKey.get(key);
+        if (allowed && !allowed.has(trimmed)) {
+          throw new AppError("INVALID_DIMENSION", `${key} value "${trimmed}" is not in the controlled list`, 400);
+        }
+      }
       const claimed = await tx.accountingEntry.updateMany({
         where: { id, organizationId: ctx.organizationId, status: entry.status, updatedAt: entry.updatedAt },
         data: { category, memo, coding, status: "NEEDS_REVIEW", syncError: null },
@@ -5613,8 +6237,8 @@ export async function executeAccountingSyncJob(
   if (job.status === "COMPLETED") {
     return { job, reused: true };
   }
-  if (job.provider !== "MOCK_QBO" && process.env.NODE_ENV === "production") {
-    throw new AppError("PROVIDER_REQUIRED", `Accounting adapter ${job.provider} is not configured`, 403);
+  if (job.provider !== "MOCK_QBO") {
+    throw new AppError("PROVIDER_WORKER_REQUIRED", `Accounting adapter ${job.provider} must be processed by the worker`, 409);
   }
 
   const entryIds = Array.isArray(job.entryIds) ? job.entryIds.map(String) : [];
@@ -5804,6 +6428,27 @@ async function provisionTravelInstruments(
     });
   }
 
+  // Journal the travel float once so fund capacity always has a ledger trail
+  // (covers new funds and older trips that were provisioned before this journal existed).
+  if (Number(limit) > 0) {
+    const prepaidAccount = `travel.prepaid:${trip.id}`;
+    const existingJournal = await tx.ledgerEntry.findFirst({
+      where: { organizationId: ctx.organizationId, account: prepaidAccount },
+      select: { id: true },
+    });
+    if (!existingJournal) {
+      await postLedger(
+        ctx.organizationId,
+        `travel.provision trip ${trip.id}`,
+        [
+          { account: prepaidAccount, direction: "DEBIT", amount: String(limit), currency: trip.currency },
+          { account: `fund:${fund.id}`, direction: "CREDIT", amount: String(limit), currency: trip.currency },
+        ],
+        tx,
+      );
+    }
+  }
+
   // Travel uses a dedicated temp wallet: point the traveler card at this fund (do not
   // consolidate into the software/spend fund — that hid travel funds on My card).
   const card = await ensureHolderVirtualCard(tx, {
@@ -5840,6 +6485,7 @@ export const travel = {
     const money = requireMoney(body.estimatedAmount, currency);
     assertEntityPermission(ctx, "travel.book", body.legalEntityId);
     const travelerId = body.travelerId ?? ctx.userId;
+    if (!body.name.trim()) throw new AppError("INVALID_NAME", "Trip name is required", 400);
     const start = new Date(body.startDate);
     const end = new Date(body.endDate);
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
@@ -5913,6 +6559,161 @@ export const travel = {
     });
   },
 
+  /** Editable only before any approval completes (DRAFT / pending review / rejected). */
+  async updateTrip(ctx: RequestContext, tripId: string, body: {
+    name?: string;
+    legalEntityId?: string;
+    destination?: string;
+    origin?: string;
+    purpose?: string;
+    department?: string;
+    international?: boolean;
+    startDate?: string;
+    endDate?: string;
+    estimatedAmount?: string;
+    currency?: string;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const trip = await tx.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+      if (trip.travelerId !== ctx.userId && !ctx.roles.includes("Owner") && !ctx.permissions.includes("*")) {
+        throw new AppError("FORBIDDEN", "You can only edit your own trips", 403);
+      }
+      if (!["DRAFT", "PENDING_APPROVAL", "IN_REVIEW", "REJECTED", "BLOCKED"].includes(trip.status)) {
+        throw new AppError("INVALID_STATE", "Approved or booked trips cannot be edited", 409);
+      }
+
+      const legalEntityId = body.legalEntityId?.trim() || trip.legalEntityId;
+      if (legalEntityId !== trip.legalEntityId) {
+        assertEntityPermission(ctx, "travel.book", legalEntityId);
+      }
+      const entity = await tx.legalEntity.findFirst({ where: { id: legalEntityId, organizationId: ctx.organizationId } });
+      if (!entity) throw new AppError("INVALID_REFERENCE", "Legal entity is unavailable", 400);
+
+      const name = (body.name ?? trip.name).trim();
+      const destination = (body.destination ?? trip.destination).trim();
+      if (!name) throw new AppError("INVALID_NAME", "Trip name is required", 400);
+      if (!destination) throw new AppError("INVALID_DESTINATION", "Destination is required", 400);
+
+      const start = new Date(body.startDate ?? trip.startDate ?? "");
+      const end = new Date(body.endDate ?? trip.endDate ?? "");
+      if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
+        throw new AppError("INVALID_DATES", "Trip end date must be on or after the start date", 400);
+      }
+
+      const currency = (body.currency ?? trip.currency).toUpperCase();
+      const money = requireMoney(String(body.estimatedAmount ?? trip.estimatedAmount ?? "0"), currency);
+      requireCurrencyMatch(entity.currency, money.currency);
+
+      const { rules } = await loadPolicyRules(
+        (args) => tx.policy.findMany(args as never),
+        ctx.organizationId,
+        "travel",
+      );
+      const policy = evaluatePolicy({
+        objectType: "travel",
+        amount: Number(money.amount),
+        outOfPolicy: false,
+        rules: rules.length ? rules : [
+          { type: "travel_max_amount", threshold: 2500 },
+          { type: "travel_out_of_policy" },
+        ],
+      });
+
+      // Editing a pending request withdraws approval so manager re-reviews after re-submit.
+      if (["PENDING_APPROVAL", "IN_REVIEW"].includes(trip.status)) {
+        const open = await tx.approvalInstance.findMany({
+          where: { organizationId: ctx.organizationId, objectType: "travel", objectId: tripId, status: { in: ["IN_REVIEW", "INFO_REQUESTED"] } },
+          select: { id: true },
+        });
+        if (open.length) {
+          await tx.approvalInstance.updateMany({
+            where: { id: { in: open.map((row) => row.id) } },
+            data: { status: "CANCELLED" },
+          });
+          await tx.inboxItem.deleteMany({
+            where: { organizationId: ctx.organizationId, approvalInstanceId: { in: open.map((row) => row.id) } },
+          });
+        }
+      }
+
+      const updated = await tx.travelTrip.update({
+        where: { id: tripId },
+        data: {
+          legalEntityId: entity.id,
+          name,
+          origin: body.origin != null ? body.origin.trim() : trip.origin,
+          destination,
+          purpose: body.purpose != null ? body.purpose.trim() : trip.purpose,
+          department: body.department != null ? body.department.trim() : trip.department,
+          international: body.international != null ? Boolean(body.international) : trip.international,
+          startDate: start,
+          endDate: end,
+          estimatedAmount: dec(money.amount),
+          currency: money.currency,
+          status: "DRAFT",
+          policyResult: policy.result,
+          policyExplanation: policy.explanation,
+          policyMatchedRules: policy.matchedRules as never,
+          policyRequiredActions: policy.requiredActions as never,
+          policyEvaluatedAt: new Date(),
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.trip_update",
+          objectType: "TravelTrip", objectId: tripId,
+          oldValue: { status: trip.status, destination: trip.destination, estimatedAmount: String(trip.estimatedAmount ?? "") },
+          newValue: { status: "DRAFT", destination, estimatedAmount: money.amount },
+          correlationId: ctx.correlationId,
+        },
+      });
+      return updated;
+    });
+  },
+
+  async deleteTrip(ctx: RequestContext, tripId: string) {
+    return prisma.$transaction(async (tx) => {
+      const trip = await tx.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
+      if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
+      assertEntityPermission(ctx, "travel.book", trip.legalEntityId);
+      if (trip.travelerId !== ctx.userId && !ctx.roles.includes("Owner") && !ctx.permissions.includes("*")) {
+        throw new AppError("FORBIDDEN", "You can only delete your own trips", 403);
+      }
+      if (!["DRAFT", "PENDING_APPROVAL", "IN_REVIEW", "REJECTED", "BLOCKED"].includes(trip.status)) {
+        throw new AppError("INVALID_STATE", "Approved or booked trips cannot be deleted", 409);
+      }
+
+      const instances = await tx.approvalInstance.findMany({
+        where: { organizationId: ctx.organizationId, objectType: "travel", objectId: tripId },
+        select: { id: true },
+      });
+      const instanceIds = instances.map((row) => row.id);
+      if (instanceIds.length) {
+        await tx.approvalAction.deleteMany({ where: { instanceId: { in: instanceIds } } });
+        await tx.inboxItem.deleteMany({
+          where: { organizationId: ctx.organizationId, approvalInstanceId: { in: instanceIds } },
+        });
+        await tx.approvalInstance.deleteMany({ where: { id: { in: instanceIds } } });
+      }
+      await tx.travelBooking.deleteMany({ where: { organizationId: ctx.organizationId, tripId } });
+      await tx.travelTrip.delete({ where: { id: tripId } });
+      await tx.auditEvent.create({
+        data: {
+          organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.trip_delete",
+          objectType: "TravelTrip", objectId: tripId,
+          oldValue: { status: trip.status, name: trip.name, destination: trip.destination },
+          correlationId: ctx.correlationId,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: { organizationId: ctx.organizationId, type: "travel.trip_deleted", payload: { tripId } },
+      });
+      return { id: tripId, deleted: true };
+    });
+  },
+
   async search(ctx: RequestContext, tripId: string, body: { type: "FLIGHT" | "HOTEL" | "CAR"; origin?: string; cabin?: string }) {
     const trip = await prisma.travelTrip.findFirst({ where: { id: tripId, organizationId: ctx.organizationId } });
     if (!trip) throw new AppError("NOT_FOUND", "Trip not found", 404);
@@ -5935,7 +6736,8 @@ export const travel = {
       data: {
         organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.search",
         objectType: "TravelTrip", objectId: tripId,
-        newValue: { type: body.type, quoteCount: quotes.length, origin: body.origin ?? trip.origin },
+        // Retain immutable, server-returned offers for selection validation; no client quote is authoritative.
+        newValue: { type: body.type, quoteCount: quotes.length, origin: body.origin ?? trip.origin, quotes } as Prisma.InputJsonValue,
         correlationId: ctx.correlationId,
       },
     });
@@ -5971,7 +6773,27 @@ export const travel = {
       }
       requireCurrencyMatch(trip.currency, money.currency);
 
-      const outOfPolicy = Boolean(body.outOfPolicy);
+      const searches = await tx.auditEvent.findMany({
+        where: { organizationId: ctx.organizationId, objectType: "TravelTrip", objectId: tripId, action: "travel.search" },
+        orderBy: { createdAt: "desc" }, take: 20,
+      });
+      const quote = searches.flatMap((search) => {
+        const value = search.newValue as { quotes?: import("../integrations/travel/travel.provider").TravelQuote[] } | null;
+        return value?.quotes ?? [];
+      }).find((item) => item.quoteId === body.quoteId);
+      if (!quote) throw new AppError("QUOTE_NOT_FOUND", "Search again and select a returned quote", 404);
+      if (!Number.isFinite(Date.parse(quote.offerExpiry)) || Date.parse(quote.offerExpiry) <= Date.now()) {
+        throw new AppError("QUOTE_EXPIRED", "This quote expired; search again", 409);
+      }
+      if (!dec(quote.amount).equals(money.amount) || quote.currency !== money.currency
+        || body.type !== quote.type || body.supplier !== quote.supplier
+        || (body.outOfPolicy !== undefined && body.outOfPolicy !== quote.outOfPolicy)
+        || (body.provider !== undefined && body.provider !== quote.provider)
+        || (body.providerOfferId !== undefined && body.providerOfferId !== quote.providerOfferId)) {
+        throw new AppError("QUOTE_MISMATCH", "Quote details changed; select the original offer", 409);
+      }
+      body = { ...quote };
+      const outOfPolicy = quote.outOfPolicy;
       const { rules } = await loadPolicyRules(
         (args) => tx.policy.findMany(args as never),
         ctx.organizationId,
@@ -5986,7 +6808,7 @@ export const travel = {
           { type: "travel_out_of_policy" },
         ],
       });
-      const policyResult = body.policyResult ?? policy.result;
+      const policyResult = policy.result;
       const snapshot = {
         provider: body.provider ?? "mock-travel",
         providerOfferId: body.providerOfferId ?? body.quoteId,
@@ -6507,12 +7329,19 @@ export const travel = {
           where: { id: trip.id },
           data: { status: tripStatus },
         });
+        // Freeze the travel card when the trip is fully cancelled so incidental spend stops.
+        if (trip.cardId) {
+          await tx.card.updateMany({
+            where: { id: trip.cardId, organizationId: ctx.organizationId, status: "ACTIVE" },
+            data: { status: "FROZEN" },
+          });
+        }
       }
       await tx.auditEvent.create({
         data: {
           organizationId: ctx.organizationId, actorId: ctx.userId, action: "travel.cancel",
           objectType: "TravelBooking", objectId: bookingId,
-          newValue: { status: result.status },
+          newValue: { status: result.status, cardFrozen: Boolean(trip.cardId) },
           correlationId: ctx.correlationId,
         },
       });
@@ -6563,8 +7392,23 @@ export const travel = {
               where: { id: fund.id },
               data: { availableAmount: { increment: restore } },
             });
+            await postLedger(
+              ctx.organizationId,
+              `travel.refund booking ${bookingId}`,
+              [
+                { account: `fund:${fund.id}`, direction: "DEBIT", amount: String(restore), currency: booking.currency },
+                { account: `travel.prepaid:${trip.id}`, direction: "CREDIT", amount: String(restore), currency: booking.currency },
+              ],
+              tx,
+            );
           }
         }
+      }
+      if (trip.cardId) {
+        await tx.card.updateMany({
+          where: { id: trip.cardId, organizationId: ctx.organizationId, status: { in: ["ACTIVE", "FROZEN"] } },
+          data: { status: "FROZEN" },
+        });
       }
 
       const siblings = await tx.travelBooking.findMany({
@@ -6764,7 +7608,7 @@ export const travel = {
         take: 100,
       }),
     ]);
-    return { trip, bookings, fund, card, expense, approval, audit };
+    return { trip, bookings, fund, card, expense, approval, audit, capabilities: getTravelCapabilities() };
   },
 };
 
@@ -7221,13 +8065,22 @@ export const notifications = {
       match: "/app/procurement/match-exceptions", MatchResult: "/app/procurement/match-exceptions",
       reimbursement: "/app/expenses/reimbursements", Reimbursement: "/app/expenses/reimbursements",
       travel: "/app/travel/trips", TravelTrip: "/app/travel/trips",
+      expense: "/app/expenses", Expense: "/app/expenses",
+      accounting: "/app/accounting/review", AccountingEntry: "/app/accounting/review",
+      procurement: "/app/procurement/requests", ProcurementRequest: "/app/procurement/requests",
     };
     return rows.map((row) => {
-      if (row.href || !row.objectType || !row.objectId || !routeByType[row.objectType]) return row;
-      const href = ["match", "MatchResult"].includes(row.objectType)
+      if (!row.objectType || !row.objectId || !routeByType[row.objectType]) return row;
+      // Prefer exact source record over list-only hrefs (seed/demo may store list paths).
+      const exact = ["match", "MatchResult"].includes(row.objectType)
         ? `${routeByType[row.objectType]}?match=${encodeURIComponent(row.objectId)}`
-        : `${routeByType[row.objectType]}/${row.objectId}`;
-      return { ...row, href };
+        : ["accounting", "AccountingEntry"].includes(row.objectType)
+          ? `${routeByType[row.objectType]}?entry=${encodeURIComponent(row.objectId)}`
+          : `${routeByType[row.objectType]}/${row.objectId}`;
+      const existing = (row.href ?? "").trim();
+      const listOnly = existing && !existing.includes(row.objectId) && !existing.includes("?");
+      if (!existing || listOnly) return { ...row, href: exact };
+      return row;
     });
   },
 

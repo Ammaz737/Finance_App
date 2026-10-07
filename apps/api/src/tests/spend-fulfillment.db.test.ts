@@ -98,6 +98,7 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
     await prisma.fund.deleteMany({ where: { organizationId: orgId } });
     await prisma.spendRequest.deleteMany({ where: { organizationId: orgId } });
     await prisma.spendProgram.deleteMany({ where: { organizationId: orgId } });
+    await prisma.vendor.deleteMany({ where: { organizationId: orgId } });
     await prisma.budget.deleteMany({ where: { organizationId: orgId } });
     await prisma.businessLimit.deleteMany({ where: { organizationId: orgId } });
     await prisma.auditEvent.deleteMany({ where: { organizationId: orgId } });
@@ -146,6 +147,59 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
     expect(again.card?.id).toBe(first.card!.id);
     expect(await prisma.fund.count({ where: { organizationId: orgId, spendRequestId: request.id } })).toBe(1);
     expect(await prisma.card.count({ where: { organizationId: orgId, fundId: first.fund!.id } })).toBe(1);
+  });
+
+  it("enforces active, entity-scoped, program-allowed vendors at request time", async () => {
+    const requester = ctx({ userId: requesterId, organizationId: orgId });
+    const otherEntity = await prisma.legalEntity.create({
+      data: { organizationId: orgId, name: `M3 Other ${suffix}`, country: "US", currency: "USD" },
+    });
+    const [allowed, inactive, wrongEntity, disallowed] = await Promise.all([
+      prisma.vendor.create({ data: { organizationId: orgId, legalEntityId: entityId, name: `Amazon Business ${suffix}`, status: "ACTIVE" } }),
+      prisma.vendor.create({ data: { organizationId: orgId, legalEntityId: entityId, name: `Amazon Inactive ${suffix}`, status: "INACTIVE" } }),
+      prisma.vendor.create({ data: { organizationId: orgId, legalEntityId: otherEntity.id, name: `Amazon Other ${suffix}`, status: "ACTIVE" } }),
+      prisma.vendor.create({ data: { organizationId: orgId, legalEntityId: entityId, name: `Walmart ${suffix}`, status: "ACTIVE" } }),
+    ]);
+    const input = {
+      programId: programCardId,
+      name: `Vendor locked ${suffix}`,
+      purpose: "Vendor enforcement",
+      amount: "25.00",
+      currency: "USD",
+      legalEntityId: entityId,
+    };
+
+    await expect(spend.createRequest(requester, { ...input, vendorId: inactive.id })).rejects.toMatchObject({ code: "INVALID_VENDOR" });
+    await expect(spend.createRequest(requester, { ...input, vendorId: wrongEntity.id })).rejects.toMatchObject({ code: "INVALID_VENDOR" });
+    await expect(spend.createRequest(requester, { ...input, vendorId: disallowed.id })).rejects.toMatchObject({ code: "VENDOR_LOCK" });
+    const accepted = await spend.createRequest(requester, { ...input, vendorId: allowed.id });
+    expect(accepted.vendorId).toBe(allowed.id);
+  });
+
+  it("rechecks the current program vendor lock before final approval", async () => {
+    const requester = ctx({ userId: requesterId, organizationId: orgId });
+    const approver = ctx({ userId: approverId, organizationId: orgId });
+    const vendor = await prisma.vendor.create({
+      data: { organizationId: orgId, legalEntityId: entityId, name: `Amazon Drift ${suffix}`, status: "ACTIVE" },
+    });
+    const request = await spend.createRequest(requester, {
+      programId: programCardId,
+      name: `Lock drift ${suffix}`,
+      purpose: "Approval revalidation",
+      amount: "20.00",
+      currency: "USD",
+      legalEntityId: entityId,
+      vendorId: vendor.id,
+    });
+
+    await prisma.spendProgram.update({ where: { id: programCardId }, data: { merchantLockDefault: "microsoft" } });
+    try {
+      await expect(spend.approveRequest(approver, request.id)).rejects.toMatchObject({ code: "VENDOR_LOCK" });
+      const unchanged = await prisma.spendRequest.findUniqueOrThrow({ where: { id: request.id } });
+      expect(unchanged.status).toBe("IN_REVIEW");
+    } finally {
+      await prisma.spendProgram.update({ where: { id: programCardId }, data: { merchantLockDefault: "amazon" } });
+    }
   });
 
   it("fulfills FUND_ONLY without issuing a card", async () => {
@@ -362,5 +416,37 @@ describe.runIf(runDb)("M3 spend fulfillment", () => {
       velocityMaxCount: null,
       velocityMaxAmount: null,
     });
+  });
+
+  it("merges different approved vendor locks when the holder card is reused", async () => {
+    const requester = ctx({ userId: requesterId, organizationId: orgId });
+    const approver = ctx({ userId: approverId, organizationId: orgId });
+    const vendor = await prisma.vendor.create({
+      data: { organizationId: orgId, legalEntityId: entityId, name: `Microsoft ${suffix}`, status: "ACTIVE" },
+    });
+    const program = await prisma.spendProgram.create({
+      data: {
+        organizationId: orgId,
+        legalEntityId: entityId,
+        name: `Microsoft Lock ${suffix}`,
+        maxAmount: 1000,
+        currency: "USD",
+        defaultFulfillmentType: "VIRTUAL_CARD",
+        merchantLockDefault: "microsoft",
+      },
+    });
+    const request = await spend.createRequest(requester, {
+      programId: program.id,
+      name: `Microsoft subscription ${suffix}`,
+      purpose: "Second approved vendor",
+      amount: "20.00",
+      currency: "USD",
+      legalEntityId: entityId,
+      vendorId: vendor.id,
+    });
+    const approved = await spend.approveRequest(approver, request.id);
+    const locks = (approved.card?.merchantLock ?? "").split(",").map((item) => item.trim().toLowerCase());
+    expect(locks).toEqual(expect.arrayContaining(["amazon", `microsoft ${suffix}`.toLowerCase()]));
+    expect(await prisma.card.count({ where: { organizationId: orgId, holderId: requesterId, status: { in: ["ACTIVE", "FROZEN"] } } })).toBe(1);
   });
 });

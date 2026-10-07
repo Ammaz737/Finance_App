@@ -76,6 +76,7 @@ export default function VendorsPage() {
         myWorkFilters
         needsActionStatuses={["INACTIVE"]}
         onRowNavigate={(row) => router.push(`/app/vendors/${row.id}`)}
+        onCreated={(row) => router.push(`/app/vendors/${row.id}`)}
       />
       <p className="muted my-expenses-hint">
         Open a vendor for bank details, bills, and purchase history.{" "}

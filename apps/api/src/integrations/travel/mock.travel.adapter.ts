@@ -103,10 +103,13 @@ export class MockTravelAdapter implements TravelProvider {
   }
 
   async confirm(input: TravelConfirmInput): Promise<TravelConfirmResult> {
-    if (!input.providerRef.startsWith("mock_hold_")) {
+    const hold = input.providerRef.startsWith("mock_hold_") || input.providerRef.startsWith("duffel_hold_");
+    if (!hold) {
       return { providerRef: input.providerRef, providerStatus: "FAILED", status: "FAILED" };
     }
-    const conf = input.providerRef.replace("mock_hold_", "mock_conf_");
+    const conf = input.providerRef
+      .replace("mock_hold_", "mock_conf_")
+      .replace("duffel_hold_", "mock_conf_");
     return {
       providerRef: conf,
       providerStatus: "CONFIRMED",
@@ -116,7 +119,12 @@ export class MockTravelAdapter implements TravelProvider {
   }
 
   async cancel(input: TravelCancelInput): Promise<TravelCancelResult> {
-    if (!input.providerRef.startsWith("mock_conf_") && !input.providerRef.startsWith("mock_hold_")) {
+    const ok =
+      input.providerRef.startsWith("mock_conf_")
+      || input.providerRef.startsWith("mock_hold_")
+      || input.providerRef.startsWith("duffel_hold_")
+      || input.providerRef.startsWith("duffel_conf_");
+    if (!ok) {
       return { providerRef: input.providerRef, status: "FAILED" };
     }
     return {
@@ -126,7 +134,12 @@ export class MockTravelAdapter implements TravelProvider {
   }
 
   async refund(input: TravelRefundInput): Promise<TravelRefundResult> {
-    if (!input.providerRef.startsWith("mock_conf_") && !input.providerRef.startsWith("mock_hold_")) {
+    const ok =
+      input.providerRef.startsWith("mock_conf_")
+      || input.providerRef.startsWith("mock_hold_")
+      || input.providerRef.startsWith("duffel_hold_")
+      || input.providerRef.startsWith("duffel_conf_");
+    if (!ok) {
       return { providerRef: input.providerRef, status: "FAILED" };
     }
     return { providerRef: input.providerRef, status: "REFUNDED", refundAmount: undefined };

@@ -1,0 +1,136 @@
+[
+  {
+    "name": "Stripe bill-pay release $1",
+    "status": "PASS",
+    "result": {
+      "providerRef": "ipi_1UNWemPZ7gKD4zJQfK211hon",
+      "status": "ACCEPTED"
+    }
+  },
+  {
+    "name": "Stripe same paymentId replay $1",
+    "status": "PASS",
+    "result": {
+      "providerRef": "ipi_1UNWenPZ7gKD4zJQrwiV1M6R",
+      "status": "ACCEPTED"
+    }
+  },
+  {
+    "name": "Stripe settlement lookup",
+    "status": "PASS",
+    "result": {
+      "settlementId": "stripe_settle_ipi_1UNWemPZ7gKD4zJQfK211hon",
+      "status": "COMPLETED"
+    }
+  },
+  {
+    "name": "Payment release idempotency",
+    "status": "FAIL",
+    "result": {
+      "first": "ipi_1UNWemPZ7gKD4zJQfK211hon",
+      "second": "ipi_1UNWenPZ7gKD4zJQrwiV1M6R"
+    }
+  },
+  {
+    "name": "Stripe cardholder create",
+    "status": "PASS",
+    "result": {
+      "providerCardholderId": "ich_1UNWepPZ7gKD4zJQhM41iS7A"
+    }
+  },
+  {
+    "name": "Stripe virtual card issue",
+    "status": "PASS",
+    "result": {
+      "providerCardId": "ic_1UNWesPZ7gKD4zJQYl3pnWON",
+      "providerCardholderId": "ich_1UNWepPZ7gKD4zJQhM41iS7A",
+      "last4": "0104",
+      "type": "virtual",
+      "status": "active",
+      "brand": "mastercard",
+      "network": "MASTERCARD"
+    }
+  },
+  {
+    "name": "Stripe freeze",
+    "status": "PASS",
+    "result": {
+      "providerCardId": "ic_1UNWesPZ7gKD4zJQYl3pnWON",
+      "providerCardholderId": "ich_1UNWepPZ7gKD4zJQhM41iS7A",
+      "last4": "0104",
+      "type": "virtual",
+      "status": "inactive",
+      "brand": "mastercard",
+      "network": "MASTERCARD"
+    }
+  },
+  {
+    "name": "Stripe unfreeze",
+    "status": "PASS",
+    "result": {
+      "providerCardId": "ic_1UNWesPZ7gKD4zJQYl3pnWON",
+      "providerCardholderId": "ich_1UNWepPZ7gKD4zJQhM41iS7A",
+      "last4": "0104",
+      "type": "virtual",
+      "status": "active",
+      "brand": "mastercard",
+      "network": "MASTERCARD"
+    }
+  },
+  {
+    "name": "Stripe force capture $1",
+    "status": "PASS",
+    "result": {
+      "id": "ipi_1UNWexPZ7gKD4zJQaF974BG6"
+    }
+  },
+  {
+    "name": "Signed transaction webhook import",
+    "status": "PASS",
+    "result": {
+      "ok": true,
+      "duplicate": false,
+      "eventId": "evt_qa_1791286552709",
+      "type": "issuing_transaction.created"
+    }
+  },
+  {
+    "name": "Same signed event replay",
+    "status": "PASS",
+    "result": {
+      "ok": true,
+      "duplicate": true,
+      "eventId": "evt_qa_1791286552709"
+    }
+  },
+  {
+    "name": "Invalid webhook signature rejected",
+    "status": "PASS",
+    "result": {
+      "rejected": true,
+      "code": "UNAUTHORIZED"
+    }
+  },
+  {
+    "name": "Capture to expense and accounting",
+    "status": "PASS",
+    "result": {
+      "transaction": true,
+      "expense": true,
+      "accounting": true
+    }
+  },
+  {
+    "name": "Stripe test card cleanup cancel",
+    "status": "PASS",
+    "result": {
+      "providerCardId": "ic_1UNWesPZ7gKD4zJQYl3pnWON",
+      "providerCardholderId": "ich_1UNWepPZ7gKD4zJQhM41iS7A",
+      "last4": "0104",
+      "type": "virtual",
+      "status": "canceled",
+      "brand": "mastercard",
+      "network": "MASTERCARD"
+    }
+  }
+]

@@ -23,6 +23,7 @@ export function createResourceRouter(options: {
   getDelegate: () => Delegate;
   searchField?: string;
   select?: Record<string, boolean>;
+  orderBy?: Record<string, "asc" | "desc">;
   create?: (ctx: RequestContext, body: Record<string, unknown>) => Promise<unknown>;
   get?: (ctx: RequestContext, id: string, query: Record<string, unknown>) => Promise<unknown>;
   actions?: Record<string, (ctx: RequestContext, id: string, body: Record<string, unknown>) => Promise<unknown>>;
@@ -46,7 +47,7 @@ export function createResourceRouter(options: {
         where,
         ...(options.select ? { select: options.select } : {}),
         take: 100,
-        orderBy: { id: "desc" },
+        orderBy: options.orderBy ?? { id: "desc" },
       });
       return ok(res, redact(items));
     } catch (error) {

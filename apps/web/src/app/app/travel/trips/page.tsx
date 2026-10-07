@@ -176,10 +176,11 @@ function TripsContent() {
           return true;
         }}
         onRowNavigate={(row) => router.push(`/app/travel/trips/${row.id}?from=trips`)}
+        onCreated={(row) => router.push(`/app/travel/trips/${row.id}?from=trips`)}
       />
 
       <p className="muted my-expenses-hint">
-        Trips you can see in your access scope. Draft and book from the trip page; approvals stay in Trip requests.{" "}
+        Create opens the trip so you can search offers, reprice, submit, hold, confirm, then cancel/refund. Approvals stay in Trip requests / Inbox.{" "}
         {canSeeMine && (
           <Link className="detail-link" href="/app/me/travel">
             My travel →

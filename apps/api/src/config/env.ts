@@ -12,12 +12,17 @@ function travelProvider(): "mock" | "duffel" {
   return value === "duffel" ? "duffel" : "mock";
 }
 
+function quickBooksEnvironment(): "sandbox" | "production" {
+  return (process.env.QUICKBOOKS_ENVIRONMENT ?? "sandbox").trim().toLowerCase() === "production" ? "production" : "sandbox";
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 3001),
   databaseUrl: process.env.DATABASE_URL ?? "",
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   jwtSecret: process.env.JWT_SECRET ?? developmentJwtSecret,
+  encryptionKey: process.env.ENCRYPTION_KEY ?? "",
   storagePath: process.env.STORAGE_PATH ?? path.join(process.cwd(), "data", "uploads"),
   appUrl: process.env.APP_URL ?? "http://localhost:3000",
   seedPassword: process.env.SEED_PASSWORD ?? "password123",
@@ -40,6 +45,11 @@ export const env = {
   duffelAccessToken: (process.env.DUFFEL_ACCESS_TOKEN ?? "").trim(),
   duffelApiVersion: (process.env.DUFFEL_API_VERSION ?? "v2").trim() || "v2",
   duffelWebhookSecret: (process.env.DUFFEL_WEBHOOK_SECRET ?? "").trim(),
+  quickBooksClientId: (process.env.QUICKBOOKS_CLIENT_ID ?? "").trim(),
+  quickBooksClientSecret: (process.env.QUICKBOOKS_CLIENT_SECRET ?? "").trim(),
+  quickBooksEnvironment: quickBooksEnvironment(),
+  quickBooksRedirectUri: (process.env.QUICKBOOKS_REDIRECT_URI ?? `${process.env.API_URL ?? "http://localhost:3001"}/api/v1/integrations/quickbooks/callback`).trim(),
+  quickBooksWebhookVerifierToken: (process.env.QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN ?? "").trim(),
 };
 
 export function validateRuntimeConfiguration(config: {
@@ -52,6 +62,11 @@ export function validateRuntimeConfiguration(config: {
   stripeWebhookSecret?: string;
   travelProvider?: "mock" | "duffel";
   duffelAccessToken?: string;
+  encryptionKey?: string;
+  quickBooksClientId?: string;
+  quickBooksClientSecret?: string;
+  quickBooksEnvironment?: "sandbox" | "production";
+  quickBooksWebhookVerifierToken?: string;
 }): string[] {
   const errors: string[] = [];
 
@@ -60,6 +75,13 @@ export function validateRuntimeConfiguration(config: {
   }
   if (config.travelProvider === "duffel" && !config.duffelAccessToken?.trim()) {
     errors.push("DUFFEL_ACCESS_TOKEN is required when TRAVEL_PROVIDER=duffel");
+  }
+  const quickBooksConfigured = Boolean(config.quickBooksClientId?.trim() || config.quickBooksClientSecret?.trim());
+  if (quickBooksConfigured && (!config.quickBooksClientId?.trim() || !config.quickBooksClientSecret?.trim())) {
+    errors.push("QUICKBOOKS_CLIENT_ID and QUICKBOOKS_CLIENT_SECRET must be configured together");
+  }
+  if (quickBooksConfigured && (config.encryptionKey?.length ?? 0) < 16) {
+    errors.push("ENCRYPTION_KEY must contain at least 16 characters when QuickBooks is configured");
   }
 
   if (config.nodeEnv !== "production") return errors;
@@ -77,6 +99,9 @@ export function validateRuntimeConfiguration(config: {
   }
   if (config.travelProvider === "duffel" && config.duffelAccessToken?.startsWith("duffel_test_")) {
     errors.push("Production must not use Duffel test tokens (duffel_test_)");
+  }
+  if (quickBooksConfigured && config.quickBooksEnvironment === "production" && !config.quickBooksWebhookVerifierToken?.trim()) {
+    errors.push("QUICKBOOKS_WEBHOOK_VERIFIER_TOKEN is required for production QuickBooks webhooks");
   }
   return errors;
 }

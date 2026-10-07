@@ -1,4 +1,5 @@
 import { AppError } from "../../platform/http";
+import { MockTravelAdapter } from "./mock.travel.adapter";
 import type {
   TravelCancelInput,
   TravelCancelResult,
@@ -72,11 +73,13 @@ function cabinClass(cabin?: string): string {
 }
 
 /**
- * Live Duffel test/live search adapter.
- * Booking remains sandbox hold/confirm (same as mock) until passenger/payment capture is built.
+ * Live Duffel search adapter.
+ * Hold/confirm/cancel/refund run through the sandbox mock path for the demo playbook.
  */
 export class DuffelTravelAdapter implements TravelProvider {
   readonly name = "duffel" as const;
+  /** Demo playbook uses sandbox mock holds; live Duffel orders are not wired. */
+  private readonly sandbox = new MockTravelAdapter();
 
   constructor(
     private readonly accessToken: string,
@@ -195,6 +198,10 @@ export class DuffelTravelAdapter implements TravelProvider {
   }
 
   async search(input: TravelSearchInput): Promise<TravelQuote[]> {
+    if ((input.type === "HOTEL" && process.env.DUFFEL_ENABLE_STAYS !== "true")
+      || (input.type === "CAR" && process.env.DUFFEL_ENABLE_CARS !== "true")) {
+      throw new AppError("TRAVEL_FEATURE_UNAVAILABLE", `${input.type} search is not enabled for this provider account`, 409);
+    }
     if (input.type === "FLIGHT") return this.searchFlights(input);
     if (input.type === "HOTEL") return this.searchHotels(input);
     return this.searchCars(input);
@@ -438,56 +445,20 @@ export class DuffelTravelAdapter implements TravelProvider {
   }
 
   async reprice(input: TravelRepriceInput): Promise<TravelRepriceResult> {
-    // Offer refresh is offer-id specific; for now keep sandbox-friendly mild bump unless forceHigh.
-    const quoted = Number(input.quotedAmount);
-    const next = input.forceHigh
-      ? (quoted * 1.8).toFixed(2)
-      : (quoted + Math.min(10, quoted * 0.02)).toFixed(2);
-    return {
-      quoteId: input.quoteId,
-      amount: next,
-      currency: input.currency,
-      changed: next !== Number(input.quotedAmount).toFixed(2),
-      offerExpiry: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
-    };
-  }
-
-  async hold(input: TravelHoldInput): Promise<TravelHoldResult> {
-    return {
-      providerRef: `duffel_hold_${input.tripId.slice(0, 8)}_${input.quoteId.slice(-12)}`,
-      providerStatus: "MOCK_HOLD",
-      status: "BOOKED_MOCK",
-      confirmationNumber: `DHOLD-${input.tripId.slice(0, 6).toUpperCase()}`,
-    };
-  }
-
-  async confirm(input: TravelConfirmInput): Promise<TravelConfirmResult> {
-    if (!input.providerRef.startsWith("duffel_hold_") && !input.providerRef.startsWith("mock_hold_")) {
-      return { providerRef: input.providerRef, providerStatus: "FAILED", status: "FAILED" };
+    if (input.forceHigh) return this.sandbox.reprice(input);
+    const offer = await this.api<Json>("GET", `/air/offers/${encodeURIComponent(input.quoteId)}`);
+    const rawAmount = Number(offer.total_amount);
+    const amount = money2(offer.total_amount as string);
+    const currency = String(offer.total_currency ?? "").toUpperCase();
+    const offerExpiry = String(offer.expires_at ?? "");
+    if (!Number.isFinite(rawAmount) || rawAmount <= 0 || !/^[A-Z]{3}$/.test(currency) || !Number.isFinite(Date.parse(offerExpiry)) || Date.parse(offerExpiry) <= Date.now()) {
+      throw new AppError("QUOTE_EXPIRED", "Provider offer expired; search again", 409);
     }
-    const conf = input.providerRef.replace("duffel_hold_", "duffel_conf_").replace("mock_hold_", "duffel_conf_");
-    return {
-      providerRef: conf,
-      providerStatus: "CONFIRMED",
-      status: "CONFIRMED",
-      confirmationNumber: `DCNF-${conf.slice(-8).toUpperCase()}`,
-    };
+    return { quoteId: input.quoteId, amount, currency, changed: rawAmount !== Number(input.quotedAmount), offerExpiry };
   }
 
-  async cancel(input: TravelCancelInput): Promise<TravelCancelResult> {
-    if (!input.providerRef.startsWith("duffel_conf_") && !input.providerRef.startsWith("duffel_hold_")) {
-      return { providerRef: input.providerRef, status: "FAILED" };
-    }
-    return {
-      providerRef: input.providerRef,
-      status: input.refundable === false ? "CANCELLED" : "REFUND_PENDING",
-    };
-  }
-
-  async refund(input: TravelRefundInput): Promise<TravelRefundResult> {
-    if (!input.providerRef.startsWith("duffel_conf_") && !input.providerRef.startsWith("duffel_hold_")) {
-      return { providerRef: input.providerRef, status: "FAILED" };
-    }
-    return { providerRef: input.providerRef, status: "REFUNDED" };
-  }
+  async hold(input: TravelHoldInput): Promise<TravelHoldResult> { return this.sandbox.hold(input); }
+  async confirm(input: TravelConfirmInput): Promise<TravelConfirmResult> { return this.sandbox.confirm(input); }
+  async cancel(input: TravelCancelInput): Promise<TravelCancelResult> { return this.sandbox.cancel(input); }
+  async refund(input: TravelRefundInput): Promise<TravelRefundResult> { return this.sandbox.refund(input); }
 }

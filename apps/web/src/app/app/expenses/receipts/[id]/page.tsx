@@ -92,6 +92,7 @@ export default function ReceiptLinkPage() {
   }
 
   const receipt = detail.data?.receipt;
+  const alreadyLinked = Boolean(receipt?.expenseId) || receipt?.matchStatus === "MATCHED";
   const candidates = detail.data?.candidates ?? [];
 
   return (
@@ -99,7 +100,7 @@ export default function ReceiptLinkPage() {
       <div className="resource-heading">
         <PageHeader
           title="Link receipt"
-          subtitle="Suggested matches use merchant, amount, transaction, and employee context."
+          subtitle="Search by employee, merchant, amount, date, transaction, or expense id."
         />
         <Link className="btn btn-ghost" href={backHref}>
           {backLabel}
@@ -110,7 +111,7 @@ export default function ReceiptLinkPage() {
         <article className="overview-stat">
           <span>Merchant guess</span>
           <strong>{receipt?.merchantGuess?.trim() || "Unknown"}</strong>
-          <small>From OCR / upload</small>
+          <small>From OCR / upload filename</small>
         </article>
         <article className="overview-stat">
           <span>Amount guess</span>
@@ -128,14 +129,26 @@ export default function ReceiptLinkPage() {
         </article>
       </div>
 
+      {alreadyLinked && receipt?.expenseId ? (
+        <section className="panel">
+          <h2>Already linked</h2>
+          <p className="notice" role="status">
+            This receipt is linked to an expense.
+          </p>
+          <Link className="btn btn-primary" href={`/app/expenses/${receipt.expenseId}`}>
+            Open linked expense
+          </Link>
+        </section>
+      ) : null}
+
       <section className="panel">
-        <h2>Find expense</h2>
+        <h2>{alreadyLinked ? "Other candidates" : "Find expense"}</h2>
         <div className="form-grid">
           <label>
             Search candidates
             <input
               className="input"
-              placeholder="Employee, merchant, amount, transaction, or expense"
+              placeholder="Employee, merchant, amount, date, transaction, or expense"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -157,6 +170,7 @@ export default function ReceiptLinkPage() {
                 ? `${candidate.employee.firstName} ${candidate.employee.lastName}`.trim() ||
                   candidate.employee.email
                 : "Employee";
+              const isCurrent = receipt?.expenseId === candidate.id;
               return (
                 <li key={candidate.id} className="receipt-candidate">
                   <div className="receipt-candidate-main">
@@ -170,14 +184,20 @@ export default function ReceiptLinkPage() {
                     {new Date(candidate.createdAt).toLocaleDateString()}
                     {candidate.transactionId ? ` · txn ${candidate.transactionId.slice(0, 8)}` : ""}
                   </div>
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    disabled={link.isPending}
-                    onClick={() => link.mutate(candidate.id)}
-                  >
-                    Link to this expense
-                  </button>
+                  {isCurrent ? (
+                    <Link className="btn btn-ghost" href={`/app/expenses/${candidate.id}`}>
+                      Linked — open expense
+                    </Link>
+                  ) : (
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      disabled={link.isPending}
+                      onClick={() => link.mutate(candidate.id)}
+                    >
+                      Link to this expense
+                    </button>
+                  )}
                 </li>
               );
             })}

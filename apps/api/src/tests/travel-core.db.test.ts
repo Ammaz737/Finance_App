@@ -30,6 +30,38 @@ function ctx(partial: Partial<RequestContext> & Pick<RequestContext, "userId" | 
 }
 
 describe.runIf(runDb)("M9/GF5 core travel", () => {
+  it("rejects blank trip names and fabricated or altered quotes", async () => {
+    const traveler = ctx({ userId: travelerId, organizationId: orgId });
+    const input = { name: "Quote regression", legalEntityId: entityId, destination: "New York", startDate: "2027-12-01", endDate: "2027-12-03", estimatedAmount: "800.00", currency: "USD" };
+    await expect(travel.createTrip(traveler, { ...input, name: "   " })).rejects.toMatchObject({ code: "INVALID_NAME" });
+    const trip = await travel.createTrip(traveler, input);
+    const quote = (await travel.search(traveler, trip.id, { type: "FLIGHT" })).quotes[0];
+    await expect(travel.selectQuote(traveler, trip.id, { ...quote, quoteId: "invented_offer" })).rejects.toMatchObject({ code: "QUOTE_NOT_FOUND" });
+    await expect(travel.selectQuote(traveler, trip.id, { ...quote, amount: "0.01" })).rejects.toMatchObject({ code: "QUOTE_MISMATCH" });
+    await expect(travel.selectQuote(traveler, trip.id, { ...quote, outOfPolicy: !quote.outOfPolicy })).rejects.toMatchObject({ code: "QUOTE_MISMATCH" });
+    const selected = await travel.selectQuote(traveler, trip.id, { ...quote, policyResult: "BLOCK" });
+    expect(selected.booking.amount.toString()).toBe(Number(quote.amount).toString());
+    expect(selected.policy.result).not.toBe("BLOCK");
+  });
+  it("keeps ordinary spend and each trip on separate cards and funds", async () => {
+    const traveler = ctx({ userId: travelerId, organizationId: orgId });
+    const approver = ctx({ userId: approverId, organizationId: orgId });
+    const ordinary = await prisma.card.create({ data: { organizationId: orgId, legalEntityId: entityId, holderId: travelerId, fundId, type: "VIRTUAL", last4: "1234", token: `ordinary-${suffix}`, allowedMccs: "software", status: "ACTIVE" } });
+    const ids: string[] = [];
+    for (let n = 0; n < 2; n++) {
+      const trip = await travel.createTrip(traveler, { name: `Separate trip ${n}`, legalEntityId: entityId, destination: "New York", startDate: "2027-12-01", endDate: "2027-12-03", estimatedAmount: "800.00", currency: "USD" });
+      const quote = (await travel.search(traveler, trip.id, { type: "FLIGHT" })).quotes[0];
+      const selected = await travel.selectQuote(traveler, trip.id, quote);
+      await travel.submit(traveler, trip.id); await travel.approve(approver, trip.id);
+      await travel.bookMock(traveler, selected.booking.id);
+      const confirmed = await travel.confirmBooking(traveler, selected.booking.id);
+      ids.push(confirmed.card!.id);
+      expect(confirmed.card!.id).not.toBe(ordinary.id);
+      expect(confirmed.card!.fundId).not.toBe(fundId);
+    }
+    expect(new Set(ids).size).toBe(2);
+    expect(await prisma.card.findUniqueOrThrow({ where: { id: ordinary.id } })).toMatchObject({ fundId, allowedMccs: "software", status: "ACTIVE" });
+  });
   beforeAll(async () => {
     process.env.NODE_ENV = "development";
     await prisma.$connect();

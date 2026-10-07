@@ -27,6 +27,7 @@ type Booking = {
 };
 
 type Detail = {
+  capabilities: { provider: string; searchTypes: string[]; booking: boolean; sandbox: boolean; message: string };
   trip: {
     id: string; name: string; destination: string; origin?: string; purpose: string;
     startDate: string | null; endDate: string | null;
@@ -37,10 +38,15 @@ type Detail = {
   };
   bookings: Booking[];
   fund: { id: string; name: string; availableAmount?: string | number } | null;
-  card: { id: string; last4: string; status: string; allowedMccs?: string | null; providerRef?: string | null } | null;
+  card: { id: string; last4: string; status: string; allowedMccs?: string | null; providerRef?: string | null; provider?: string } | null;
   expense: { id: string; merchant: string; memo?: string; userId?: string } | null;
   approval: { status: string; currentStep: number } | null;
-  audit: Array<{ id: string; action: string; createdAt: string }>;
+  audit: Array<{
+    id: string;
+    action: string;
+    createdAt: string;
+    newValue?: { fundId?: string | null; cardId?: string | null; status?: string; amount?: string | number; [key: string]: unknown } | null;
+  }>;
 };
 
 function money(currency: string, value: string | number | null | undefined) {
@@ -163,7 +169,7 @@ function TravelTripDetailInner() {
   }
   if (detail.isPending || !detail.data) return <p className="muted">Loading trip…</p>;
 
-  const { trip, bookings, fund, card, expense, approval, audit } = detail.data;
+  const { trip, bookings, fund, card, expense, approval, audit, capabilities } = detail.data;
   const privileged = session?.roles.includes("Owner") || session?.permissions.includes("*");
   const isMine = Boolean(session?.userId && session.userId === trip.travelerId);
   const canBook = Boolean(privileged || session?.permissions.includes("travel.book"));
@@ -172,6 +178,7 @@ function TravelTripDetailInner() {
   const canSubmit = trip.status === "DRAFT" && canBook;
   const bookable = ["READY_TO_BOOK", "APPROVED", "BOOKING"].includes(trip.status);
   const canSearch = canBook && ["DRAFT", "APPROVED", "READY_TO_BOOK", "PENDING_APPROVAL", "BOOKING"].includes(trip.status);
+  const sandboxBooking = Boolean(capabilities?.booking ?? true);
   const pending = tripAction.isPending || search.isPending || selectQuote.isPending || bookingAction.isPending || linkFund.isPending || linkExpense.isPending;
   const error = tripAction.error || search.error || selectQuote.error || bookingAction.error || linkFund.error || linkExpense.error;
 
@@ -294,32 +301,33 @@ function TravelTripDetailInner() {
                 </dl>
               )}
               <div className="detail-actions">
-                {canBook && bookable && ["QUOTED", "PENDING_APPROVAL"].includes(booking.status) && (
-                  <>
-                    <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => bookingAction.mutate({ id: booking.id, action: "reprice" })}>
-                      Reprice
-                    </button>
-                    <button className="btn btn-primary" type="button" disabled={pending} onClick={() => bookingAction.mutate({ id: booking.id, action: "book-mock" })}>
-                      Place mock hold
-                    </button>
-                  </>
+                {canBook && ["QUOTED", "PENDING_APPROVAL", "REPRICE_REQUIRED"].includes(booking.status)
+                  && ["DRAFT", "PENDING_APPROVAL", "READY_TO_BOOK", "APPROVED", "BOOKING"].includes(trip.status) && (
+                  <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => bookingAction.mutate({ id: booking.id, action: "reprice" })}>
+                    Reprice
+                  </button>
+                )}
+                {canBook && sandboxBooking && bookable && ["QUOTED", "PENDING_APPROVAL"].includes(booking.status) && (
+                  <button className="btn btn-primary" type="button" disabled={pending} onClick={() => bookingAction.mutate({ id: booking.id, action: "book-mock" })}>
+                    Place mock hold
+                  </button>
                 )}
                 {canBook && booking.status === "REPRICE_REQUIRED" && (
                   <span className="muted">Price change exceeds tolerance — reselect or reapprove.</span>
                 )}
-                {canBook && booking.status === "BOOKED_MOCK" && (
+                {canBook && sandboxBooking && booking.status === "BOOKED_MOCK" && (
                   <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => bookingAction.mutate({ id: booking.id, action: "confirm" })}>
-                    Confirm (sandbox)
+                    Confirm sandbox booking
                   </button>
                 )}
-                {canBook && ["CONFIRMED", "BOOKED_MOCK"].includes(booking.status) && (
+                {canBook && sandboxBooking && ["CONFIRMED", "BOOKED_MOCK"].includes(booking.status) && (
                   <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => bookingAction.mutate({ id: booking.id, action: "cancel" })}>
                     Cancel
                   </button>
                 )}
-                {canBook && ["REFUND_PENDING", "CANCELLED"].includes(booking.status) && (
+                {canBook && sandboxBooking && ["REFUND_PENDING", "CANCELLED"].includes(booking.status) && (
                   <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => bookingAction.mutate({ id: booking.id, action: "refund" })}>
-                    Record refund
+                    Refund / Simulate refund
                   </button>
                 )}
               </div>
@@ -328,6 +336,7 @@ function TravelTripDetailInner() {
           {!bookings.length && <li className="muted">No quotes selected yet. Search below.</li>}
         </ul>
 
+        <p className="notice" role="status">{capabilities.message}</p>
         {canSearch && (
           <div className="travel-search-toolbar">
             <select
@@ -341,8 +350,8 @@ function TravelTripDetailInner() {
               aria-label="Search type"
             >
               <option value="FLIGHT">Flights</option>
-              <option value="HOTEL">Hotels</option>
-              <option value="CAR">Cars</option>
+              <option value="HOTEL" disabled={!capabilities.searchTypes.includes("HOTEL")}>Hotels</option>
+              <option value="CAR" disabled={!capabilities.searchTypes.includes("CAR")}>Cars</option>
             </select>
             <button className="btn btn-primary" type="button" disabled={pending} onClick={() => search.mutate()}>Search quotes</button>
           </div>
@@ -382,7 +391,7 @@ function TravelTripDetailInner() {
         <div className="detail-actions" style={{ marginTop: "1.25rem" }}>
           {canSubmit && <button className="btn btn-primary" type="button" disabled={pending} onClick={() => tripAction.mutate("submit")}>Submit</button>}
           {canApprove && <button className="btn btn-primary" type="button" disabled={pending} onClick={() => tripAction.mutate("approve")}>Approve</button>}
-          {canBook && bookable && (
+          {canBook && bookable && !trip.fundId && !trip.cardId && (
             <button className="btn btn-ghost" type="button" disabled={pending} onClick={() => tripAction.mutate("provision")}>Provision fund/card</button>
           )}
         </div>
@@ -390,12 +399,15 @@ function TravelTripDetailInner() {
 
       <section className="work-panel">
         <h2>Fund / Card / Expense</h2>
+        {(trip.fundId || trip.cardId) && (
+          <p className="muted">Auto-attached on sandbox booking confirm (booking amount · travel-restricted card). Card spend appears only after a separate authorization/capture.</p>
+        )}
         <dl className="detail-list">
           <div>
             <dt>Fund</dt>
             <dd>
               {fundHref ? (
-                <Link className="detail-link" href={fundHref}>{fund?.name ?? "Open fund"}</Link>
+                <Link className="detail-link" href={fundHref}>{fund?.name ?? trip.fundId ?? "Open fund"}</Link>
               ) : (fund?.name ?? trip.fundId ?? "—")}
             </dd>
           </div>
@@ -404,10 +416,10 @@ function TravelTripDetailInner() {
             <dd>
               {card && cardHref ? (
                 <Link className="detail-link" href={cardHref}>
-                  ····{card.last4} · {card.status}{card.providerRef?.startsWith("sandbox_") ? " · SANDBOX / MOCK CARD" : ""}
+                  ····{card.last4} · {card.status}{card.provider === "mock" ? " · Sandbox / mock issuer" : ""}
                 </Link>
               ) : card ? (
-                <>····{card.last4} · {card.status}{card.providerRef?.startsWith("sandbox_") ? " · SANDBOX / MOCK CARD" : ""}</>
+                <>····{card.last4} · {card.status}{card.provider === "mock" ? " · Sandbox / mock issuer" : ""}</>
               ) : (trip.cardId ?? "—")}
             </dd>
           </div>
@@ -422,7 +434,7 @@ function TravelTripDetailInner() {
             </dd>
           </div>
         </dl>
-        {canBook && (
+        {canBook && !trip.fundId && (
           <div className="record-form">
             <label>Fund ID<input className="input" value={fundId} onChange={(event) => setFundId(event.target.value)} placeholder="Link spend fund" /></label>
             <button className="btn btn-ghost" type="button" disabled={pending || !fundId.trim()} onClick={() => linkFund.mutate()}>Link fund</button>
@@ -435,15 +447,24 @@ function TravelTripDetailInner() {
       <section className="work-panel">
         <h2>Activity</h2>
         <ul className="plain-list">
-          {(audit ?? []).map((event) => (
-            <li key={event.id}>
-              <code>{event.action}</code>
-              {event.action === "travel.refund" ? " · refund recorded" : ""}
-              {event.action === "travel.cancel" ? " · booking cancelled" : ""}
-              {" · "}
-              {fmtDate(event.createdAt)}
-            </li>
-          ))}
+          {(audit ?? []).map((event) => {
+            const nv = event.newValue ?? null;
+            const fundRef = nv?.fundId ? String(nv.fundId).slice(0, 8) : null;
+            const cardRef = nv?.cardId ? String(nv.cardId).slice(0, 8) : null;
+            return (
+              <li key={event.id}>
+                <code>{event.action}</code>
+                {event.action === "travel.confirm" ? " · booking confirmed" : ""}
+                {event.action === "travel.refund" ? " · refund recorded" : ""}
+                {event.action === "travel.cancel" ? " · booking cancelled" : ""}
+                {fundRef ? ` · fund ${fundRef}…` : ""}
+                {cardRef ? ` · card ${cardRef}…` : ""}
+                {nv?.status ? ` · ${String(nv.status)}` : ""}
+                {" · "}
+                {fmtDate(event.createdAt)}
+              </li>
+            );
+          })}
           {!(audit ?? []).length && <li className="muted">No audit events yet.</li>}
         </ul>
       </section>

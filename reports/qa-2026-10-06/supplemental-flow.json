@@ -1,0 +1,31 @@
+[
+  {
+    "step": "submit",
+    "status": "PENDING_APPROVAL",
+    "requiresApproval": true
+  },
+  {
+    "step": "approval, booking, confirmation",
+    "status": "CONFIRMED",
+    "hold": "BOOKED_MOCK",
+    "fund": "32b05f50-fd3d-4258-a682-a046250d62bf",
+    "card": "b2bc9d88-a116-4991-97ef-a4e345c3b556"
+  },
+  {
+    "step": "UI amount/merchant/MCC authorize and capture",
+    "status": "PASS"
+  },
+  {
+    "step": "matching expense approval and accounting mock ERP sync",
+    "transactionId": "da48b589-6308-496c-adfd-f9a6cfaecac1",
+    "expenseId": "ef7a97be-25ec-4eb6-b45b-558b969294af",
+    "entryId": "7065b457-c498-42d3-b6ac-89cbcf19f8d2",
+    "status": "SYNCED",
+    "externalId": "qbo_7065b457-c498-42d3-b6ac-89cbcf19f8d2"
+  },
+  {
+    "step": "booking cancel/refund",
+    "cancelStatus": "REFUND_PENDING",
+    "status": "REFUNDED"
+  }
+]

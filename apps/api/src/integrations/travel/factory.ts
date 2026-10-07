@@ -39,3 +39,21 @@ export function resetTravelProviderForTests(): void {
 export function isDuffelTravelProvider(): boolean {
   return getTravelProvider().name === "duffel";
 }
+
+export function getTravelCapabilities() {
+  const provider = getTravelProvider().name;
+  return {
+    provider,
+    searchTypes: provider === "mock" ? ["FLIGHT", "HOTEL", "CAR"] : [
+      "FLIGHT",
+      ...(process.env.DUFFEL_ENABLE_STAYS === "true" ? ["HOTEL"] : []),
+      ...(process.env.DUFFEL_ENABLE_CARS === "true" ? ["CAR"] : []),
+    ],
+    // Duffel search is live; hold/confirm/cancel/refund stay sandbox (mock) for the demo playbook.
+    booking: true,
+    sandbox: true,
+    message: provider === "duffel"
+      ? "Live Duffel flight search. Place mock hold / Confirm / Cancel / Refund are sandbox-only (no live tickets). Hotels/cars need provider access."
+      : "Sandbox bookings only; no tickets or provider payments are created.",
+  };
+}

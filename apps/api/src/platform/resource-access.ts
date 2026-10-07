@@ -19,7 +19,11 @@ const rules: Record<string, AccessRule> = {
   departments: { publicToTenant: true, create: "roles.assign", actions: { update: "roles.assign", archive: "roles.assign" } },
   locations: { publicToTenant: true, create: "roles.assign", actions: { update: "roles.assign", archive: "roles.assign" } },
   people: { read: ["people.read"], create: "people.invite", actions: { publish: "people.edit", update: "people.edit", "assign-role": "roles.assign", "remove-role": "roles.assign", suspend: "people.edit", terminate: "people.edit", "reset-credentials": "people.edit" }, entityField: "id" },
-  rbac: { read: ["roles.assign", "people.invite"] },
+  rbac: {
+    read: ["roles.assign", "people.invite"],
+    create: "roles.assign",
+    actions: { update: "roles.assign" },
+  },
   policies: { read: ["roles.assign"], create: "roles.assign", actions: { version: "roles.assign", disable: "roles.assign" } },
   approvals: { read: ["roles.assign"], create: "roles.assign", actions: { version: "roles.assign", enable: "roles.assign", disable: "roles.assign" } },
   "accounting-dimensions": { read: ["accounting.read", "accounting.code"], create: "accounting.code", actions: { update: "accounting.code" } },
@@ -41,7 +45,7 @@ const rules: Record<string, AccessRule> = {
   "payment-runs": { read: ["payment_run.manage"], create: "payment_run.manage", actions: { release: "payment_run.manage", "add-payments": "payment_run.manage", "remove-payments": "payment_run.manage" }, entityField: "legalEntityId" },
   // Bank accounts are needed as payment-run / payment source selectors (not Owner-only).
   banking: { read: ["payment_run.manage", "payment.create", "payment.release", "treasury.transfer.create"], entityField: "legalEntityId" },
-  travel: { read: ["travel.book", "travel.approve"], create: "travel.book", actions: { search: "travel.book", "select-quote": "travel.book", submit: "travel.book", approve: "travel.approve", "link-fund": "travel.book", "link-expense": "travel.book", provision: "travel.book", "import-booking": "travel.book" }, ownerField: "travelerId", entityField: "legalEntityId" },
+  travel: { read: ["travel.book", "travel.approve"], create: "travel.book", actions: { update: "travel.book", delete: "travel.book", search: "travel.book", "select-quote": "travel.book", submit: "travel.book", approve: "travel.approve", "link-fund": "travel.book", "link-expense": "travel.book", provision: "travel.book", "import-booking": "travel.book" }, ownerField: "travelerId", entityField: "legalEntityId" },
   "travel-bookings": { read: ["travel.book", "travel.approve"], actions: { "book-mock": "travel.book", confirm: "travel.book", reprice: "travel.book", cancel: "travel.book", refund: "travel.book" } },
   procurement: { read: ["procurement.request", "procurement.review"], create: "procurement.request", actions: { submit: "procurement.request", approve: "procurement.review" }, ownerField: "requesterId", entityField: "legalEntityId" },
   // ownerId is the procurement requester (set on PO issue) so Manager DIRECT_REPORTS scopes work.

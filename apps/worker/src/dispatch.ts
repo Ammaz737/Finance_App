@@ -4,6 +4,7 @@ import { processAccountingSyncJob } from "./processors/accounting-sync.processor
 import { processDocumentQuarantineJob } from "./processors/documents.processor";
 import { processOcrJob } from "./processors/ocr.processor";
 import { allEventTypes, eventDefinition } from "./event-catalog";
+import { processQuickBooksWebhook } from "./integrations/quickbooks";
 
 export const supportedEvents = Object.fromEntries(
   allEventTypes.map((type) => [type, eventDefinition(type)!.queue]),
@@ -30,6 +31,13 @@ export async function processSupportedEvent(
   }
   if (type === "accounting.sync_requested") {
     await processAccountingSyncJob(prisma, data as { jobId?: string; entryIds?: string[] });
+    return;
+  }
+  if (type === "quickbooks.webhook_received") {
+    const webhookEventId = typeof data.webhookEventId === "string" ? data.webhookEventId : "";
+    const connectionId = typeof data.connectionId === "string" ? data.connectionId : "";
+    if (!webhookEventId || !connectionId) throw new Error("QuickBooks webhook job is incomplete");
+    await processQuickBooksWebhook(prisma, webhookEventId, connectionId);
     return;
   }
   if (type === "document.quarantined") {

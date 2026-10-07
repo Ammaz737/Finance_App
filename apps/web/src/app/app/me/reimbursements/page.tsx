@@ -77,9 +77,10 @@ export default function MyReimbursementsPage() {
         pageSize={20}
         myWorkFilters
         onRowNavigate={(row) => router.push(`/app/expenses/reimbursements/${row.id}`)}
+        onCreated={(row) => router.push(`/app/expenses/reimbursements/${row.id}`)}
       />
       <p className="muted my-expenses-hint">
-        Create a draft, open it to attach a receipt (required for standard spend ≥ $75), then submit for approval.{" "}
+        Create opens the draft so you can attach a receipt (required for standard spend ≥ $75) and submit.{" "}
         <Link className="detail-link" href="/app/me/expenses">
           Card expenses →
         </Link>

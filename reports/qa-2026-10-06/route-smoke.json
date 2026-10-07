@@ -1,0 +1,922 @@
+[
+  {
+    "route": "/app/accounting/banking",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/accounting/bill-pay",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/accounting/card",
+    "http": 200,
+    "title": "Card accounting",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "es\nApproval rules\nAccounting dimensions\nIntegrations\nAudit log\nAA\nAva Admin\nOwner\nWORKSPACE\nFinance\nSearch\nInbox\nNotifications\nSign out\nOverview\nNeeds review\nReady to sync\nSynced\nSync errors\nCards\nReimbursements\nBill Pay\nRules\nIntegrations\nCard accounting\n\nReview and code financial activity before export or ERP sync.\n\nSearch Card accounting\nSaved view name\nSave view\n4 records\nENTRY\tAMOUNT\tSTATUS\tCATEGORY\t\n\nCard\nQA refund\n\tUSD 10.00\tNEEDS REVIEW\t—\tOpen →\n\nCard\nqa-sandbox-1791286539307\n\tUSD 1.00\tNEEDS REVIEW\t—\tOpen →\n\nCard\nSoftware\n\tUSD 42.00\tNEEDS REVIEW\tSoftware\tOpen →\n\nCard\nQA refund\n\tUSD 10.00\tNEEDS REVIEW\t—\tOpen →\n\nCard and expense postings. Incomplete coding also appears in Needs review."
+  },
+  {
+    "route": "/app/accounting/errors",
+    "http": 200,
+    "title": "Sync errors",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "s\nRules\nIntegrations\nINSIGHTS\nDashboard\nBudgets\nNotifications\nTRAVEL\nTrips\nTrip requests\nSearch\nReports\nCOMPANY\nSettings\nEntities\nDepartments\nLocations\nPeople\nRoles\nPolicies\nApproval rules\nAccounting dimensions\nIntegrations\nAudit log\nAA\nAva Admin\nOwner\nWORKSPACE\nSync errors\nSearch\nInbox\nNotifications\nSign out\nOverview\nNeeds review\nReady to sync\nSynced\nSync errors\nCards\nReimbursements\nBill Pay\nRules\nIntegrations\nSync errors\n\nReview and code financial activity before export or ERP sync.\n\nSearch Sync errors\nSaved view name\nSave view\n0 records\n\nNo sync errors match the current filters.\n\nRetry keeps the same ERP posting id. Fix coding first if needed, then mark ready. Queue health is on Overview."
+  },
+  {
+    "route": "/app/accounting/integrations",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/accounting/overview",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/accounting/ready-to-sync",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/accounting/reimbursements",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/accounting/review",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/accounting/rules",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/accounting/synced",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/ai/activity",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/ai/agents",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/ai/ask",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/ai/router",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/ai/sheets",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/ai/token-spend",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/banking/accounts",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/banking/automations",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/banking/forecast",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/banking/statements",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/banking/transactions",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/banking/transfers",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/bill-pay/bills/new",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/bill-pay/bills",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/bill-pay/payment-runs",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/bill-pay/payments",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/bill-pay/recurring",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/bill-pay/settings",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/cards",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/accounting-dimensions",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/approvals",
+    "http": 200,
+    "title": "Approval workflow builder",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": ".\n\nPolicies\nInbox\nCreate workflow\nWorkflow name\nObject type\nspend_request\nbill\nexpense\nreimbursement\nprocurement\ntravel\nEnable after save\nApproval steps\nmanager\nbudget\nfinance\nap\ncontroller\ndepartment_head\nlegal\ncfo\nentity\nSerial\nParallel\nRemove\nAdd step\nSave workflowPreview / simulate\nWorkflow versions\nProcurement v1 · procurement · 2 steps\nENABLED\nEdit / version\nDisable\nReimbursement v1 · reimbursement · 1 steps\nENABLED\nEdit / version\nDisable\nBill v1 · bill · 2 steps\nENABLED\nEdit / version\nDisable\nSpend request v1 · spend_request · 2 steps\nENABLED\nEdit / version\nDisable\nTravel v1 · travel · 2 steps\nENABLED\nEdit / version\nDisable\nExpense v1 · expense · 1 steps\nENABLED\nEdit / version\nDisable"
+  },
+  {
+    "route": "/app/company/audit",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/billing",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/departments",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/entities",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/integrations",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/locations",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/people",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/policy",
+    "http": 200,
+    "title": "Policy builder",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "est\nprocurement\nbill\ntravel\nPriority\nEffective date\nEnabled\nConditions and actions\nreceipt_required\nmemo_required\nvendor_required\nquote_required\nhigh_value\ncategory_amount\nmanager_approval\nhard_policy_block\ntravel_max_amount\ntravel_out_of_policy\nWARN\nREVIEW / require approval\nBLOCK\nRemove\nAdd rule\nSave policySimulate\nPolicy versions\nReimbursement receipt required v1 · reimbursement · priority 100 · 2 rules\nENABLED\nEdit / version\nDisable\nReceipt required v1 · expense · priority 100 · 1 rules\nENABLED\nEdit / version\nDisable\nProcurement policy v1 · procurement · priority 100 · 4 rules\nENABLED\nEdit / version\nDisable\nTravel policy v1 · travel · priority 100 · 2 rules\nENABLED\nEdit / version\nDisable"
+  },
+  {
+    "route": "/app/company/rewards",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/roles",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/company/security",
+    "http": 200,
+    "title": "Security",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "grams\nPurchase Orders\nReceiving\nMatch Exceptions\nVENDORS & BILL PAY\nVendors\nBills\nFor approval\nFor payment\nPayments\nPayment runs\nHistory\nACCOUNTING\nOverview\nNeeds review\nReady to sync\nSynced\nSync errors\nRules\nIntegrations\nINSIGHTS\nDashboard\nBudgets\nNotifications\nTRAVEL\nTrips\nTrip requests\nSearch\nReports\nCOMPANY\nSettings\nEntities\nDepartments\nLocations\nPeople\nRoles\nPolicies\nApproval rules\nAccounting dimensions\nIntegrations\nAudit log\nAA\nAva Admin\nOwner\nWORKSPACE\nFinance\nSearch\nInbox\nNotifications\nSign out\nSecurity\n\nManage your sign-in credentials.\n\nChange password\nCurrent password\nNew password\nConfirm password\n\nUse at least 12 characters with uppercase, lowercase, and a number.\n\nChange password"
+  },
+  {
+    "route": "/app/company/settings",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/developer",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/disputes",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/expenses/receipts",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/expenses/reimbursements",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/expenses/transactions",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/expenses/travel",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/home",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/inbox",
+    "http": 200,
+    "title": "Inbox",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/insights/budgets",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/insights/dashboard",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/insights/license-intelligence",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/insights/price-intelligence",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/insights/reports",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/insights/savings",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/me/cards",
+    "http": 200,
+    "title": "My card",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/me/expenses",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/me/reimbursements",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/me/requests",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/me/travel",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/notifications",
+    "http": 200,
+    "title": "Notifications",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": true,
+    "sample": "Vendors\nBills\nFor approval\nFor payment\nPayments\nPayment runs\nHistory\nACCOUNTING\nOverview\nNeeds review\nReady to sync\nSynced\nSync errors\nRules\nIntegrations\nINSIGHTS\nDashboard\nBudgets\nNotifications\nTRAVEL\nTrips\nTrip requests\nSearch\nReports\nCOMPANY\nSettings\nEntities\nDepartments\nLocations\nPeople\nRoles\nPolicies\nApproval rules\nAccounting dimensions\nIntegrations\nAudit log\nAA\nAva Admin\nOwner\nWORKSPACE\nNotifications\nSearch\nInbox\nNotifications\nSign out\nNotifications\n\nYou are caught up\n\nMark all read\nAll\nUnread\nNo notifications yet\n\nApprovals, payments, and exceptions show up here with deep links to the source record.\n\nOpen inbox\n\nNotifications are personal to your account. Inbox → Executive dashboard →"
+  },
+  {
+    "route": "/app",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/procurement/contracts",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/procurement/match-exceptions",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/procurement/programs",
+    "http": 200,
+    "title": "Procurement programs",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "TRAVEL\nTrips\nTrip requests\nSearch\nReports\nCOMPANY\nSettings\nEntities\nDepartments\nLocations\nPeople\nRoles\nPolicies\nApproval rules\nAccounting dimensions\nIntegrations\nAudit log\nAA\nAva Admin\nOwner\nWORKSPACE\nPrograms\nSearch\nInbox\nNotifications\nSign out\nProcurement programs\n\nIntake programs that route purchase requests to the right reviewers.\n\nNew intake program\nSearch Procurement programs\nSaved view name\nSave view\n1 records\nPROGRAM\tDEFAULT OUTCOME\tRECEIVING\tMATCH TOLERANCE\tSTATUS\n\nSoftware intake\nRoutes purchase requests to reviewers\n\tPurchase order\tRequired\t1.0%\tACTIVE\n\nActive programs appear when creating procurement requests. After approval, fulfillment continues in Requests and Purchase orders."
+  },
+  {
+    "route": "/app/procurement/purchase-orders",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/procurement/receiving",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/procurement/renewals",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/procurement/requests",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/procurement/sourcing",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/receivables/cash-application",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/receivables/collections",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/receivables/customers",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/receivables/invoices",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/receivables/payments",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/search",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/spend/cards",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/spend/funds",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/spend/programs",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/spend/requests",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/spend/transactions",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/tax",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/travel/policy",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/travel/reports",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/travel/requests",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/travel/search",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/travel/travelers",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/travel/trips",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  },
+  {
+    "route": "/app/vendors",
+    "http": 200,
+    "title": "",
+    "errors": [],
+    "apiFailures": [],
+    "issue": false,
+    "emptyState": false,
+    "sample": "Loading your workspace…"
+  }
+]

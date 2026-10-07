@@ -2,11 +2,9 @@
   "config": {
     "argv": [
       "C:\\Program Files\\nodejs\\node.exe",
-      "C:\\Ammaz\\finance\\apps\\web\\node_modules\\@playwright\\test\\cli.js",
+      "C:\\Ammaz\\finance\\node_modules\\playwright\\cli.js",
       "test",
-      "e2e/p0-5-ux.spec.ts",
-      "--grep",
-      "G7"
+      "--last-failed"
     ],
     "configFile": "C:\\Ammaz\\finance\\apps\\web\\playwright.config.ts",
     "rootDir": "C:/Ammaz/finance/apps/web/e2e",
@@ -38,7 +36,7 @@
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
         ],
-        "timeout": 60000
+        "timeout": 120000
       }
     ],
     "quiet": false,
@@ -68,18 +66,18 @@
   },
   "suites": [
     {
-      "title": "p0-5-ux.spec.ts",
-      "file": "p0-5-ux.spec.ts",
+      "title": "golden-flows.spec.ts",
+      "file": "golden-flows.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [
         {
-          "title": "G7 — Spend request form loads entity and program options",
+          "title": "A: spend request to accounting golden journey",
           "ok": true,
           "tags": [],
           "tests": [
             {
-              "timeout": 60000,
+              "timeout": 120000,
               "annotations": [],
               "expectedStatus": "passed",
               "projectId": "",
@@ -89,12 +87,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 4207,
+                  "duration": 87442,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-09-22T14:04:37.565Z",
+                  "startTime": "2026-10-06T12:38:51.683Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -102,8 +100,8 @@
               "status": "expected"
             }
           ],
-          "id": "fed96ca3b11f6d4865d1-6839020dda91b8e04dbb",
-          "file": "p0-5-ux.spec.ts",
+          "id": "08c379e98cfaebda2019-c4ca5850e9cae140b55a",
+          "file": "golden-flows.spec.ts",
           "line": 41,
           "column": 5
         }
@@ -112,8 +110,8 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-09-22T14:04:36.846Z",
-    "duration": 7226.584,
+    "startTime": "2026-10-06T12:38:48.429Z",
+    "duration": 127896.146,
     "expected": 1,
     "skipped": 0,
     "unexpected": 0,

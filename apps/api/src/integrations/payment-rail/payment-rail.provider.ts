@@ -16,6 +16,9 @@ export type PaymentRailReleaseResult = {
 
 export type PaymentRailSettleInput = {
   providerRef: string;
+  paymentId?: string;
+  amount?: string;
+  currency?: string;
 };
 
 export type PaymentRailSettleResult = {

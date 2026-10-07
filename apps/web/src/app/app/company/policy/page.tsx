@@ -20,11 +20,15 @@ type Policy = {
   rules: Rule[];
 };
 
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 const blank = {
-  name: "",
+  name: "Receipt over 75",
   objectType: "expense",
-  priority: "100",
-  effectiveFrom: "",
+  priority: "10",
+  effectiveFrom: todayIsoDate(),
   enabled: false,
   rules: [{ type: "receipt_required", threshold: 75, action: "block" }] as Rule[],
 };
@@ -35,6 +39,9 @@ export default function PolicyPage() {
   const [form, setForm] = useState(blank);
   const [editing, setEditing] = useState<Policy | null>(null);
   const [message, setMessage] = useState("");
+  const [simAmount, setSimAmount] = useState("100");
+  const [simHasReceipt, setSimHasReceipt] = useState(false);
+  const [simHasMemo, setSimHasMemo] = useState(false);
 
   const canSeeApprovals = session
     ? canSeeItem(findNavItem("/app/company/approvals") ?? { href: "/app/company/approvals", permission: "roles.assign" }, session)
@@ -51,9 +58,9 @@ export default function PolicyPage() {
         priority: Number(form.priority),
       }),
     onSuccess: () => {
-      setMessage(editing ? "New policy version saved." : "Policy created.");
+      setMessage(editing ? "New policy version saved." : "Policy created (disabled until you enable after review).");
       setEditing(null);
-      setForm(blank);
+      setForm({ ...blank, effectiveFrom: todayIsoDate() });
       void client.invalidateQueries({ queryKey: ["policies"] });
     },
   });
@@ -66,11 +73,16 @@ export default function PolicyPage() {
   });
   const simulate = useMutation({
     mutationFn: () =>
-      api.post<{ evaluation: { result: string; explanation: string; matchedRules: string[] } }>("/policies/simulate", {
+      api.post<{
+        evaluation: { result: string; explanation: string; matchedRules: string[] };
+        draft?: boolean;
+        rulesApplied?: number;
+      }>("/policies/simulate", {
         objectType: form.objectType,
-        amount: 100,
-        hasReceipt: false,
-        hasMemo: false,
+        amount: Number(simAmount) || 0,
+        hasReceipt: simHasReceipt,
+        hasMemo: simHasMemo,
+        rules: form.rules,
       }),
   });
 
@@ -101,7 +113,7 @@ export default function PolicyPage() {
       <div className="resource-heading">
         <PageHeader
           title="Policy builder"
-          subtitle="Create, version, disable, and simulate rules used by the existing policy engine."
+          subtitle="Create, version, disable, and simulate rules used by the shared policy engine. Leave Enabled off until review."
         />
         <div className="detail-actions-top">
           {canSeeApprovals && (
@@ -151,7 +163,7 @@ export default function PolicyPage() {
             <input className="input" type="date" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
           </label>
           <label className="checkbox">
-            <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> Enabled
+            <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> Enabled (turn on only after review)
           </label>
           <fieldset>
             <legend>Conditions and actions</legend>
@@ -211,12 +223,30 @@ export default function PolicyPage() {
               Add rule
             </button>
           </fieldset>
+
+          <fieldset>
+            <legend>Simulate against form rules</legend>
+            <div className="form-grid">
+              <label>
+                Amount
+                <input className="input" type="number" value={simAmount} onChange={(e) => setSimAmount(e.target.value)} />
+              </label>
+              <label className="checkbox">
+                <input type="checkbox" checked={simHasReceipt} onChange={(e) => setSimHasReceipt(e.target.checked)} /> Has receipt
+              </label>
+              <label className="checkbox">
+                <input type="checkbox" checked={simHasMemo} onChange={(e) => setSimHasMemo(e.target.checked)} /> Has memo
+              </label>
+            </div>
+            <p className="muted">Simulation uses the shared policy engine on the draft rules above (not saved DB JSON).</p>
+          </fieldset>
+
           {(save.error || simulate.error) && <p className="error">{(save.error ?? simulate.error)?.message}</p>}
           <div className="detail-actions">
             <button className="btn btn-primary" disabled={save.isPending}>
               Save {editing ? "new version" : "policy"}
             </button>
-            <button className="btn btn-ghost" type="button" onClick={() => simulate.mutate()}>
+            <button className="btn btn-ghost" type="button" disabled={simulate.isPending} onClick={() => simulate.mutate()}>
               Simulate
             </button>
             {editing && (
@@ -225,7 +255,7 @@ export default function PolicyPage() {
                 type="button"
                 onClick={() => {
                   setEditing(null);
-                  setForm(blank);
+                  setForm({ ...blank, effectiveFrom: todayIsoDate() });
                 }}
               >
                 Cancel edit
@@ -236,6 +266,10 @@ export default function PolicyPage() {
         {simulate.data && (
           <div className="policy-box">
             <StatusBadge status={simulate.data.evaluation.result} /> {simulate.data.evaluation.explanation}
+            {simulate.data.draft ? " · draft rules" : ""}
+            {simulate.data.evaluation.matchedRules?.length
+              ? ` · matched: ${simulate.data.evaluation.matchedRules.join(", ")}`
+              : ""}
           </div>
         )}
       </section>

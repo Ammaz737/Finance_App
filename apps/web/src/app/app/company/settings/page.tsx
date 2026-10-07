@@ -47,7 +47,7 @@ export default function Page() {
   ].filter(Boolean) as Array<{ href: string; label: string; detail: string }>;
 
   const access = [
-    navOk(session, "/app/company/roles", "roles.assign") && { href: "/app/company/roles", label: "Roles", detail: "Permissions and scopes" },
+    navOk(session, "/app/company/roles", "roles.assign") && { href: "/app/company/roles", label: "Roles", detail: "Create roles and page permissions" },
     navOk(session, "/app/company/policy", "roles.assign") && { href: "/app/company/policy", label: "Policies", detail: "Spend and travel rules" },
     navOk(session, "/app/company/approvals", "roles.assign") && { href: "/app/company/approvals", label: "Approval rules", detail: "Routing workflows" },
   ].filter(Boolean) as Array<{ href: string; label: string; detail: string }>;

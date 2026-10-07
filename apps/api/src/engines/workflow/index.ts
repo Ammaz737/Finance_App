@@ -291,6 +291,37 @@ async function decideApproval(tx: Prisma.TransactionClient, input: {
     priority: updated.priority,
     dueAt: updated.dueAt,
   }, tx);
+
+  // Actionable notification → exact source record for the requester.
+  const routeByType: Record<string, string> = {
+    spend_request: "/app/spend/requests",
+    bill: "/app/bill-pay/bills",
+    payment: "/app/bill-pay/payments",
+    reimbursement: "/app/expenses/reimbursements",
+    travel: "/app/travel/trips",
+    expense: "/app/expenses",
+    procurement: "/app/procurement/requests",
+  };
+  const base = routeByType[instance.objectType];
+  if (base && instance.requesterId !== input.actorId) {
+    const href = `${base}/${instance.objectId}`;
+    const verb = input.action === "approve"
+      ? (updated.status === "APPROVED" ? "was fully approved" : "advanced to the next approval step")
+      : "was rejected";
+    await tx.notification.create({
+      data: {
+        organizationId: instance.organizationId,
+        userId: instance.requesterId,
+        type: "APPROVAL",
+        title: `${instance.objectType.replaceAll("_", " ")} ${verb}`,
+        body: input.comment?.trim() || `Status is now ${updated.status}.`,
+        href,
+        objectType: instance.objectType,
+        objectId: instance.objectId,
+      },
+    });
+  }
+
   return updated;
 }
 

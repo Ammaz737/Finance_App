@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { ResourcePage } from "@/components/ResourcePage";
 
@@ -20,6 +19,8 @@ type TravelRow = {
   createdAt?: string;
 };
 
+const EDITABLE = ["DRAFT", "PENDING_APPROVAL", "IN_REVIEW", "REJECTED", "BLOCKED"];
+
 function money(currency: string, value: string | number | null | undefined) {
   if (value == null) return "—";
   const amount = Number(value);
@@ -33,7 +34,6 @@ function fmtDate(value: string | null | undefined) {
 }
 
 export default function MyTravelPage() {
-  const router = useRouter();
   const columns: Column<TravelRow>[] = [
     {
       key: "name",
@@ -75,9 +75,14 @@ export default function MyTravelPage() {
       render: (row) => (row.createdAt ? new Date(row.createdAt).toLocaleDateString() : "—"),
     },
     {
-      key: "open",
+      key: "actionsHint",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) =>
+        EDITABLE.includes(row.status ?? "") ? (
+          <span className="muted">Edit / delete</span>
+        ) : (
+          <span className="detail-link">Open →</span>
+        ),
     },
   ];
 
@@ -90,12 +95,16 @@ export default function MyTravelPage() {
         columns={columns}
         pageSize={20}
         myWorkFilters
-        actions={[{ label: "Submit", name: "submit" }]}
-        onRowNavigate={(row) => router.push(`/app/travel/trips/${row.id}?from=mine`)}
+        actions={[
+          { label: "Edit", name: "update" },
+          { label: "Delete", name: "delete" },
+          { label: "Submit", name: "submit" },
+        ]}
+        getDetailHref={(row) => `/app/travel/trips/${row.id}?from=mine`}
       />
       <p className="muted my-expenses-hint">
-        Draft a trip, search quotes from the trip page, then submit for approval. Use{" "}
-        <strong>New</strong> to spot trips from the last 7 days, or <strong>Needs action</strong> for drafts and bookings.{" "}
+        Draft or pending trips can be edited or deleted until someone approves them. After approval, open the trip to
+        search quotes and book. Use <strong>New</strong> for the last 7 days, or <strong>Needs action</strong> for drafts.{" "}
         <Link className="detail-link" href="/app/travel/search">
           Travel search →
         </Link>{" "}

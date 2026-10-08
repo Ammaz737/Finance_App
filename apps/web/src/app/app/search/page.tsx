@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { StatusBadge } from "@finance/design-system";
@@ -48,10 +49,18 @@ function typeLabel(type: string) {
 }
 
 export default function Page() {
-  const [q, setQ] = useState("");
-  const [submitted, setSubmitted] = useState("");
+  const searchParams = useSearchParams();
+  const [q, setQ] = useState(searchParams.get("q") ?? "");
+  const [submitted, setSubmitted] = useState(q.trim());
   const [typeFilter, setTypeFilter] = useState("ALL");
   const deferredQ = useDeferredValue(q.trim());
+
+  useEffect(() => {
+    const query = searchParams.get("q") ?? "";
+    setQ(query);
+    setSubmitted(query.trim());
+    setTypeFilter("ALL");
+  }, [searchParams]);
 
   // Live search after 2 chars; submit still works for exact refresh.
   useEffect(() => {

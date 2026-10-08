@@ -8,6 +8,8 @@ import { QueryProvider } from "@/providers/query-provider";
 import { SessionGate, useSession } from "@/providers/session-provider";
 import { canSeeItem, findNavItem, isUnfinishedProductRoute, navigation } from "@/config/navigation";
 import { api, setToken } from "@/lib/api";
+import { NavigationIcon } from "@/components/NavigationIcon";
+import { AppHeader } from "@/components/AppHeader";
 
 function Shell({ children }: { children: ReactNode }) {
   const session = useSession();
@@ -67,29 +69,24 @@ function Shell({ children }: { children: ReactNode }) {
                 if (aQuery !== bQuery) return bQuery - aQuery;
                 return b.href.length - a.href.length;
               })[0]?.href;
-            return <div className="nav-section" key={section.label}>
-              <div className="nav-label">{section.label}</div>
-              {items.map((item) => {
+            return <details className="nav-section" key={section.label} open>
+              <summary className="nav-label">
+                {section.label}
+                <svg className="nav-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="m9 5 7 7-7 7" />
+                </svg>
+              </summary>
+              <div className="nav-items">{items.map((item) => {
                 const active = activeHref === item.href;
-                return <Link key={item.href} className={`nav-link${active ? " active" : ""}`} href={item.href} aria-current={active ? "page" : undefined}>{item.label}</Link>;
-              })}
-            </div>;
+                return <Link key={item.href} className={`nav-link${active ? " active" : ""}`} href={item.href} aria-current={active ? "page" : undefined}><NavigationIcon label={item.label} /><span>{item.label}</span></Link>;
+              })}</div>
+            </details>;
           })}
         </nav>
         <div className="sidenav-footer"><span className="avatar" aria-hidden="true">{session.user.firstName.charAt(0)}{session.user.lastName.charAt(0)}</span><div><strong>{session.user.firstName} {session.user.lastName}</strong><small>{session.roles.join(", ")}</small></div></div>
       </aside>
       <div className="shell-main">
-        <header className="topbar">
-          <div><span className="topbar-eyebrow">Workspace</span><strong>{current?.label ?? "Finance"}</strong></div>
-          <div className="topbar-actions">
-            <Link href="/app/search">Search</Link>
-            <Link href="/app/inbox">Inbox</Link>
-            <Link href="/app/notifications" aria-label={unread ? `${unread} unread notifications` : "Notifications"}>
-              Notifications{unread > 0 ? ` (${unread})` : ""}
-            </Link>
-            <button type="button" className="text-button" onClick={signOut}>Sign out</button>
-          </div>
-        </header>
+        <AppHeader user={session.user} unread={unread} onSignOut={signOut} />
         <main id="main-content" className="content" tabIndex={-1}>
           {forbidden ? <section className="access-denied" role="alert">
             <span className="eyebrow">{unfinished ? `${unfinished} · Not enabled` : "403 · Access denied"}</span>

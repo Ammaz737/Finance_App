@@ -334,7 +334,7 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
     const items = optionsQuery.data?.[field.source?.path ?? ""] ?? [];
     const merchantLock = field.key === "vendorId" ? selectedProgramMerchantLock() : "";
     return items.filter((item) =>
-      (!field.source?.entityField || !values.legalEntityId || item[field.source.entityField] === values.legalEntityId) &&
+      (!field.source?.entityField || !values.legalEntityId || !item[field.source.entityField] || item[field.source.entityField] === values.legalEntityId) &&
       (!field.source?.statuses || field.source.statuses.includes(String(item.status))) &&
       (!merchantLock || merchantMatchesLock(String(item.name ?? ""), merchantLock)),
     ).map((item) => {

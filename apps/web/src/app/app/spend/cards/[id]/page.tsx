@@ -77,6 +77,14 @@ type CardDetail = {
   activity?: ActivityRow[];
   holder: { id: string; firstName: string; lastName: string; email: string } | null;
   spendRequest: { id: string; name: string; amount: string | number; currency: string; status: string } | null;
+  topUps?: Array<{
+    id: string;
+    name: string;
+    amount: string | number;
+    currency: string;
+    status: string;
+    fulfilledAt: string;
+  }>;
   travelTrip?: {
     id: string;
     name: string;
@@ -299,6 +307,56 @@ export default function CardDetailPage() {
       ? "Sandbox / mock issuer"
       : (data?.card.providerRef ?? data?.card.provider ?? "Issuer");
 
+  const topUpColumns: Column<{
+    id: string;
+    name: string;
+    amount: string | number;
+    currency: string;
+    status: string;
+    fulfilledAt: string;
+  }>[] = [
+    {
+      key: "fulfilledAt",
+      header: "When",
+      render: (row) => new Date(row.fulfilledAt).toLocaleString(),
+    },
+    { key: "name", header: "Spend request", render: (row) => row.name },
+    {
+      key: "amount",
+      header: "Amount",
+      render: (row) => money(row.currency, row.amount),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => <StatusBadge status={row.status} />,
+    },
+  ];
+  const travelColumns: Column<{
+    id: string;
+    name: string;
+    destination?: string;
+    status: string;
+    currency?: string;
+    estimatedAmount?: string | number | null;
+    fundId?: string | null;
+  }>[] = [
+    { key: "name", header: "Trip", render: (row) => row.name },
+    { key: "destination", header: "Destination", render: (row) => row.destination || "—" },
+    {
+      key: "estimatedAmount",
+      header: "Amount",
+      render: (row) =>
+        row.estimatedAmount != null && row.currency
+          ? money(row.currency, row.estimatedAmount)
+          : "—",
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => <StatusBadge status={row.status} />,
+    },
+  ];
   const fundColumns: Column<FundRow>[] = [
     {
       key: "name",
@@ -904,6 +962,50 @@ export default function CardDetailPage() {
           </section>
         )}
       </div>
+
+      <section className="panel">
+        <div className="section-title" style={{ marginTop: 0 }}>
+          <h2>Spend top-ups</h2>
+          <span>{(data.topUps ?? []).length}</span>
+        </div>
+        {(data.topUps?.length ?? 0) === 0 ? (
+          <p className="muted">No fulfilled spend requests have topped up this card yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <DataTable
+              rows={data.topUps ?? []}
+              columns={topUpColumns}
+              onRowClick={(row) => router.push(`/app/spend/requests/${row.id}?from=mine`)}
+            />
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="section-title" style={{ marginTop: 0 }}>
+          <h2>Travel linked to this card</h2>
+          <span>{(data.travelTrips ?? (data.travelTrip ? [data.travelTrip] : [])).length}</span>
+        </div>
+        {(data.travelTrips ?? (data.travelTrip ? [data.travelTrip] : [])).length === 0 ? (
+          <p className="muted">No travel trips are linked to this card wallet.</p>
+        ) : (
+          <div className="table-wrap">
+            <DataTable
+              rows={(data.travelTrips ?? (data.travelTrip ? [data.travelTrip] : [])) as Array<{
+                id: string;
+                name: string;
+                destination?: string;
+                status: string;
+                currency?: string;
+                estimatedAmount?: string | number | null;
+                fundId?: string | null;
+              }>}
+              columns={travelColumns}
+              onRowClick={(row) => router.push(`/app/travel/trips/${row.id}`)}
+            />
+          </div>
+        )}
+      </section>
 
       <section className="panel">
         <div className="section-title" style={{ marginTop: 0 }}>

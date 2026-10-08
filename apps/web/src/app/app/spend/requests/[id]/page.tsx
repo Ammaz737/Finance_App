@@ -422,6 +422,12 @@ function SpendRequestDetailInner() {
           </dl>
           {isRequester && data.card && (
             <p className="muted" style={{ marginTop: 12 }}>
+              {req.status === "FULFILLED" && data.fund && Number(data.fund.availableAmount) === 0 ? (
+                <>
+                  This approval topped up your shared virtual card (•••• {data.card.last4}). The request fund
+                  balance was moved onto that card wallet.{" "}
+                </>
+              ) : null}
               <Link className="detail-link" href="/app/me/cards">
                 My card →
               </Link>

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { DataTable, PageHeader, StatusBadge, type Column } from "@finance/design-system";
@@ -60,6 +61,45 @@ type CardDetail = {
   } | null;
   holder: { id: string; firstName: string; lastName: string; email: string } | null;
   spendRequest: { id: string; name: string; amount: string | number; currency: string; status: string } | null;
+  topUps?: Array<{
+    id: string;
+    name: string;
+    amount: string | number;
+    currency: string;
+    status: string;
+    fulfilledAt: string;
+  }>;
+  travelTrips?: Array<{
+    id: string;
+    name: string;
+    destination?: string;
+    status: string;
+    currency?: string;
+    estimatedAmount?: string | number | null;
+  }>;
+  funds?: Array<{
+    id: string;
+    name: string;
+    availableAmount: string | number;
+    limitAmount: string | number;
+    currency: string;
+    status: string;
+    isCurrent?: boolean;
+    spendRequestId?: string | null;
+    travelTrip?: { id: string; name: string; status: string } | null;
+  }>;
+  activity?: Array<{
+    id: string;
+    at: string;
+    type: string;
+    title: string;
+    detail: string;
+    fundName: string | null;
+    amount: string | null;
+    currency: string | null;
+    status: string | null;
+    href: string | null;
+  }>;
   controls: {
     merchantLock: string | null;
     allowedMccs: string | null;
@@ -73,6 +113,18 @@ type CardDetail = {
   transactions: MoneyRow[];
 };
 
+type TravelWalletRow = {
+  id: string;
+  last4: string;
+  fundId?: string;
+  status?: string;
+  tripName?: string;
+  destination?: string;
+  tripStatus?: string;
+  available?: string | number;
+  currency?: string;
+};
+
 function money(currency: string, value: string | number) {
   const amount = Number(value);
   return `${currency} ${Number.isFinite(amount) ? amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(value)}`;
@@ -80,11 +132,48 @@ function money(currency: string, value: string | number) {
 
 export default function MyCardsPage() {
   const session = useSession();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
   const cards = useQuery({ queryKey: ["my-cards"], queryFn: () => api.get<CardRow[]>("/cards") });
+  const trips = useQuery({
+    queryKey: ["my-travel-funds"],
+    queryFn: () =>
+      api.get<Array<{
+        id: string;
+        name?: string;
+        destination?: string;
+        status?: string;
+        fundId?: string | null;
+        cardId?: string | null;
+        travelerId?: string;
+        currency?: string;
+        estimatedAmount?: string | number | null;
+      }>>("/travel?take=50"),
+  });
   const mine = (cards.data ?? []).filter((row) => row.holderId === session?.userId);
-  const primary = pickPrimaryCard(mine);
+  const myTrips = (trips.data ?? []).filter((trip) => !trip.travelerId || trip.travelerId === session?.userId);
+  const travelFundIds = [
+    ...new Set(myTrips.map((trip) => trip.fundId).filter((id): id is string => Boolean(id))),
+  ];
+  // Prefer the spend consolidator card; travel uses dedicated temp wallets and must not hide fulfilled spend.
+  const primary = pickPrimaryCard(mine, { excludeFundIds: travelFundIds });
+  const travelWallets: TravelWalletRow[] = mine
+    .filter((row) => row.fundId && travelFundIds.includes(row.fundId))
+    .map((row) => {
+      const trip = myTrips.find((item) => item.fundId === row.fundId || item.cardId === row.id);
+      return {
+        id: row.id,
+        last4: row.last4 ?? "••••",
+        fundId: row.fundId,
+        status: row.status,
+        tripName: trip?.name,
+        destination: trip?.destination,
+        tripStatus: trip?.status,
+        available: trip?.estimatedAmount ?? undefined,
+        currency: trip?.currency ?? "USD",
+      };
+    });
 
   const detail = useQuery({
     queryKey: ["my-card-detail", primary?.id],
@@ -167,12 +256,93 @@ export default function MyCardsPage() {
     { key: "reason", header: "Reason", render: (row) => row.reason || "—" },
   ];
 
+  const topUpColumns: Column<NonNullable<CardDetail["topUps"]>[number]>[] = [
+    {
+      key: "fulfilledAt",
+      header: "When",
+      render: (row) => new Date(row.fulfilledAt).toLocaleString(),
+    },
+    { key: "name", header: "Spend request", render: (row) => row.name },
+    {
+      key: "amount",
+      header: "Amount",
+      render: (row) => money(row.currency, row.amount),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => <StatusBadge status={row.status} />,
+    },
+  ];
+
+  const travelWalletColumns: Column<TravelWalletRow>[] = [
+    {
+      key: "last4",
+      header: "Card",
+      render: (row) => `•••• ${row.last4}`,
+    },
+    {
+      key: "tripName",
+      header: "Trip",
+      render: (row) => row.tripName || "Travel wallet",
+    },
+    {
+      key: "destination",
+      header: "Destination",
+      render: (row) => row.destination || "—",
+    },
+    {
+      key: "tripStatus",
+      header: "Trip status",
+      render: (row) => (row.tripStatus ? <StatusBadge status={row.tripStatus} /> : "—"),
+    },
+    {
+      key: "status",
+      header: "Card status",
+      render: (row) => <StatusBadge status={String(row.status ?? "—")} />,
+    },
+  ];
+
+  const activityColumns: Column<NonNullable<CardDetail["activity"]>[number]>[] = [
+    {
+      key: "at",
+      header: "When",
+      render: (row) => new Date(row.at).toLocaleString(),
+    },
+    {
+      key: "type",
+      header: "Type",
+      render: (row) => <StatusBadge status={row.type} />,
+    },
+    {
+      key: "title",
+      header: "Activity",
+      render: (row) => (
+        <>
+          <strong>{row.title}</strong>
+          {row.detail ? <div className="muted">{row.detail}</div> : null}
+        </>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      render: (row) =>
+        row.amount != null && row.currency ? money(row.currency, row.amount) : "—",
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) => (row.status ? <StatusBadge status={row.status} /> : "—"),
+    },
+  ];
+
   return (
     <div className="my-cards-page">
       <div className="resource-heading">
         <PageHeader
           title="My card"
-          subtitle="Your virtual card, balance, controls, and recent activity — all in one place."
+          subtitle="Approved spend tops up this wallet (company cash is not moved until card capture). Travel trips use a separate temp wallet."
         />
         {data && canFreeze && (
           <div className="detail-actions-top">
@@ -295,7 +465,7 @@ export default function MyCardsPage() {
                     </dd>
                   </div>
                   <div>
-                    <dt>Spend request</dt>
+                    <dt>Latest spend request</dt>
                     <dd>
                       {data.spendRequest ? (
                         canSeeQueue || canCreateSpend ? (
@@ -355,21 +525,76 @@ export default function MyCardsPage() {
 
             <section className="panel">
               <div className="section-title" style={{ marginTop: 0 }}>
-                <h2>Recent transactions</h2>
+                <h2>Spend top-ups</h2>
+                <span>{(data.topUps ?? []).length}</span>
+              </div>
+              {(data.topUps?.length ?? 0) === 0 ? (
+                <p className="muted">No fulfilled spend requests have topped up this card yet.</p>
+              ) : (
+                <div className="table-wrap">
+                  <DataTable
+                    rows={data.topUps ?? []}
+                    columns={topUpColumns}
+                    onRowClick={(row) => router.push(`/app/spend/requests/${row.id}?from=mine`)}
+                  />
+                </div>
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="section-title" style={{ marginTop: 0 }}>
+                <h2>Travel wallets</h2>
+                <span>{travelWallets.length}</span>
+              </div>
+              {travelWallets.length === 0 ? (
+                <p className="muted">No travel cards yet. Confirmed trips create a separate travel wallet.</p>
+              ) : (
+                <div className="table-wrap">
+                  <DataTable
+                    rows={travelWallets}
+                    columns={travelWalletColumns}
+                    onRowClick={(row) => router.push(`/app/me/cards/${row.id}`)}
+                  />
+                </div>
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="section-title" style={{ marginTop: 0 }}>
+                <h2>Card activity</h2>
+                <span>{(data.activity ?? []).length}</span>
+              </div>
+              {(data.activity?.length ?? 0) === 0 ? (
+                <p className="muted">No activity recorded on this card yet.</p>
+              ) : (
+                <div className="table-wrap">
+                  <DataTable
+                    rows={(data.activity ?? []).slice(0, 40)}
+                    columns={activityColumns}
+                    onRowClick={(row) => {
+                      if (row.href) router.push(row.href);
+                    }}
+                  />
+                </div>
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="section-title" style={{ marginTop: 0 }}>
+                <h2>Transactions</h2>
                 <span>{data.transactions.length}</span>
               </div>
               {data.transactions.length === 0 ? (
                 <p className="muted">No transactions yet on this card.</p>
               ) : (
                 <div className="table-wrap">
-                  <DataTable rows={data.transactions.slice(0, 8)} columns={txnColumns} />
+                  <DataTable
+                    rows={data.transactions}
+                    columns={txnColumns}
+                    onRowClick={(row) => router.push(`/app/spend/transactions/${row.id}`)}
+                  />
                 </div>
               )}
-              <div style={{ marginTop: 12 }}>
-                <Link className="detail-link" href={`/app/me/cards/${data.card.id}`}>
-                  Full card workspace →
-                </Link>
-              </div>
             </section>
 
             <section className="panel">
@@ -379,14 +604,19 @@ export default function MyCardsPage() {
               </div>
               {data.authorizations.length === 0 ? (
                 <p className="muted">
-                  No authorization attempts yet. Ask Finance (Tessa) to open this card and use{" "}
-                  <strong>Authorize &amp; capture</strong> (Stripe test spend), then refresh this page.
+                  No authorization attempts yet. Ask Finance to run{" "}
+                  <strong>Authorize &amp; capture</strong> on the full card workspace, then refresh.
                 </p>
               ) : (
                 <div className="table-wrap">
-                  <DataTable rows={data.authorizations.slice(0, 6)} columns={authColumns} />
+                  <DataTable rows={data.authorizations} columns={authColumns} />
                 </div>
               )}
+              <div style={{ marginTop: 12 }}>
+                <Link className="detail-link" href={`/app/me/cards/${data.card.id}`}>
+                  Full card workspace →
+                </Link>
+              </div>
             </section>
           </div>
 

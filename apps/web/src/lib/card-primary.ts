@@ -68,11 +68,21 @@ export function primaryPerHolder<T extends CardLike>(cards: T[]): Array<PrimaryC
   return primaries.sort((a, b) => String(a.holderId ?? "").localeCompare(String(b.holderId ?? "")));
 }
 
+export type PickPrimaryOptions = {
+  /** Prefer spend / consolidator wallets over travel temp funds (matches API findHolderLiveCard). */
+  excludeFundIds?: string[];
+};
+
 /** Single primary for the signed-in holder. */
-export function pickPrimaryCard<T extends CardLike>(cards: T[]): T | null {
+export function pickPrimaryCard<T extends CardLike>(cards: T[], options?: PickPrimaryOptions): T | null {
   const virtual = cards.filter((row) => isVirtual(row.type));
   const poolSource = virtual.length ? virtual : cards;
   const live = poolSource.filter((row) => isLive(row.status));
-  const pool = live.length ? live : poolSource;
+  let pool = live.length ? live : poolSource;
+  const excluded = new Set((options?.excludeFundIds ?? []).filter(Boolean));
+  if (excluded.size) {
+    const withoutTravel = pool.filter((row) => !row.fundId || !excluded.has(row.fundId));
+    if (withoutTravel.length) pool = withoutTravel;
+  }
   return [...pool].sort(sortNewestFirst)[0] ?? null;
 }

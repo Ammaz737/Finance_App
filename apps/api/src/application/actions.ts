@@ -2284,8 +2284,51 @@ export const cards = {
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .slice(0, 80);
 
-    let spendRequest = null;
-    if (fund?.spendRequestId) {
+    // Fulfillment consolidates many request funds onto one holder card. Prefer the latest
+    // top-up for "Spend request", and expose recent top-ups so My card is not stuck on the
+    // original fund.spendRequestId after newer approvals.
+    const fulfillAudits = await prisma.auditEvent.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        action: "spend_request.approve",
+        objectType: "SpendRequest",
+      },
+      orderBy: { createdAt: "desc" },
+      take: 80,
+    });
+    const toppedRequestIds = fulfillAudits
+      .filter((row) => {
+        const next = row.newValue && typeof row.newValue === "object" ? row.newValue as Record<string, unknown> : null;
+        return next && next.cardId === card.id;
+      })
+      .map((row) => row.objectId);
+    const uniqueTopIds = [...new Set(toppedRequestIds)].slice(0, 15);
+    const toppedRequests = uniqueTopIds.length
+      ? await prisma.spendRequest.findMany({
+          where: { organizationId: ctx.organizationId, id: { in: uniqueTopIds }, status: "FULFILLED" },
+          select: {
+            id: true, name: true, amount: true, currency: true, status: true, updatedAt: true, createdAt: true,
+          },
+        })
+      : [];
+    const toppedById = new Map(toppedRequests.map((row) => [row.id, row]));
+    const topUps = uniqueTopIds
+      .map((id) => toppedById.get(id))
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        amount: row.amount,
+        currency: row.currency,
+        status: row.status,
+        fulfilledAt: row.updatedAt,
+      }));
+    let spendRequest = topUps[0]
+      ? await prisma.spendRequest.findFirst({
+          where: { id: topUps[0].id, organizationId: ctx.organizationId },
+        })
+      : null;
+    if (!spendRequest && fund?.spendRequestId) {
       spendRequest = await prisma.spendRequest.findFirst({
         where: { id: fund.spendRequestId, organizationId: ctx.organizationId },
       });
@@ -2480,6 +2523,7 @@ export const cards = {
       })),
       holder,
       spendRequest,
+      topUps,
       travelTrip,
       travelTrips,
       expense,

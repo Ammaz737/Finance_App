@@ -115,10 +115,18 @@ export async function scopedWhere(
   if (grants.some((grant) => grant.scope === "ORGANIZATION")) return tenant;
 
   const or: Record<string, unknown>[] = [];
-  const entityIds = grants
-    .filter((grant) => ["ENTITY", "MULTI_ENTITY"].includes(grant.scope))
-    .map((grant) => grant.entityId)
-    .filter((id): id is string => Boolean(id));
+  // Entity-scoped catalogs (vendors, dimensions, etc.) have no owner column.
+  // SELF / DIRECT_REPORTS / DEPARTMENT still mean "assigned entity's rows" there,
+  // otherwise employees cannot populate vendor pickers on spend requests.
+  const entityScopes = rule.entityField && !rule.ownerField
+    ? ["ENTITY", "MULTI_ENTITY", "SELF", "DIRECT_REPORTS", "DEPARTMENT"]
+    : ["ENTITY", "MULTI_ENTITY"];
+  const entityIds = [...new Set(
+    grants
+      .filter((grant) => entityScopes.includes(grant.scope))
+      .map((grant) => grant.entityId)
+      .filter((id): id is string => Boolean(id)),
+  )];
   if (rule.entityField && entityIds.length) or.push({ [rule.entityField]: { in: entityIds } });
   if (rule.ownerField && grants.some((grant) => grant.scope === "SELF")) or.push({ [rule.ownerField]: ctx.userId });
   if (rule.ownerField && grants.some((grant) => grant.scope === "DIRECT_REPORTS")) {

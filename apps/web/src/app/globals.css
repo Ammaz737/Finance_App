@@ -24,6 +24,7 @@ h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -.035em; }
 .nav-section:not([open]) { margin-bottom: 6px; }
 .nav-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px 8px; border-radius: 6px; font-size: 10px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: #7b8494; cursor: pointer; list-style: none; }
 .nav-label::-webkit-details-marker { display: none; }
+.nav-section-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .nav-label:hover { background: #edf3ed; color: #143b2d; }
 .nav-chevron { flex-shrink: 0; color: #8c9993; }
 .nav-section[open] > .nav-label .nav-chevron { transform: rotate(90deg); }

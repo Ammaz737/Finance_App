@@ -71,7 +71,7 @@ function Shell({ children }: { children: ReactNode }) {
               })[0]?.href;
             return <details className="nav-section" key={section.label} open>
               <summary className="nav-label">
-                {section.label}
+                <span className="nav-section-title"><NavigationIcon label={section.label} /><span>{section.label}</span></span>
                 <svg className="nav-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path d="m9 5 7 7-7 7" />
                 </svg>

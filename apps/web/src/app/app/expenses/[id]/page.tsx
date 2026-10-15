@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/expenses-ui.css";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -226,7 +229,7 @@ export default function ExpenseDetailPage() {
   const receiptPending = Boolean(fileContent) && !data.receipt;
 
   return (
-    <div className="detail-page">
+    <div className="spend-ui-page expenses-ui-page expense-record-detail detail-page">
       <div className="resource-heading">
         <PageHeader title={data.expense.merchant || "Expense"} subtitle={money(data.expense.currency, data.expense.amount)} />
         <Link className="btn btn-ghost" href={backHref}>
@@ -245,7 +248,7 @@ export default function ExpenseDetailPage() {
         </p>
       )}
 
-      <div className="overview-stat-grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+      <div className="overview-stat-grid">
         <article className="overview-stat">
           <span>Status</span>
           <strong>
@@ -298,25 +301,8 @@ export default function ExpenseDetailPage() {
         )}
       </div>
 
-      <div className="detail-grid">
-        <section className="panel">
-          <h2>Requirements</h2>
-          <ul className="plain-list detail-checklist">
-            {requirements.map((row) => (
-              <li key={row.key}>
-                <span>{row.label}</span>
-                <span className={row.status === "Complete" ? "req-ok" : "req-missing"}>
-                  {row.status === "Complete" ? "Complete" : "Missing"}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {!data.requirements?.complete && data.requirements?.missing?.length ? (
-            <p className="muted">Still needed: {data.requirements.missing.join(", ")}</p>
-          ) : null}
-        </section>
-
-        <section className="panel">
+      <div className="expense-detail-layout">
+        <div className="expense-detail-main"><section className="panel">
           <h2>Complete expense</h2>
           {canEdit ? (
             <form
@@ -434,9 +420,7 @@ export default function ExpenseDetailPage() {
             )}
           </div>
         </section>
-      </div>
-
-      <section className="panel">
+<section className="panel">
         <div className="resource-heading">
           <h2 style={{ margin: 0 }}>Splits</h2>
           <span className="muted">Must total {money(data.expense.currency, data.expense.amount)}</span>
@@ -510,10 +494,24 @@ export default function ExpenseDetailPage() {
             </button>
           </form>
         )}
-      </section>
-
-      {(data.timeline?.length ?? 0) > 0 && (
-        <section className="panel">
+      </section></div>
+        <div className="expense-detail-aside"><section className="panel">
+          <h2>Requirements</h2>
+          <ul className="plain-list detail-checklist">
+            {requirements.map((row) => (
+              <li key={row.key}>
+                <span>{row.label}</span>
+                <span className={row.status === "Complete" ? "req-ok" : "req-missing"}>
+                  {row.status === "Complete" ? "Complete" : "Missing"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!data.requirements?.complete && data.requirements?.missing?.length ? (
+            <p className="muted">Still needed: {data.requirements.missing.join(", ")}</p>
+          ) : null}
+        </section>
+{(data.timeline?.length ?? 0) > 0 && (<section className="panel">
           <h2>Activity</h2>
           <div className="timeline">
             {data.timeline!.map((item) => (
@@ -523,8 +521,8 @@ export default function ExpenseDetailPage() {
               </div>
             ))}
           </div>
-        </section>
-      )}
+        </section>)}</div>
+      </div>
     </div>
   );
 }

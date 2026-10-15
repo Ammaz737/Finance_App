@@ -1,10 +1,13 @@
 "use client";
 
+import "./search.css";
+
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { StatusBadge } from "@finance/design-system";
+import { NavigationIcon } from "@/components/NavigationIcon";
 import { api } from "@/lib/api";
 
 type SearchHit = {
@@ -44,7 +47,14 @@ const SUGGESTIONS = [
   { label: "Travel", example: "NYC" },
 ];
 
+const TYPE_ICONS: Record<string, string> = {
+  vendor: "Vendors", person: "People", bill: "Bills", payment: "Payments",
+  transaction: "Transactions", expense: "My expenses", reimbursement: "Reimbursements",
+  purchase_order: "Purchase Orders", travel: "Travel", spend_request: "Spend requests", card: "Cards",
+};
+
 function typeLabel(type: string) {
+  if (type === "person") return "Person";
   return TYPE_META[type]?.label.replace(/s$/, "") ?? type.replaceAll("_", " ");
 }
 
@@ -64,10 +74,11 @@ export default function Page() {
 
   // Live search after 2 chars; submit still works for exact refresh.
   useEffect(() => {
-    if (deferredQ.length >= 2) setSubmitted(deferredQ);
+    if (deferredQ.length >= 2) {
+      setSubmitted(deferredQ);
+    }
     if (!deferredQ) {
       setSubmitted("");
-      setTypeFilter("ALL");
     }
   }, [deferredQ]);
 
@@ -93,6 +104,7 @@ export default function Page() {
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     const next = q.trim();
+    if (next && next === submitted) void search.refetch();
     setSubmitted(next);
     if (!next) setTypeFilter("ALL");
   }
@@ -103,158 +115,51 @@ export default function Page() {
     setTypeFilter("ALL");
   }
 
-  const typeChips = [
-    { key: "ALL", label: "All", count: search.data?.total ?? 0 },
-    ...Object.keys(TYPE_META)
-      .filter((key) => (counts[key] ?? 0) > 0)
-      .map((key) => ({ key, label: TYPE_META[key].label, count: counts[key] ?? 0 })),
+  const categories = [
+    { key: "ALL", label: "All records", icon: "Workspace" },
+    ...Object.entries(TYPE_META).map(([key, meta]) => ({ key, label: meta.label, icon: TYPE_ICONS[key] })),
+    ...Object.keys(counts).filter(key => !TYPE_META[key]).map(key => ({ key, label: typeLabel(key), icon: "Requests" })),
   ];
+  const primaryTypes = ["ALL", "vendor", "person", "bill", "expense"];
+  const moreTypes = categories.filter(item => !primaryTypes.includes(item.key));
 
   return (
     <div className="search-page">
-      <header className="search-hero">
-        <p className="overview-kicker">Workspace</p>
-        <h1>Search</h1>
-        <p className="overview-lead">
-          Find vendors, people, bills, expenses, cards, travel, and requests — only records your role and entity scope allow.
-        </p>
-        <form className="search-bar" onSubmit={onSubmit} role="search">
+      <nav className="search-breadcrumb" aria-label="Breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><span>Search</span></nav>
+      <header className="search-page-heading"><div className="search-heading-mark"><NavigationIcon label="Search" /></div><div><h1>Workspace search</h1><p>One place to find your people, payments and records.</p></div></header>
+      <div className="search-console">
+        <form className="search-command-bar" role="search" onSubmit={onSubmit}>
+          <NavigationIcon label="Search" />
           <label className="sr-only" htmlFor="global-search">Search workspace</label>
-          <input
-            id="global-search"
-            className="input search-input"
-            value={q}
-            onChange={(event) => setQ(event.target.value)}
-            placeholder="Search vendors, people, invoices, trips, cards…"
-            autoComplete="off"
-            autoFocus
-          />
-          {q && (
-            <button type="button" className="btn btn-ghost search-clear" onClick={clearSearch}>
-              Clear
-            </button>
-          )}
-          <button className="btn btn-primary" type="submit" disabled={!q.trim()}>
-            Search
-          </button>
+          <input id="global-search" value={q} onChange={event => setQ(event.target.value)} placeholder="Search by name, invoice number or keyword" autoComplete="off" autoFocus />
+          {q && <button className="search-clear" type="button" onClick={clearSearch} aria-label="Clear search">×</button>}
+          <button className="search-submit" type="submit" disabled={!q.trim()}>Search <span aria-hidden="true">↵</span></button>
         </form>
-        <p className="search-hint muted">
-          Tip: type at least 2 characters for live results. Press Enter to refresh.
-        </p>
-      </header>
-
-      {!submitted && (
-        <section className="search-empty" aria-label="Search suggestions">
-          <h2>Try searching for</h2>
-          <div className="search-suggestions">
-            {SUGGESTIONS.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                className="search-suggestion"
-                onClick={() => {
-                  setQ(item.example);
-                  setSubmitted(item.example);
-                }}
-              >
-                <strong>{item.label}</strong>
-                <span>{item.example}</span>
-              </button>
-            ))}
-          </div>
-          <div className="search-scope-note">
-            <strong>Permission-aware</strong>
-            <p>Employees only see their own spend and expenses. Finance and owners see company-wide records they can access.</p>
-          </div>
+        <nav className="search-category-nav" aria-label="Filter search by record type">
+          <div className="search-category-list">{categories.filter(item => primaryTypes.includes(item.key)).map(item => <button key={item.key} type="button" aria-pressed={typeFilter === item.key} className={`search-category${typeFilter === item.key ? " is-active" : ""}`} onClick={() => setTypeFilter(item.key)}>
+            <NavigationIcon label={item.icon} /><span>{item.label}</span>{submitted && !search.isPending && !search.isError && <small>{item.key === "ALL" ? search.data?.total ?? 0 : counts[item.key] ?? 0}</small>}
+          </button>)}<select className={`search-more-types${primaryTypes.includes(typeFilter) ? "" : " is-active"}`} aria-label="More record types" value={primaryTypes.includes(typeFilter) ? "" : typeFilter} onChange={event => { if (event.target.value) setTypeFilter(event.target.value); }}><option value="" disabled>More types</option>{moreTypes.map(item => <option key={item.key} value={item.key}>{item.label}{submitted && !search.isPending && !search.isError ? ` (${counts[item.key] ?? 0})` : ""}</option>)}</select></div>
+        </nav>
+        <section className="search-results-panel" aria-label="Search results" aria-live="polite" aria-busy={Boolean(submitted && search.isFetching)}>
+          {!submitted ? <div className="search-start-state">
+            <div className="search-start-art" aria-hidden="true"><span /><span /><div><NavigationIcon label="Search" /></div></div>
+            <h2>What are you looking for?</h2>
+            <p>Enter a name, reference or keyword to find matching records.</p>
+            <div className="search-examples"><span>Suggested searches</span>{SUGGESTIONS.slice(0, 3).map(item => <button key={item.label} type="button" onClick={() => { setTypeFilter("ALL"); setQ(item.example); setSubmitted(item.example); }}><NavigationIcon label={item.label} /><span>{item.example}</span><span aria-hidden="true">↗</span></button>)}</div>
+          </div> : <>
+            <div className="search-results-head"><div><h2>{search.isError ? "Search unavailable" : search.isPending ? "Searching…" : `${filtered.length} result${filtered.length === 1 ? "" : "s"}`}</h2><p>{search.isError ? "Please try again." : `For “${submitted}”${typeFilter === "ALL" ? "" : ` in ${TYPE_META[typeFilter]?.label ?? typeLabel(typeFilter)}`}`}</p></div><span className="search-results-label">{typeFilter === "ALL" ? "All records" : TYPE_META[typeFilter]?.label ?? typeLabel(typeFilter)}</span></div>
+            {search.isError ? <div className="search-state" role="alert"><NavigationIcon label="Needs review" /><h3>Unable to load results</h3><p>{search.error.message || "Please try your search again."}</p><button type="button" className="search-secondary" onClick={() => void search.refetch()}>Try again</button></div>
+              : search.isPending ? <div className="search-state" role="status"><NavigationIcon label="Search" /><p>Looking for matching records…</p></div>
+              : filtered.length === 0 ? <div className="search-state"><NavigationIcon label="Search" /><h3>No matching records</h3><p>Try a different name or reference{typeFilter !== "ALL" ? ", or search all record types." : "."}</p><button type="button" className="search-secondary" onClick={typeFilter === "ALL" ? clearSearch : () => setTypeFilter("ALL")}>{typeFilter === "ALL" ? "Clear search" : "Search all records"}</button></div>
+              : <ul className="search-result-list">{filtered.map(hit => <li className="search-result" key={`${hit.type}-${hit.id}`}>
+                <span className="search-result-icon" data-icon={TYPE_ICONS[hit.type] ?? "Requests"}><NavigationIcon label={TYPE_ICONS[hit.type] ?? "Requests"} /></span>
+                <div className="search-result-main"><span className="search-result-type">{typeLabel(hit.type)}</span><Link href={hit.href} className="search-title-link">{hit.title}</Link><p>{hit.subtitle}</p></div>
+                <div className="search-result-side">{hit.status && <StatusBadge status={hit.status} />}<Link className="search-open-link" href={hit.href} aria-label={`Open ${hit.title}`}><span>Open</span><span aria-hidden="true">↗</span></Link></div>
+              </li>)}</ul>}
+          </>}
         </section>
-      )}
-
-      {submitted && (
-        <section className="search-results-panel" aria-live="polite">
-          <div className="search-results-head">
-            <div>
-              <h2>
-                {search.isPending ? "Searching…" : `${filtered.length} result${filtered.length === 1 ? "" : "s"}`}
-              </h2>
-              <p className="muted">
-                {search.isPending
-                  ? `Looking up “${submitted}”`
-                  : typeFilter === "ALL"
-                    ? `${search.data?.total ?? 0} matches for “${submitted}”`
-                    : `${filtered.length} of ${search.data?.total ?? 0} for “${submitted}” · ${TYPE_META[typeFilter]?.label ?? typeFilter}`}
-              </p>
-            </div>
-          </div>
-
-          {search.isError && (
-            <p className="error-panel" role="alert">
-              {search.error.message || "Search failed."}{" "}
-              <button type="button" className="text-button" onClick={() => void search.refetch()}>Try again</button>
-            </p>
-          )}
-
-          {!search.isPending && !search.isError && (search.data?.total ?? 0) > 0 && (
-            <div className="filter-row search-type-row">
-              {typeChips.map((chip) => (
-                <button
-                  key={chip.key}
-                  type="button"
-                  className={`chip ${typeFilter === chip.key ? "chip-active" : ""}`}
-                  onClick={() => setTypeFilter(chip.key)}
-                >
-                  {chip.label}
-                  <span className="chip-count">{chip.count}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {!search.isPending && !search.isError && filtered.length === 0 && (
-            <div className="empty-work">
-              <strong>No authorized matches</strong>
-              <p>
-                Nothing matched “{submitted}” in the records you can access. Try another term, or clear filters.
-              </p>
-              <button type="button" className="btn btn-ghost" onClick={clearSearch}>Clear search</button>
-            </div>
-          )}
-
-          {!search.isPending && filtered.length > 0 && (
-            <div className="table-wrap search-table">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    <th>Name</th>
-                    <th>Details</th>
-                    <th>Status</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((hit) => (
-                    <tr key={`${hit.type}-${hit.id}`}>
-                      <td>
-                        <span className="search-type-pill">{typeLabel(hit.type)}</span>
-                      </td>
-                      <td>
-                        <Link href={hit.href} className="search-title-link">
-                          <strong>{hit.title}</strong>
-                        </Link>
-                      </td>
-                      <td className="muted">{hit.subtitle}</td>
-                      <td>{hit.status ? <StatusBadge status={hit.status} /> : "—"}</td>
-                      <td>
-                        <Link className="btn btn-ghost" href={hit.href}>Open</Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
+        <footer className="search-console-footer"><span><NavigationIcon label="Policies" />Only records you have access to are shown</span><span>Live results after 2 characters</span></footer>
+      </div>
     </div>
   );
 }

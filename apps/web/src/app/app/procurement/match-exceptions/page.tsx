@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/procurement-ui.css";
+
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -97,7 +100,7 @@ function MatchExceptionsInner() {
   }
 
   return (
-    <div className="detail-page match-exceptions-page">
+    <div className="spend-ui-page procurement-ui-page detail-page match-exceptions-page">
       <div className="resource-heading">
         <PageHeader
           title="Match exceptions"
@@ -156,9 +159,15 @@ function MatchExceptionsInner() {
             ))}
             {!(rows.data ?? []).length && !rows.isPending && (
               <li className="muted">
-                No open match exceptions yet. This queue fills only after a PO runs{" "}
-                <strong>Run 2/3-way match</strong> against a linked bill and the amounts/qty differ
-                (or tolerance is exceeded). Perfect matches stay off this list.
+                No open match exceptions yet. Path: record receiving on a PO → create a supplier bill
+                linked to that PO → on the PO detail click <strong>Run 2/3-way match</strong> with a
+                variance (partial receive vs full invoice, or invoiced qty higher than received).
+                Perfect matches stay off this list.{" "}
+                {canSeePos ? (
+                  <Link className="detail-link" href="/app/procurement/purchase-orders">
+                    Open purchase orders →
+                  </Link>
+                ) : null}
               </li>
             )}
           </ul>

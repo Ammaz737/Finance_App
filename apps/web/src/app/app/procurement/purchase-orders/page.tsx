@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/procurement-ui.css";
+import { ProcurementOverview } from "@/components/ProcurementPresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -51,10 +57,7 @@ export default function PurchaseOrdersPage() {
       key: "number",
       header: "Purchase order",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.number || "PO"}</strong>
-          <small>{vendorLabel(vendorRows, row.vendorId)}</small>
-        </span>
+        <SpendRecord title={row.number || "PO"} subtitle={vendorLabel(vendorRows, row.vendorId)} href={`/app/procurement/purchase-orders/${row.id}`} icon="Purchase Orders"/>
       ),
     },
     {
@@ -85,13 +88,13 @@ export default function PurchaseOrdersPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/procurement/purchase-orders/${row.id}`} label="Open purchase order"/>,
     },
   ];
 
   return (
-    <div className="procurement-pos-page">
-      <ResourcePage
+    <div className="procurement-pos-page personal-work-page spend-ui-page procurement-ui-page">
+      <ResourcePage subtitle="Track purchase commitments, deliveries and invoice matching." overview={(rows, loading) => <ProcurementOverview kind="orders" rows={rows} loading={loading}/>} listIntro={<SpendIntro title="Purchase order register" description="Monitor ordered, received and billed amounts for each purchase order."/>}
         title="Purchase orders"
         path="purchase-orders"
         columns={columns}

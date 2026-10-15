@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/expenses-ui.css";
+import { ExpenseOverview } from "@/components/ExpensePresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -36,13 +42,7 @@ function ReceiptsContent() {
       key: "merchantGuess",
       header: "Receipt",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.merchantGuess?.trim() || "Receipt upload"}</strong>
-          <small>
-            {row.createdAt ? new Date(row.createdAt).toLocaleDateString() : "—"}
-            {row.expenseId ? " · Linked to expense" : " · Needs linking"}
-          </small>
-        </span>
+        <SpendRecord title={row.merchantGuess?.trim() || "Receipt upload"} subtitle={`${row.createdAt ? new Date(row.createdAt).toLocaleDateString() : "—"}${row.expenseId ? " · Linked to expense" : " · Needs linking"}`} href={row.expenseId ? `/app/expenses/${row.expenseId}` : `/app/expenses/receipts/${row.id}`} icon="Receipts"/>
       ),
     },
     {
@@ -69,14 +69,18 @@ function ReceiptsContent() {
       key: "open",
       header: "",
       render: (row) => (
-        <span className="detail-link">{row.expenseId ? "Open expense →" : "Link →"}</span>
+        <SpendOpenLink href={row.expenseId ? `/app/expenses/${row.expenseId}` : `/app/expenses/receipts/${row.id}`} label={row.expenseId ? "Open expense" : "Link receipt"}/>
       ),
     },
   ];
 
   return (
-    <div className="receipts-page">
-      <div className="my-work-filters" role="toolbar" aria-label="Receipt match filters">
+    <div className="receipts-page personal-work-page spend-ui-page expenses-ui-page">
+
+      <ResourcePage
+        subtitle="Organize receipt uploads and match them to the right expenses."
+        overview={(rows, loading) => <ExpenseOverview kind="receipts" rows={rows} loading={loading}/>}
+        listIntro={<><SpendIntro title="Receipt library" description="Track matching and extraction status across your receipt records."/><div className="my-work-filters" role="toolbar" aria-label="Receipt match filters">
         <Link
           className={`chip${!matchFilter ? " chip-active" : ""}`}
           href="/app/expenses/receipts"
@@ -95,8 +99,7 @@ function ReceiptsContent() {
         >
           Matched
         </Link>
-      </div>
-      <ResourcePage
+      </div></>}
         title="Receipts"
         path="receipts"
         columns={columns}

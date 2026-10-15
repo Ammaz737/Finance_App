@@ -149,7 +149,7 @@ export default function PersonDetailPage() {
     refs.data?.locations.find((row) => row.id === locationId)?.name ?? (locationId ? locationId.slice(0, 8) : "—");
 
   return (
-    <div className="stack-lg person-detail linked-dest-page">
+    <div className="stack-lg person-detail linked-dest-page company-ui-page spend-ui-page company-people-ui">
       <div className="resource-heading">
         <PageHeader
           title={`${user.firstName} ${user.lastName}`}

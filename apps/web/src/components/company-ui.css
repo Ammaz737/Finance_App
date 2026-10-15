@@ -1,0 +1,124 @@
+.company-ui-scope { width:100%; max-width:1240px; margin:0 auto; min-width:0; color:#292929; }
+.company-ui-page.linked-dest-page { max-width:1240px; }
+.company-ui-page .resource-page { min-width:0; }
+.company-ui-page > .page-header { margin:0; }
+.company-ui-page > .page-header h1 { margin:0 0 8px; font-size:28px; letter-spacing:-.8px; }
+.company-ui-page > .page-header p { margin:0; font-size:13px; line-height:1.8; color:#888; }
+.company-ui-page .inbox-table-request { display:grid; gap:7px; min-width:0; }
+.company-ui-page .inbox-table-request strong { font-size:12px; font-weight:600; color:#393939; }
+.company-ui-page .inbox-table-request small { color:#999; font-size:10px; line-height:1.7; overflow-wrap:anywhere; }
+.company-ui-page .data-table td { overflow-wrap:anywhere; }
+.company-ui-page .data-table tbody tr:hover { background:#fafafa; }
+.company-ui-page code { font-size:11px; color:#666; overflow-wrap:anywhere; }
+.company-ui-page .drawer-header { gap:16px; align-items:flex-start; padding-bottom:18px; border-bottom:1px solid #eee; margin-bottom:18px; }
+.company-ui-page .drawer-header h2 { margin:0; font-size:18px; line-height:1.5; }
+.company-ui-page .drawer .record-form { grid-template-columns:minmax(0,1fr); }
+.company-ui-page .work-panel,.company-ui-page .panel { margin:0; }
+.company-ui-page .work-panel > .muted,.company-ui-page .panel > .muted { font-size:12px; line-height:1.8; color:#888; }
+.company-ui-page .work-panel h3 { font-size:13px; color:#666; }
+.company-ui-page .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; min-width:0; }
+.company-ui-page .form-grid > label,.company-ui-page .record-form > label { display:grid; gap:8px; font-size:12px; color:#777; min-width:0; align-content:start; }
+.company-ui-page :is(.record-form,.form-grid) > .checkbox { display:flex; align-items:center; gap:9px; font-size:12px; line-height:1.8; grid-column:1/-1; }
+.company-ui-page input[type="checkbox"] { accent-color:#555; width:15px; height:15px; flex-shrink:0; }
+.company-ui-page textarea.input { min-height:150px; resize:vertical; line-height:1.8; }
+.company-ui-page .form-grid > button { justify-self:start; align-self:end; }
+.company-ui-page fieldset { min-width:0; margin:0; padding:20px; border:1px solid #e5e5e5; border-radius:9px; grid-column:1/-1; }
+.company-ui-page legend { padding:0 8px; font-size:12px; color:#555; font-weight:600; }
+.company-ui-page fieldset > .form-grid { grid-template-columns:repeat(3,minmax(0,1fr)); padding:16px; background:#fafafa; border:1px solid #e9e9e9; border-radius:7px; margin-bottom:14px; gap:12px; }
+.company-policy-ui fieldset:first-of-type > .form-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.company-ui-page fieldset > .form-grid > .btn { grid-column:1/-1; }
+.company-ui-page fieldset .muted { margin:0; font-size:11px; line-height:1.9; }
+.company-ui-page .company-version-list { list-style:none; padding:0; margin:0; display:grid; gap:12px; }
+.company-ui-page .company-version-list > li { display:flex; justify-content:space-between; gap:20px; align-items:start; padding:18px; border:1px solid #e5e5e5; border-radius:8px; background:#fafafa; min-width:0; }
+.company-ui-page .company-version-list > li > div:first-child { min-width:0; overflow-wrap:anywhere; }
+.company-ui-page .company-version-list strong { font-size:13px; font-weight:600; color:#444; }
+.company-ui-page .company-version-list small { display:block; margin-top:8px; font-size:11px; color:#999; line-height:1.8; }
+.company-ui-page .company-version-list .detail-actions-top { flex-shrink:0; justify-content:flex-end; }
+.company-ui-page .settings-card { background:#fff; border:1px solid #e2e2e2; border-radius:12px; padding:24px; margin:0; min-width:0; }
+.company-ui-page .settings-card h2 { margin:0 0 18px; font-size:15px; letter-spacing:-.2px; }
+.company-ui-page .settings-card > .muted { font-size:12px; color:#888; line-height:1.8; margin:0 0 20px; }
+.company-ui-page .settings-links { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.company-ui-page .settings-links a { position:relative; display:grid; gap:8px; padding:18px 34px 18px 18px; border:1px solid #e5e5e5; background:#fafafa; border-radius:8px; text-decoration:none; min-width:0; }
+.company-ui-page .settings-links a::after { content:'↗'; position:absolute; top:18px; right:16px; color:#999; font-size:14px; }
+.company-ui-page .settings-links a:hover { border-color:#aaa; background:#fff; }
+.company-ui-page .settings-links span { font-size:12px; font-weight:600; color:#444; }
+.company-ui-page .settings-links small { font-size:11px; color:#999; line-height:1.8; }
+.company-settings-page { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+.company-settings-page > :is(.page-header,.error-panel,.muted) { grid-column:1/-1; }
+.company-settings-page > .settings-card:first-of-type { grid-column:1/-1; }
+.company-settings-page > .settings-card:last-child { grid-column:1/-1; }
+.company-settings-page > .settings-card:last-child .settings-links { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.company-settings-page .settings-card .record-form { margin-top:22px; padding-top:20px; border-top:1px solid #eee; }
+.company-settings-page .settings-card .record-form > label { grid-column:1/-1; max-width:520px; width:100%; }
+.company-settings-page .detail-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
+.company-settings-page .detail-list > div { grid-template-columns:minmax(0,1fr); border:0; padding:0; gap:8px; }
+.company-roles-ui .role-create-bar { margin:0; }
+.company-roles-ui .role-create-bar a { white-space:nowrap; }
+.company-role-detail .kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.company-ui-page .role-perm-group { border:1px solid #e6e6e6; border-radius:9px; padding:18px; margin-top:18px; }
+.company-ui-page .role-perm-group h3 { margin:0 0 12px; text-transform:capitalize; font-size:11px; letter-spacing:.6px; }
+.company-ui-page .role-perm-group .plain-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; }
+.company-ui-page .role-perm-group li { overflow-wrap:anywhere; }
+.company-ui-page .role-builder { gap:20px; min-width:0; width:100%; }
+.company-ui-page .role-matrix { min-width:0; max-width:100%; }
+.company-ui-page .role-builder :is(input:not([type="checkbox"]),select) { min-width:0; width:100%; font:inherit; font-size:12px; border:1px solid #ddd; border-radius:7px; padding:11px 12px; color:#444; background:#fff; }
+.company-ui-page .role-builder input:disabled { background:#f7f7f7; color:#999; }
+.company-ui-page .role-funnel-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; gap:12px; padding:0; margin:0; }
+.company-ui-page .role-funnel-steps li { display:flex; align-items:center; gap:10px; padding:16px; border:1px solid #e3e3e3; background:#fff; border-radius:8px; color:#999; font-size:12px; }
+.company-ui-page .role-funnel-steps li.is-active { color:#333; border-color:#888; background:#f8f8f8; }
+.company-ui-page .role-funnel-index { display:grid; place-items:center; width:24px; height:24px; flex-shrink:0; background:#f1f1f1; color:#777; border:0; font-size:11px; }
+.company-ui-page .role-funnel-steps li.is-active .role-funnel-index { background:#333; color:#fff; }
+.company-ui-page .role-matrix-scroll { position:relative; contain:inline-size layout paint; width:100%; overflow-x:auto; border:1px solid #e5e5e5; border-radius:8px; }
+.company-ui-page .role-matrix-table { width:100%; min-width:620px; border-collapse:collapse; font-size:12px; }
+.company-ui-page .role-matrix-table th { background:#fafafa; color:#888; font-size:10px; font-weight:500; padding:14px; }
+.company-ui-page .role-matrix-table td { padding:14px; border-bottom:1px solid #eee; color:#666; }
+.company-ui-page .role-matrix-table small { font-size:10px; line-height:1.7; color:#999; }
+.company-ui-page .role-matrix-section th { background:#f3f3f3; color:#555; font-size:11px; font-weight:600; }
+.company-ui-page .role-matrix-hint { font-size:12px; line-height:1.8; color:#888; }
+.company-ui-page .role-review-list > div { padding:14px 0; border-bottom:1px solid #eee; font-size:12px; overflow-wrap:anywhere; }
+.company-ui-page .person-role-row { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+.company-ui-page .person-role-row > div { min-width:0; overflow-wrap:anywhere; }
+.company-ui-page .person-role-row a { display:inline; }
+.company-ui-page .person-role-row small { display:block; font-size:11px; margin-top:7px; color:#999; }
+.company-ui-page .person-role-list + .form-grid { border-top:1px solid #eee; padding-top:20px; }
+.company-ui-page .company-integrations-page .overview-stat-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.company-integrations-page .table-wrap { background:#fff; border:1px solid #e3e3e3; border-radius:12px; }
+.company-integrations-page .data-table { min-width:850px; }
+.company-integrations-page .data-table td .muted { font-size:10px; line-height:1.8; margin-top:8px; }
+.company-security-ui .record-form { grid-template-columns:minmax(0,1fr); max-width:540px; }
+.company-security-ui .record-form > p { font-size:12px; line-height:1.8; }
+.company-ui-page :is(a,button,summary,input,select,textarea):focus-visible { outline:2px solid #666; outline-offset:3px; }
+@media(max-width:1100px) {
+  .company-policy-ui fieldset:first-of-type > .form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .company-ui-page .settings-links { grid-template-columns:minmax(0,1fr); }
+  .company-ui-page fieldset > .form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:700px) {
+  .company-settings-page,.company-ui-page .form-grid,.company-ui-page .role-perm-group .plain-list { grid-template-columns:minmax(0,1fr); }
+  .company-ui-page .settings-card { padding:20px; }
+  .company-settings-page .detail-list { grid-template-columns:minmax(0,1fr); gap:18px; }
+  .company-settings-page > .settings-card:last-child .settings-links { grid-template-columns:minmax(0,1fr); }
+  .company-ui-page fieldset { padding:16px; }
+  .company-ui-page fieldset > .form-grid,.company-policy-ui fieldset:first-of-type > .form-grid { grid-template-columns:minmax(0,1fr); }
+  .company-ui-page .company-version-list > li { flex-wrap:wrap; padding:16px; gap:14px; }
+  .company-ui-page .company-version-list .detail-actions-top { justify-content:flex-start; flex-shrink:1; }
+  .company-ui-page .role-funnel-steps { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .company-ui-page .role-funnel-steps li { padding:12px; font-size:11px; }
+  .company-role-detail .kpi-grid { grid-template-columns:minmax(0,1fr); }
+}
+@media(max-width:600px) {
+  .company-ui-page.personal-work-page .data-table td:last-child { position:static; }
+  .company-ui-page.personal-work-page .data-table td::before { content:none; }
+  .company-entities-ui .data-table td:nth-child(2)::before { content:'Country'; }
+  .company-entities-ui .data-table td:nth-child(3)::before { content:'Currency'; }
+  .company-entities-ui .data-table td:nth-child(4)::before { content:'Status'; }
+  .company-people-ui .data-table td:nth-child(2)::before { content:'Email'; }
+  .company-people-ui .data-table td:nth-child(3)::before { content:'Status'; }
+  .company-people-ui .data-table td:nth-child(4)::before { content:'Added'; }
+  .company-audit-ui .data-table td:nth-child(2)::before { content:'Actor'; }
+  .company-audit-ui .data-table td:nth-child(3)::before { content:'Action'; }
+  .company-audit-ui .data-table td:nth-child(4)::before { content:'Object'; }
+  .company-audit-ui .data-table td:nth-child(5)::before { content:'Old'; }
+  .company-audit-ui .data-table td:nth-child(6)::before { content:'New'; }
+  .company-audit-ui .data-table td:nth-child(6) { grid-column:1/-1; }
+}

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { canSeeItem, findNavItem } from "@/config/navigation";
+import { CompanyOverview } from "@/components/CompanyPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import { useSession } from "@/providers/session-provider";
 
@@ -55,8 +57,11 @@ export default function Page() {
   ];
 
   return (
-    <div className="company-structure-page linked-dest-page">
+    <div className="company-structure-page linked-dest-page company-ui-page personal-work-page spend-ui-page company-entities-ui">
       <ResourcePage
+        subtitle="Country and currency controls for your company."
+        overview={(rows, loading) => <CompanyOverview kind="entities" rows={rows} loading={loading}/>}
+        listIntro={<><SpendIntro title="Legal entities" description="Country and currency controls for your company."></SpendIntro></>}
         title="Legal entities"
         path="entities"
         columns={columns}

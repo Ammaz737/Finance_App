@@ -1,0 +1,72 @@
+.insights-ui-page { width:100%; max-width:1240px; margin:0 auto; color:#292929; min-width:0; }
+.insights-ui-page.linked-dest-page { max-width:1240px; }
+.insights-ui-page .resource-page { min-width:0; }
+.insights-ui-page .expense-stat-icon svg { width:18px; height:18px; }
+.insights-ui-page .util-meter { min-width:110px; max-width:180px; gap:8px; }
+.insights-ui-page .util-meter-track { height:5px; background:#ededed; border-radius:3px; }
+.insights-ui-page .util-meter-track span { background:#707070; }
+.insights-ui-page .util-meter.is-high .util-meter-track span { background:#ac895a; }
+.insights-ui-page .util-meter.is-over .util-meter-track span { background:#b66c6c; }
+.insights-ui-page .util-meter-meta { font-size:10px; color:#888; }
+.insights-ui-page .budget-remaining { font-variant-numeric:tabular-nums; color:#444; }
+.insights-ui-page .budget-remaining.is-over { color:#a85d5d; }
+.insights-ui-page .data-table td { overflow-wrap:anywhere; }
+.insights-ui-page .drawer-header { gap:16px; border-bottom:1px solid #eee; padding-bottom:18px; margin-bottom:18px; align-items:flex-start; }
+.insights-ui-page .drawer-header h2 { font-size:18px; margin:0; line-height:1.5; }
+.insights-ui-page .drawer .record-form { grid-template-columns:minmax(0,1fr); }
+.insights-ui-page.budget-detail-page .util-meter.large { max-width:none; min-width:0; padding:24px; border:1px solid #e2e2e2; border-radius:12px; background:#fff; gap:16px; margin:0; }
+.insights-ui-page.budget-detail-page .util-meter.large .util-meter-track { height:9px; }
+.insights-ui-page.budget-detail-page .util-meter.large .util-meter-meta { font-size:12px; line-height:1.8; }
+.insights-ui-page.budget-detail-page .kpi-grid { grid-template-columns:repeat(4,minmax(0,1fr)); margin:0; }
+.insights-ui-page.budget-detail-page .kpi-card strong { font-size:22px; }
+.insights-ui-page.budget-detail-page > [role="note"] { margin:0; font-size:11px; line-height:1.8; color:#909090; padding:0 4px; }
+.insights-ui-page.budget-detail-page .work-panels { grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); }
+.insights-ui-page.budget-detail-page .muted-panel { background:#fff; }
+.insights-ui-page.budget-detail-page .muted-panel > a { font-size:12px; padding:16px 0; border-color:#eee; color:#666; text-decoration:none; }
+.insights-ui-page.budget-detail-page .muted-panel > a strong { font-size:10px; color:#888; background:#f5f5f5; padding:4px 8px; border-radius:4px; font-weight:500; }
+.insights-ui-page.budget-detail-page .plain-list li { line-height:2; }
+.insights-ui-page.budget-detail-page .plain-list a { display:inline; }
+.notifications-page .notification-feed { min-width:0; background:#fff; border:1px solid #e2e2e2; border-radius:12px; overflow:hidden; }
+.notifications-page .notification-feed .my-work-filters { display:flex; gap:26px; padding:0 24px; margin:0; border:0; border-radius:0; border-bottom:1px solid #eee; background:#fff; }
+.notifications-page .notification-feed .chip { display:flex; align-items:center; gap:7px; background:none; border:0; border-bottom:2px solid transparent; border-radius:0; padding:18px 0 15px; color:#888; font-size:12px; font-weight:500; text-decoration:none; }
+.notifications-page .notification-feed .chip-active { color:#292929; border-bottom-color:#444; font-weight:650; }
+.notifications-page .chip-count { background:#f1f1f1; padding:2px 6px; border-radius:4px; font-size:10px; }
+.notifications-page .notifications-list { gap:0; }
+.notifications-page .notification-row { display:grid; grid-template-columns:38px minmax(0,1fr) auto; align-items:start; gap:18px; padding:24px; border:0; border-bottom:1px solid #eee; border-radius:0; background:#fff; }
+.notifications-page .notification-row:last-child { border-bottom:0; }
+.notifications-page .notification-row.is-new { background:#fafafa; box-shadow:inset 3px 0 #777; }
+.notification-symbol { display:grid; place-items:center; width:38px; height:38px; background:#f1f1f1; border:1px solid #e7e7e7; color:#888; border-radius:9px; }
+.notification-symbol .nav-icon { width:18px; height:18px; }
+.notifications-page .notification-row-main { gap:9px; }
+.notifications-page .notification-title { font-size:13px; line-height:1.6; font-weight:600; color:#383838; overflow-wrap:anywhere; }
+.notifications-page .notification-body { font-size:12px; color:#888; line-height:1.8; margin:0; overflow-wrap:anywhere; }
+.notifications-page .notification-row-top { gap:9px; }
+.notifications-page .notification-row-top time { color:#999; font-size:10px; margin-left:3px; }
+.notifications-page .search-type-pill { background:none; border:0; padding:0; font-size:10px; color:#999; text-transform:capitalize; overflow-wrap:anywhere; }
+.notifications-page .notification-row-actions { padding-top:3px; gap:8px; }
+.notifications-page .notification-row-actions .btn { min-height:32px; font-size:11px; padding:8px 11px; }
+.notifications-page .notification-feed > :is(.error-panel,.muted) { margin:24px; }
+.notifications-page .empty-work { border:0; border-radius:0; padding:60px 24px; }
+.notifications-page .empty-work > strong { font-size:15px; color:#444; }
+.notifications-page .empty-work p { line-height:1.9; max-width:460px; margin:12px auto 22px; }
+.notifications-page .empty-work .detail-actions-top { justify-content:center; }
+.insights-dashboard-page .overview-personal .overview-stat:not(.overview-funds) { min-height:180px; padding-bottom:68px; }
+@media(max-width:1100px) {
+  .insights-ui-page.budget-detail-page .kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:700px) {
+  .insights-ui-page.budget-detail-page .work-panels { grid-template-columns:minmax(0,1fr); }
+  .notifications-page .notification-row { grid-template-columns:32px minmax(0,1fr); gap:14px; padding:20px 18px; }
+  .notification-symbol { width:32px; height:32px; }
+  .notifications-page .notification-row-actions { grid-column:2; justify-content:flex-start; padding:0; }
+  .notifications-page .notification-feed .my-work-filters { padding:0 18px; }
+}
+@media(max-width:600px) {
+  .insights-budgets-page .data-table td:nth-child(2)::before { content:'Capacity'; }
+  .insights-budgets-page .data-table td:nth-child(3)::before { content:'Remaining'; }
+  .insights-budgets-page .data-table td:nth-child(4)::before { content:'Utilization'; }
+  .insights-budgets-page .data-table td:nth-child(5)::before { content:'Used'; }
+  .insights-budgets-page .data-table td:last-child::before { content:none; }
+  .insights-budgets-page .util-meter { width:100%; min-width:0; }
+  .insights-ui-page.budget-detail-page .kpi-grid { grid-template-columns:minmax(0,1fr); }
+}

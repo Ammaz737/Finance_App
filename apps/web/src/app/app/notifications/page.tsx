@@ -1,5 +1,12 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/insights-ui.css";
+
+
+import { WorkSummary } from "@/components/PersonalWorkPresentation";
+import { NavigationIcon } from "@/components/NavigationIcon";
 import Link from "next/link";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
@@ -88,7 +95,7 @@ function NotificationsContent() {
     : false;
 
   return (
-    <div className="stack-lg linked-dest-page notifications-page">
+    <div className="stack-lg linked-dest-page notifications-page insights-ui-page spend-ui-page">
       <div className="resource-heading">
         <PageHeader
           title="Notifications"
@@ -104,6 +111,13 @@ function NotificationsContent() {
         </button>
       </div>
 
+      <WorkSummary loading={list.isPending || list.isError} stats={[
+        { label: "All notifications", value: allRows.length, note: "Updates for your account", icon: "receipt" },
+        { label: "Unread", value: unread, note: "Updates you have not read", icon: "alert" },
+        { label: "Read", value: allRows.length - unread, note: "Previously reviewed updates", icon: "check" },
+        { label: "Linked records", value: allRows.filter(item => safeAppHref(item.href)).length, note: "Updates with a source record", icon: "card" },
+      ]}/>
+      <section className="notification-feed" aria-label="Notification activity">
       <div className="my-work-filters" role="toolbar" aria-label="Notification focus">
         {focusLinks.map((item) => (
           <Link
@@ -123,6 +137,7 @@ function NotificationsContent() {
           <button type="button" className="text-button" onClick={() => void list.refetch()}>Try again</button>
         </p>
       )}
+      {(markRead.error || markAll.error) && <p className="error-panel" role="alert">{(markRead.error || markAll.error)?.message}</p>}
       {list.isPending && <p className="muted">Loading notifications…</p>}
 
       {!list.isPending && !rows.length && (
@@ -150,6 +165,7 @@ function NotificationsContent() {
             const href = safeAppHref(item.href);
             return (
               <li key={item.id} className={item.readAt ? "notification-row" : "notification-row is-new"}>
+                <span className="notification-symbol" aria-hidden="true"><NavigationIcon label="Notifications"/></span>
                 <div className="notification-row-main">
                   <div className="notification-row-top">
                     {item.readAt ? <StatusBadge status="READ" /> : <StatusBadge status="UNREAD" />}
@@ -187,6 +203,8 @@ function NotificationsContent() {
           })}
         </ul>
       )}
+
+      </section>
 
       <p className="muted my-expenses-hint">
         Notifications are personal to your account.{" "}

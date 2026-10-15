@@ -5,6 +5,8 @@ import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { canSeeItem, findNavItem } from "@/config/navigation";
+import { CompanyOverview } from "@/components/CompanyPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import { useSession } from "@/providers/session-provider";
 
@@ -78,8 +80,11 @@ function PeopleContent() {
   ];
 
   return (
-    <div className="company-people-page linked-dest-page">
-      <div className="my-work-filters" role="toolbar" aria-label="People focus">
+    <div className="company-people-page linked-dest-page company-ui-page personal-work-page spend-ui-page company-people-ui">
+      <ResourcePage
+        subtitle="Manage invitations, employment assignments and access."
+        overview={(rows, loading) => <CompanyOverview kind="people" rows={rows} loading={loading}/>}
+        listIntro={<><SpendIntro title="People directory" description="Manage invitations, employment assignments and access."></SpendIntro><div className="my-work-filters" role="toolbar" aria-label="People focus">
         {focusLinks.map((item) => (
           <Link
             key={item.href}
@@ -89,9 +94,7 @@ function PeopleContent() {
             {item.label}
           </Link>
         ))}
-      </div>
-
-      <ResourcePage
+      </div></>}
         title="People"
         path="people"
         columns={columns}

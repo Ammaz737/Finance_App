@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/spend-ui.css";
+
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -559,7 +561,7 @@ export default function CardDetailPage() {
   const expenseHref = data.expense ? `/app/expenses/${data.expense.id}` : null;
 
   return (
-    <div className="detail-page">
+    <div className="spend-ui-page detail-page spend-card-detail">
       <div className="resource-heading">
         <PageHeader
           title={`Card ···${data.card.last4}`}
@@ -736,7 +738,7 @@ export default function CardDetailPage() {
 
       <div className="detail-grid">
         <section className="panel">
-          <h2>Controls</h2>
+          <h2 id="card-controls" style={{ scrollMarginTop: 24 }}>Controls</h2>
           {canIssue ? (
             <form
               className="record-form"

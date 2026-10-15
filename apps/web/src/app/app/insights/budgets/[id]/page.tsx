@@ -1,5 +1,10 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/insights-ui.css";
+
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -60,7 +65,7 @@ export default function BudgetDetailPage() {
     : false;
 
   return (
-    <div className="spend-detail budget-detail-page linked-dest-page">
+    <div className="spend-detail budget-detail-page insights-ui-page spend-ui-page linked-dest-page">
       <div className="resource-heading">
         <PageHeader
           title={budget.name}

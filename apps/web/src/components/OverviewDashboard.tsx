@@ -72,6 +72,7 @@ type FinanceOverview = {
   companyCashAccountId?: string | null;
   companyCashStatus?: string | null;
   companyCashError?: string | null;
+  companyCashAccounts?: Array<{ id: string; name: string; currency: string; available: string }>;
   clearedSpendByCurrency: MoneyTotal[];
   openPayablesByCurrency: MoneyTotal[];
   budgetCapacityByCurrency?: MoneyTotal[];
@@ -223,7 +224,7 @@ export function OverviewDashboard({ executive = false }: { executive?: boolean }
           <p className="error-panel" role="alert">Company totals could not load.</p>
         ) : (
           <div className="overview-stat-grid company">
-            <article className={`overview-stat${executive ? " primary" : ""}`}>
+            <article className="overview-stat">
               <StatLabel>Company cash</StatLabel>
               <strong>
                 {finance.isPending
@@ -236,9 +237,9 @@ export function OverviewDashboard({ executive = false }: { executive?: boolean }
                 {finance.data?.companyCashError
                   ? finance.data.companyCashError
                   : finance.data?.companyCashSource === "stripe"
-                    ? `Stripe Issuing FA${finance.data.companyCashStatus ? ` · ${finance.data.companyCashStatus}` : ""}`
+                    ? finance.data.companyCashStatus ?? "Stripe Issuing financial account (live)"
                     : finance.data?.companyCashSource === "bank_accounts"
-                      ? "Local bank accounts (mock)"
+                      ? `Mock local banks${finance.data.companyCashStatus ? ` · ${finance.data.companyCashStatus}` : ""}`
                       : "Company cash unavailable"}
               </small>
             </article>
@@ -375,7 +376,7 @@ export function OverviewDashboard({ executive = false }: { executive?: boolean }
         <span>Personal balances and status</span>
       </div>
       <div className="overview-stat-grid">
-        <Link href="/app/me/cards" className={`overview-stat overview-funds${!executive ? " primary" : ""}`}>
+        <Link href="/app/me/cards" className="overview-stat overview-funds primary">
           <StatLabel>Available funds</StatLabel>
           <strong>{mine.isPending ? "…" : funds.value}</strong>
           <small>{funds.hint ?? ((mine.data?.cards ?? 0) > 0 ? "Your virtual card" : "No card yet")}</small>

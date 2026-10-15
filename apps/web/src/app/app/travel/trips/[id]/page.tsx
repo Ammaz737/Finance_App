@@ -1,5 +1,9 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/travel-ui.css";
+
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -234,7 +238,7 @@ function TravelTripDetailInner() {
     ? `/app/expenses/${expense.id}`
     : null;
 
-  return <div className="spend-detail travel-detail-page linked-dest-page">
+  return <div className="spend-detail travel-detail-page travel-ui-page spend-ui-page linked-dest-page">
     <div className="resource-heading">
       <PageHeader title={trip.name} subtitle={`${trip.origin ? `${trip.origin} → ` : ""}${trip.destination} · ${money(trip.currency, trip.estimatedAmount)}`} />
       <Link className="btn btn-ghost" href={backHref}>{backLabel}</Link>
@@ -397,6 +401,7 @@ function TravelTripDetailInner() {
         </div>
       </section>
 
+      <aside className="travel-detail-aside">
       <section className="work-panel">
         <h2>Fund / Card / Expense</h2>
         {(trip.fundId || trip.cardId) && (
@@ -468,6 +473,7 @@ function TravelTripDetailInner() {
           {!(audit ?? []).length && <li className="muted">No audit events yet.</li>}
         </ul>
       </section>
+      </aside>
     </div>
   </div>;
 }

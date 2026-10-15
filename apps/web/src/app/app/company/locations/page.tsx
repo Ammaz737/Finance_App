@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { type Column } from "@finance/design-system";
 import { canSeeItem, findNavItem } from "@/config/navigation";
+import { CompanyOverview } from "@/components/CompanyPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import { useSession } from "@/providers/session-provider";
 
@@ -31,8 +33,11 @@ export default function Page() {
   ];
 
   return (
-    <div className="company-structure-page linked-dest-page">
+    <div className="company-structure-page linked-dest-page company-ui-page personal-work-page spend-ui-page company-locations-ui">
       <ResourcePage
+        subtitle="Manage offices and regional assignments."
+        overview={() => null}
+        listIntro={<><SpendIntro title="Locations" description="Manage offices and regional assignments."></SpendIntro></>}
         title="Locations"
         path="locations"
         columns={columns}

@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/expenses-ui.css";
+
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -96,7 +99,7 @@ export default function ReceiptLinkPage() {
   const candidates = detail.data?.candidates ?? [];
 
   return (
-    <div className="detail-page receipt-link-page">
+    <div className="spend-ui-page expenses-ui-page receipt-record-detail detail-page receipt-link-page">
       <div className="resource-heading">
         <PageHeader
           title="Link receipt"
@@ -107,7 +110,7 @@ export default function ReceiptLinkPage() {
         </Link>
       </div>
 
-      <div className="overview-stat-grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+      <div className="overview-stat-grid">
         <article className="overview-stat">
           <span>Merchant guess</span>
           <strong>{receipt?.merchantGuess?.trim() || "Unknown"}</strong>

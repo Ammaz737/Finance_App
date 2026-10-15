@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { type Column } from "@finance/design-system";
 import { canSeeItem, findNavItem } from "@/config/navigation";
+import { CompanyOverview } from "@/components/CompanyPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
@@ -103,8 +105,11 @@ export default function Page() {
   ];
 
   return (
-    <div className="company-audit-page linked-dest-page">
-      <ResourcePage title="Audit log" path="audit" columns={columns} pageSize={25} />
+    <div className="company-audit-page linked-dest-page company-ui-page personal-work-page spend-ui-page company-audit-ui">
+      <ResourcePage
+        subtitle="Review who changed what, with before and after values."
+        overview={() => null}
+        listIntro={<><SpendIntro title="Change history" description="Review who changed what, with before and after values."></SpendIntro></>} title="Audit log" path="audit" columns={columns} pageSize={25} />
       <p className="muted my-expenses-hint">
         Chronological material changes: actor, action, object, old/new values, and time.{" "}
         {canSeePeople && (

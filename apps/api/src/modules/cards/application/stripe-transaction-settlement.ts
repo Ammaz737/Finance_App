@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../../database/client";
 import { pickAccountingRule } from "../../accounting/domain/rules";
+import { settleCompanyBankForCardClear } from "./company-bank-settle";
 
 function dec(value: string | number) {
   return new Prisma.Decimal(value);
@@ -120,6 +121,17 @@ export async function settleStripeIssuingTransaction(input: {
 }, transaction?: Prisma.TransactionClient) {
   const settle = async (tx: Prisma.TransactionClient) => {
     await applyBudgetCapture(tx, input.organizationId, input.legalEntityId, input.fundId, input.amount);
+
+    if (input.amount.greaterThan(0)) {
+      await settleCompanyBankForCardClear(tx, {
+        organizationId: input.organizationId,
+        legalEntityId: input.legalEntityId,
+        amount: input.amount,
+        currency: input.currency,
+        transactionId: input.transactionId,
+        direction: "debit",
+      });
+    }
 
     const existingExpense = await tx.expense.findFirst({
       where: { organizationId: input.organizationId, transactionId: input.transactionId },

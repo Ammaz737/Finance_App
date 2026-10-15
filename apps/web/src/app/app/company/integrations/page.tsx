@@ -64,7 +64,7 @@ export default function Page() {
   const degraded = rows.filter((row) => row.health === "DEGRADED" || Boolean(row.lastError)).length;
 
   return (
-    <div className="linked-dest-page stack-lg company-integrations-page">
+    <div className="linked-dest-page stack-lg company-integrations-page company-ui-page spend-ui-page company-integrations-ui">
       <div className="resource-heading">
         <PageHeader
           title="Integration health"

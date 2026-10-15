@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { ResourcePage } from "@/components/ResourcePage";
+import { SpendIntro, SpendOverview, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
 
@@ -69,12 +72,7 @@ export default function FundsPage() {
     {
       key: "name",
       header: "Fund",
-      render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.name || "Fund"}</strong>
-          <small>{personLabel(peopleRows, row.ownerId)}</small>
-        </span>
-      ),
+      render: (row) => <SpendRecord title={row.name || "Fund"} subtitle={personLabel(peopleRows, row.ownerId)} href={`/app/spend/funds/${row.id}`} icon="Funds"/>,
     },
     {
       key: "availableAmount",
@@ -107,14 +105,17 @@ export default function FundsPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/spend/funds/${row.id}`} label={`Open record ${row.name || row.id}`}/>,
     },
   ];
 
   return (
-    <div className="funds-page">
+    <div className="funds-page personal-work-page spend-ui-page">
       <ResourcePage
         title="Funds"
+        subtitle="Monitor approved spending authority, available balances and fund status."
+        overview={(rows, loading) => <SpendOverview kind="funds" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Fund balances" description="Track available authority and remaining limits for each fund."/>}
         path="funds"
         columns={columns}
         pageSize={20}

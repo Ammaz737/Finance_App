@@ -1,0 +1,96 @@
+.travel-ui-page { width:100%; max-width:1240px; min-width:0; margin:0 auto; color:#292929; }
+.travel-ui-page.linked-dest-page { max-width:1240px; }
+.travel-ui-page .resource-page { min-width:0; }
+.travel-ui-page .data-table td { overflow-wrap:anywhere; }
+.travel-ui-page .data-table tbody tr:hover { background:#fafafa; }
+.travel-ui-page .expense-merchant { min-width:160px; }
+.travel-ui-page .expense-merchant small { max-width:240px; white-space:normal; line-height:1.7; }
+.travel-ui-page .drawer-header { gap:16px; align-items:flex-start; border-bottom:1px solid #eee; padding-bottom:18px; margin-bottom:18px; }
+.travel-ui-page .drawer-header h2 { margin:0; font-size:18px; line-height:1.5; }
+.travel-ui-page .drawer .record-form { grid-template-columns:minmax(0,1fr); }
+.travel-ui-page .kpi-card { align-content:start; }
+.travel-detail-page .kpi-card:last-child strong { font-size:18px; line-height:1.6; }
+.travel-detail-page .work-panels { grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr); gap:20px; }
+.travel-detail-aside { display:grid; gap:20px; min-width:0; }
+.travel-ui-page .work-panel { margin:0; }
+.travel-ui-page .work-panel .muted { font-size:11px; line-height:1.8; color:#909090; overflow-wrap:anywhere; }
+.travel-ui-page .plain-list { min-width:0; }
+.travel-ui-page .plain-list li { overflow-wrap:anywhere; }
+.travel-ui-page .plain-list a { display:inline; }
+.travel-ui-page .travel-booking-list { display:grid; gap:14px; }
+.travel-ui-page .travel-booking-list > li { border:1px solid #e4e4e4; background:#fafafa; border-radius:9px; padding:18px; }
+.travel-ui-page .travel-booking-list > li:last-child { border-bottom:1px solid #e4e4e4; }
+.travel-ui-page .travel-booking-head { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.travel-ui-page .travel-booking-head > strong { margin-right:auto; font-size:11px; letter-spacing:.7px; color:#555; }
+.travel-ui-page .travel-booking-meta { font-size:13px; font-weight:550; line-height:1.8; margin:14px 0 10px; }
+.travel-ui-page .travel-refund-summary { border-top:1px solid #e5e5e5; margin-top:14px; }
+.travel-ui-page .detail-actions:empty { display:none; }
+.travel-ui-page .travel-search-toolbar { display:flex; gap:10px; align-items:center; margin:18px 0; padding:16px; border:1px solid #e5e5e5; border-radius:8px; background:#fafafa; }
+.travel-ui-page .travel-search-toolbar .input { flex:1; max-width:240px; }
+.travel-ui-page .travel-search-toolbar .btn { white-space:nowrap; }
+.travel-ui-page .travel-quote-list { display:grid; gap:12px; list-style:none; padding:0; margin:18px 0; }
+.travel-ui-page .travel-quote-card { display:flex; align-items:center; gap:16px; padding:18px; background:#fff; border:1px solid #e1e1e1; border-radius:9px; box-shadow:none; }
+.travel-ui-page .travel-quote-card.is-oop { border-color:#dcc9b0; background:#fdfbf7; }
+.travel-ui-page .travel-quote-card > div { flex:1; min-width:0; overflow-wrap:anywhere; }
+.travel-ui-page .travel-quote-card strong { font-size:13px; }
+.travel-ui-page .travel-quote-card p { margin:6px 0; font-size:12px; }
+.travel-ui-page .travel-quote-card small { font-size:11px; line-height:1.8; }
+.travel-ui-page .travel-quote-thumb { width:64px; height:64px; border-radius:7px; object-fit:cover; flex-shrink:0; }
+.travel-ui-page .travel-detail-aside .record-form { grid-template-columns:minmax(0,1fr); margin-top:20px; padding-top:20px; border-top:1px solid #eee; gap:12px; }
+.travel-ui-page .travel-detail-aside .record-form button { justify-self:start; margin-bottom:8px; }
+.travel-ui-page .travel-detail-aside .plain-list li { border-left:2px solid #e5e5e5; border-bottom:0; padding:0 0 18px 16px; margin:0; font-size:11px; line-height:1.9; }
+.travel-ui-page .travel-detail-aside .plain-list li:last-child { padding-bottom:0; }
+.travel-ui-page .travel-detail-aside code { font-size:11px; color:#666; }
+.travel-search-page > .detail-actions-top { margin-bottom:0!important; }
+.travel-search-page .overview-stat-grid { margin-bottom:0!important; }
+.travel-search-page .overview-stat { gap:14px; min-height:168px; }
+.travel-search-page .overview-stat strong { font-size:20px; line-height:1.5; }
+.travel-search-page .overview-stat:first-child { background:#292929; border-color:#292929; }
+.travel-search-page .overview-stat:first-child strong { color:#fff; }
+.travel-search-page .overview-stat:first-child :is(span,small) { color:#bbb; }
+.travel-search-page .travel-search-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.travel-search-page .travel-search-list > li { display:block; padding:20px; border:1px solid #e5e5e5; border-radius:9px; background:#fafafa; color:#888; font-size:11px; line-height:2; }
+.travel-search-page .travel-search-list > li:last-child { border-bottom:1px solid #e5e5e5; }
+.travel-search-page .travel-search-list a { display:block; font-size:13px; color:#333; margin-bottom:10px; }
+.travel-search-page .travel-search-list .badge { display:inline-block; margin-top:10px; }
+.travel-search-page .travel-search-route { color:#626262; font-size:12px; }
+.travel-search-page .travel-search-dates { color:#999; margin-top:4px; }
+.travel-ui-page .empty-work { padding:36px 20px; background:#fafafa; border:1px dashed #ddd; }
+.travel-ui-page .empty-work p { line-height:1.8; margin:12px 0 20px; }
+.travel-reports-page .travel-report-kpis { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.travel-reports-page .travel-report-kpis .kpi-card { min-height:140px; padding:22px; gap:14px; }
+.travel-reports-page .travel-report-kpis .kpi-card strong { font-size:30px; }
+.travel-reports-page .work-panels { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; }
+.travel-reports-page .detail-list > div { grid-template-columns:90px minmax(0,1fr); padding:20px 0; }
+.travel-reports-page .detail-list dd { font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; }
+.travel-reports-page .plain-list li { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; padding:20px 0; font-size:12px; }
+.travel-reports-page .plain-list strong { font-weight:550; }
+.travel-reports-page .plain-list .muted { font-size:14px; color:#555; font-variant-numeric:tabular-nums; }
+.travel-ui-page :is(a,button,input,select):focus-visible { outline:2px solid #666; outline-offset:3px; }
+@media(max-width:1100px) {
+  .travel-detail-page .work-panels { grid-template-columns:minmax(0,1fr); }
+  .travel-detail-aside { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+  .travel-reports-page .travel-report-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .travel-search-page .travel-search-list { grid-template-columns:minmax(0,1fr); }
+}
+@media(max-width:700px) {
+  .travel-detail-aside,.travel-reports-page .work-panels { grid-template-columns:minmax(0,1fr); }
+  .travel-ui-page .travel-quote-card { flex-direction:row; flex-wrap:wrap; gap:12px; padding:16px; }
+  .travel-ui-page .travel-quote-card > div { flex-basis:calc(100% - 80px); }
+  .travel-ui-page .travel-quote-card > .btn { margin-left:auto; }
+  .travel-ui-page .travel-search-toolbar { flex-wrap:wrap; padding:12px; }
+  .travel-ui-page .travel-search-toolbar .input { max-width:none; min-width:100%; }
+}
+@media(max-width:600px) {
+  .travel-ui-page .expense-merchant { min-width:0; }
+  .travel-ui-page .data-table td:nth-child(2)::before { content:'Traveler'; }
+  .travel-ui-page .data-table td:nth-child(3)::before { content:'Dates'; }
+  .travel-ui-page .data-table td:nth-child(4)::before { content:'Estimate'; }
+  .travel-trips-page .data-table td:nth-child(5)::before { content:'Status'; }
+  .travel-trips-page .data-table td:nth-child(6)::before { content:'Policy'; }
+  .travel-requests-page .data-table td:nth-child(5)::before { content:'Policy'; }
+  .travel-requests-page .data-table td:nth-child(6)::before { content:'Status'; }
+  .travel-requests-page .data-table td:nth-child(7)::before { content:'Submitted'; font-size:9px; color:#999; }
+  .travel-ui-page .data-table td:last-child::before { content:none; }
+  .travel-reports-page .travel-report-kpis { grid-template-columns:minmax(0,1fr); }
+}

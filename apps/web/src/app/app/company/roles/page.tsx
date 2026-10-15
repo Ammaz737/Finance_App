@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type Column } from "@finance/design-system";
 import { canSeeItem, findNavItem } from "@/config/navigation";
+import { CompanyOverview } from "@/components/CompanyPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import { useSession } from "@/providers/session-provider";
 
@@ -46,15 +48,17 @@ export default function RolesPage() {
   ];
 
   return (
-    <div className="company-roles-page linked-dest-page">
-      {canManage ? (
-        <p className="role-create-bar">
+    <div className="company-roles-page linked-dest-page company-ui-page personal-work-page spend-ui-page company-roles-ui">
+      <ResourcePage
+        subtitle="Manage additive permissions and role scope."
+        overview={() => null}
+        listIntro={<><SpendIntro title="Access roles" description="Manage additive permissions and role scope.">{canManage ? (
+        <div className="role-create-bar">
           <Link className="btn btn-primary" href="/app/company/roles/new">
             Create role
           </Link>
-        </p>
-      ) : null}
-      <ResourcePage
+        </div>
+      ) : null}</SpendIntro></>}
         title="Roles"
         path="rbac"
         columns={columns}

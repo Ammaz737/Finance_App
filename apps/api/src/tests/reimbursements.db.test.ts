@@ -1,4 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+vi.mock("../integrations/card-issuer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../integrations/card-issuer")>();
+  return {...actual, getCardIssuer: () => ({name: "mock"})};
+});
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../platform/auth";
 import { reimbursements } from "../application/actions";
@@ -46,6 +50,7 @@ describe.runIf(runDb)("M5/GF4 reimbursements", () => {
       data: { organizationId: org.id, name: "M5 US", country: "US", currency: "USD" },
     });
     entityId = entity.id;
+    await prisma.bankAccount.create({ data: { organizationId: orgId, legalEntityId: entityId, name: "Operating", last4: "1111", currency: "USD", available: "10000" } });
     const [employee, approver] = await Promise.all([
       prisma.user.create({
         data: { organizationId: org.id, email: `emp.${suffix}@m5.test`, passwordHash, firstName: "Emp", lastName: "User", status: "ACTIVE" },
@@ -78,6 +83,9 @@ describe.runIf(runDb)("M5/GF4 reimbursements", () => {
 
   afterAll(async () => {
     if (!orgId) return;
+    await prisma.ledgerEntry.deleteMany({ where: { organizationId: orgId } });
+    await prisma.ledgerTransaction.deleteMany({ where: { organizationId: orgId } });
+    await prisma.bankAccount.deleteMany({ where: { organizationId: orgId } });
     await prisma.accountingEntry.deleteMany({ where: { organizationId: orgId } });
     await prisma.receipt.deleteMany({ where: { organizationId: orgId } });
     await prisma.attachment.deleteMany({ where: { organizationId: orgId } });
@@ -141,11 +149,15 @@ describe.runIf(runDb)("M5/GF4 reimbursements", () => {
     expect(scheduled.status).toBe("SCHEDULED");
     expect(scheduled.providerRef).toMatch(/^mock_payout_/);
 
+    const bankBefore = await prisma.bankAccount.findFirstOrThrow({ where: { organizationId: orgId } });
     const paid = await reimbursements.confirmPayout(approver, created.id);
     expect(paid.reimbursement.status).toBe("PAID");
     expect(paid.accounting?.sourceType).toBe("REIMBURSEMENT");
 
     const again = await reimbursements.confirmPayout(approver, created.id);
+    const bankAfter = await prisma.bankAccount.findUniqueOrThrow({ where: { id: bankBefore.id } });
+    expect(bankBefore.available.minus(bankAfter.available).toFixed(2)).toBe("67.00");
+    expect(await prisma.ledgerTransaction.count({ where: { organizationId: orgId, memo: `reimbursement.bank_debit ${created.id}` } })).toBe(1);
     expect(again.accounting?.id).toBe(paid.accounting?.id);
     const accountingRows = await prisma.accountingEntry.findMany({
       where: { organizationId: orgId, sourceType: "REIMBURSEMENT", sourceId: created.id },

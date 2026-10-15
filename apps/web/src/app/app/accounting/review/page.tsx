@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { StatusBadge, type Column } from "@finance/design-system";
+import { AccountingOverview } from "@/components/AccountingPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import {
   accountingMoney,
@@ -57,8 +59,11 @@ function ReviewContent() {
   ];
 
   return (
-    <div className="accounting-queue-page">
+    <div className="accounting-queue-page personal-work-page spend-ui-page accounting-review-page">
       <ResourcePage
+        subtitle="Review and code entries before preparing them for sync."
+        overview={(rows, loading) => <AccountingOverview kind="entries" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Needs review" description="Review and code entries before preparing them for sync."/>}
         title="Needs review"
         path="accounting"
         columns={columns}

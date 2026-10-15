@@ -1,0 +1,55 @@
+/* Shared app accents follow the Overview palette; surfaces and primary actions stay neutral. */
+.shell {
+  --app-ink:#101624;
+  --app-secondary:#6d7582;
+  --app-border:#e9edef;
+  --app-blue:#165bea;
+  --app-blue-soft:#eaf1ff;
+  --app-orange:#ad4812;
+  --app-orange-soft:#ffeadc;
+  --app-pink:#c51946;
+  --app-pink-soft:#ffe7ed;
+  --app-purple:#7421d8;
+  --app-purple-soft:#f0e7ff;
+  --app-amber:#8b6025;
+  --app-amber-soft:#fff4e4;
+  --app-neutral:#5d6570;
+  --app-neutral-soft:#f1f3f5;
+}
+.shell .content :is(.personal-work-page,.spend-ui-page,.my-cards-page) h1 { color:var(--app-ink); }
+.shell .content .expense-overview article { border-color:var(--app-border); background:linear-gradient(135deg,#fff,#fcfdfd); box-shadow:0 4px 18px #35353504; }
+.shell .content .expense-overview strong { color:var(--app-ink); }
+.shell .content .expense-overview :is(.expense-stat-top,small) { color:var(--app-secondary); }
+.shell .content .expense-overview .expense-stat-icon { background:var(--app-neutral-soft); color:var(--app-neutral); }
+.shell .content .expense-overview article[data-tone="receipt"] .expense-stat-icon,
+.shell .content .expense-overview article[data-tone="card"] .expense-stat-icon { background:var(--app-blue-soft); color:var(--app-blue); }
+.shell .content .expense-overview article[data-tone="clock"] .expense-stat-icon { background:var(--app-amber-soft); color:var(--app-amber); }
+.shell .content .expense-overview article[data-tone="plane"] .expense-stat-icon { background:var(--app-purple-soft); color:var(--app-purple); }
+.shell .content .expense-overview article[data-tone="alert"] .expense-stat-icon { background:var(--app-pink-soft); color:var(--app-pink); }
+.shell .content :is(.personal-work-page,.spend-ui-page,.my-cards-page) :is(.resource-list-surface,.panel,.work-panel,.settings-card,.my-card-profile,.my-card-summary,.my-card-controls,.my-card-history) { border-color:var(--app-border); box-shadow:0 4px 18px #35353504; }
+.shell .content .kpi-card { border-color:var(--app-border); background:linear-gradient(135deg,#fff,#fcfdfd); }
+.shell .content .kpi-card > span,.shell .content .kpi-card > small { color:var(--app-secondary); }
+.shell .content :is(.expense-merchant-icon,.search-result-icon) { background:var(--app-neutral-soft); color:var(--app-neutral); border-color:transparent; }
+.shell .content .expense-merchant-icon:has([data-kind="receipt"]) { background:var(--app-orange-soft); color:var(--app-orange); }
+.shell .content .expense-merchant-icon:has([data-kind="card"]) { background:var(--app-blue-soft); color:var(--app-blue); }
+.shell .content .expense-merchant-icon:has([data-kind="plane"]) { background:var(--app-purple-soft); color:var(--app-purple); }
+.shell .content :is(.expense-merchant-icon,.search-result-icon):is([data-icon="Cards"],[data-icon="Requests"],[data-icon="Accounting"],[data-icon="People"],[data-icon="Procurement"],[data-icon="Funds"],[data-icon="Spend requests"],[data-icon="Transactions"],[data-icon="Payments"],[data-icon="Payment runs"],[data-icon="Expense review"]) { background:var(--app-blue-soft); color:var(--app-blue); }
+.shell .content :is(.expense-merchant-icon,.search-result-icon):is([data-icon="Bills"],[data-icon="Receipts"],[data-icon="Vendors"],[data-icon="My expenses"],[data-icon="Reimbursements"],[data-icon="Receiving"],[data-icon="Purchase Orders"]) { background:var(--app-orange-soft); color:var(--app-orange); }
+.shell .content :is(.expense-merchant-icon,.search-result-icon):is([data-icon="Travel"],[data-icon="Budgets"],[data-icon="Programs"],[data-icon="Spend programs"]) { background:var(--app-purple-soft); color:var(--app-purple); }
+.shell .content :is(.expense-merchant-icon,.search-result-icon):is([data-icon="Inbox"],[data-icon="Notifications"]) { background:var(--app-pink-soft); color:var(--app-pink); }
+.shell .content .badge { background:var(--app-neutral-soft); color:var(--app-neutral); }
+.shell .content .badge:is(.badge-pending,.badge-pending_approval,.badge-in_review,.badge-submitted,.badge-needs_review,.badge-review,.badge-needs_info,.badge-warning,.badge-warn,.badge-high,.badge-reprice_required,.badge-refund_pending) { background:var(--app-amber-soft); color:var(--app-amber); }
+.shell .content .badge:is(.badge-rejected,.badge-blocked,.badge-failed,.badge-error,.badge-sync_error,.badge-over,.badge-out_of_policy,.badge-urgent,.badge-degraded) { background:#fff0f3; color:#a52b45; }
+.shell .content .badge:is(.badge-ready_to_sync,.badge-ready_to_book,.badge-ready_for_payout) { background:var(--app-purple-soft); color:#6631a8; }
+.shell .content .badge:is(.badge-booked,.badge-confirmed,.badge-processing,.badge-scheduled) { background:var(--app-blue-soft); color:#2458a9; }
+.shell .content .inbox-summary-card.summary-new { background:linear-gradient(120deg,#f0f5ff,#fafcff); border-color:#e6edfa; }
+.shell .content .summary-new .inbox-summary-symbol { background:var(--app-blue-soft); color:var(--app-blue); }
+.shell .content .inbox-summary-card.summary-priority { background:linear-gradient(120deg,#fff0f3,#fffbfc); border-color:#f4e5ea; }
+.shell .content .summary-priority .inbox-summary-symbol { background:var(--app-pink-soft); color:var(--app-pink); }
+.shell .content .inbox-badge-new { color:#2458a9; background:var(--app-blue-soft); }
+.shell .content .search-heading-mark { color:var(--app-blue); background:var(--app-blue-soft); }
+.shell .content .search-start-art > div { color:var(--app-blue); background:var(--app-blue-soft); border-color:#dce7fb; }
+.shell .content .notification-symbol { color:var(--app-pink); background:var(--app-pink-soft); border-color:transparent; }
+.shell .content .notification-row.is-new { background:#fff8fa; box-shadow:inset 3px 0 #d9839b; }
+.shell .content .my-card-metrics > div:first-child .my-card-metric-icon { color:var(--app-amber); background:var(--app-amber-soft); }
+.shell .content .my-card-metrics > div:nth-child(2) .my-card-metric-icon { color:var(--app-blue); background:var(--app-blue-soft); }

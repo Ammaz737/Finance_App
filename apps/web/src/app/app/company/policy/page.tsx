@@ -33,6 +33,35 @@ const blank = {
   rules: [{ type: "receipt_required", threshold: 75, action: "block" }] as Rule[],
 };
 
+const RULE_LABELS: Record<string, string> = {
+  receipt_required: "Receipt required",
+  memo_required: "Business purpose / memo required",
+  vendor_required: "Vendor required",
+  quote_required: "Quote or supporting document required",
+  high_value: "High-value warning",
+  category_amount: "Category amount review",
+  manager_approval: "Manager approval required",
+  hard_policy_block: "Hard policy block",
+  travel_max_amount: "Travel amount review",
+  travel_out_of_policy: "Out-of-policy travel",
+};
+
+const RULES_WITH_THRESHOLD = new Set([
+  "receipt_required", "memo_required", "quote_required", "high_value", "category_amount", "manager_approval", "travel_max_amount",
+]);
+const RULES_WITH_CATEGORY = new Set(["category_amount"]);
+const RULES_WITH_CONFIGURABLE_ACTION = new Set(["receipt_required", "travel_out_of_policy"]);
+
+function defaultAction(type: string) {
+  return type === "receipt_required" ? "block" : "review";
+}
+
+function fixedOutcome(type: string) {
+  if (type === "high_value") return "WARN";
+  if (type === "hard_policy_block") return "BLOCK";
+  return "REVIEW";
+}
+
 export default function PolicyPage() {
   const session = useSession();
   const client = useQueryClient();
@@ -42,6 +71,10 @@ export default function PolicyPage() {
   const [simAmount, setSimAmount] = useState("100");
   const [simHasReceipt, setSimHasReceipt] = useState(false);
   const [simHasMemo, setSimHasMemo] = useState(false);
+  const [simHasVendor, setSimHasVendor] = useState(false);
+  const [simHasAttachment, setSimHasAttachment] = useState(false);
+  const [simCategory, setSimCategory] = useState("");
+  const [simOutOfPolicy, setSimOutOfPolicy] = useState(false);
 
   const canSeeApprovals = session
     ? canSeeItem(findNavItem("/app/company/approvals") ?? { href: "/app/company/approvals", permission: "roles.assign" }, session)
@@ -64,10 +97,10 @@ export default function PolicyPage() {
       void client.invalidateQueries({ queryKey: ["policies"] });
     },
   });
-  const disable = useMutation({
-    mutationFn: (id: string) => api.post(`/policies/${id}/disable`, {}),
-    onSuccess: () => {
-      setMessage("Policy disabled.");
+  const toggle = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.post(`/policies/${id}/${enabled ? "enable" : "disable"}`, {}),
+    onSuccess: (_data, variables) => {
+      setMessage(variables.enabled ? "Policy published and enabled." : "Policy disabled.");
       void client.invalidateQueries({ queryKey: ["policies"] });
     },
   });
@@ -82,6 +115,10 @@ export default function PolicyPage() {
         amount: Number(simAmount) || 0,
         hasReceipt: simHasReceipt,
         hasMemo: simHasMemo,
+        hasVendor: simHasVendor,
+        hasAttachment: simHasAttachment,
+        category: simCategory || undefined,
+        outOfPolicy: simOutOfPolicy,
         rules: form.rules,
       }),
   });
@@ -109,7 +146,7 @@ export default function PolicyPage() {
   }
 
   return (
-    <div className="stack-lg company-builder-page linked-dest-page">
+    <div className="stack-lg company-builder-page linked-dest-page company-ui-page spend-ui-page company-policy-ui">
       <div className="resource-heading">
         <PageHeader
           title="Policy builder"
@@ -168,8 +205,17 @@ export default function PolicyPage() {
           <fieldset>
             <legend>Conditions and actions</legend>
             {form.rules.map((rule, index) => (
-              <div className="form-grid" key={index}>
-                <select className="input" aria-label={`Rule ${index + 1}`} value={rule.type} onChange={(e) => updateRule(index, { type: e.target.value })}>
+              <fieldset className="policy-box" key={index}>
+                <legend>Rule {index + 1}</legend>
+                <div className="form-grid">
+                <label>
+                  Rule type
+                  <select className="input" value={rule.type} onChange={(e) => updateRule(index, {
+                    type: e.target.value,
+                    threshold: undefined,
+                    category: undefined,
+                    action: defaultAction(e.target.value),
+                  })}>
                   {[
                     "receipt_required",
                     "memo_required",
@@ -182,29 +228,40 @@ export default function PolicyPage() {
                     "travel_max_amount",
                     "travel_out_of_policy",
                   ].map((value) => (
-                    <option key={value}>{value}</option>
+                    <option key={value} value={value}>{RULE_LABELS[value]}</option>
                   ))}
-                </select>
-                <input
-                  className="input"
-                  aria-label="Amount threshold"
-                  type="number"
-                  placeholder="Amount threshold"
-                  value={rule.threshold ?? ""}
-                  onChange={(e) => updateRule(index, { threshold: e.target.value ? Number(e.target.value) : undefined })}
-                />
-                <input
-                  className="input"
-                  aria-label="Category"
-                  placeholder="Category"
-                  value={rule.category ?? ""}
-                  onChange={(e) => updateRule(index, { category: e.target.value || undefined })}
-                />
-                <select className="input" aria-label="Action" value={rule.action ?? "review"} onChange={(e) => updateRule(index, { action: e.target.value })}>
-                  <option value="warn">WARN</option>
-                  <option value="review">REVIEW / require approval</option>
-                  <option value="block">BLOCK</option>
-                </select>
+                  </select>
+                </label>
+                {RULES_WITH_THRESHOLD.has(rule.type) && <label>
+                  Amount threshold
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 75"
+                    value={rule.threshold ?? ""}
+                    onChange={(e) => updateRule(index, { threshold: e.target.value ? Number(e.target.value) : undefined })}
+                  />
+                </label>}
+                {RULES_WITH_CATEGORY.has(rule.type) && <label>
+                  Category
+                  <input
+                    className="input"
+                    placeholder="e.g. Software"
+                    value={rule.category ?? ""}
+                    onChange={(e) => updateRule(index, { category: e.target.value || undefined })}
+                  />
+                </label>}
+                {RULES_WITH_CONFIGURABLE_ACTION.has(rule.type) ? <label>
+                  Result when matched
+                  <select className="input" value={rule.action ?? defaultAction(rule.type)} onChange={(e) => updateRule(index, { action: e.target.value })}>
+                    <option value="review">REVIEW — require human approval</option>
+                    <option value="block">BLOCK — stop submission</option>
+                  </select>
+                </label> : <label>
+                  Result when matched
+                  <input className="input" value={fixedOutcome(rule.type)} disabled />
+                </label>}
                 <button
                   className="btn btn-ghost"
                   type="button"
@@ -213,7 +270,8 @@ export default function PolicyPage() {
                 >
                   Remove
                 </button>
-              </div>
+                </div>
+              </fieldset>
             ))}
             <button
               className="btn btn-ghost"
@@ -236,6 +294,19 @@ export default function PolicyPage() {
               </label>
               <label className="checkbox">
                 <input type="checkbox" checked={simHasMemo} onChange={(e) => setSimHasMemo(e.target.checked)} /> Has memo
+              </label>
+              <label>
+                Category
+                <input className="input" value={simCategory} onChange={(e) => setSimCategory(e.target.value)} placeholder="e.g. Software" />
+              </label>
+              <label className="checkbox">
+                <input type="checkbox" checked={simHasVendor} onChange={(e) => setSimHasVendor(e.target.checked)} /> Has vendor
+              </label>
+              <label className="checkbox">
+                <input type="checkbox" checked={simHasAttachment} onChange={(e) => setSimHasAttachment(e.target.checked)} /> Has quote / attachment
+              </label>
+              <label className="checkbox">
+                <input type="checkbox" checked={simOutOfPolicy} onChange={(e) => setSimOutOfPolicy(e.target.checked)} /> Out of policy
               </label>
             </div>
             <p className="muted">Simulation uses the shared policy engine on the draft rules above (not saved DB JSON).</p>
@@ -292,11 +363,9 @@ export default function PolicyPage() {
                 <button className="btn btn-ghost" type="button" onClick={() => edit(row)}>
                   Edit / version
                 </button>
-                {row.enabled && (
-                  <button className="btn btn-ghost" type="button" onClick={() => disable.mutate(row.id)}>
-                    Disable
-                  </button>
-                )}
+                <button className="btn btn-ghost" type="button" disabled={toggle.isPending} onClick={() => toggle.mutate({ id: row.id, enabled: !row.enabled })}>
+                  {row.enabled ? "Disable" : "Publish / enable"}
+                </button>
               </div>
             </li>
           ))}

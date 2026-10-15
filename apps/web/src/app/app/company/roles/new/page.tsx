@@ -47,7 +47,7 @@ export default function CreateRolePage() {
   }
 
   return (
-    <div className="stack-lg company-builder-page linked-dest-page">
+    <div className="stack-lg company-builder-page linked-dest-page company-ui-page spend-ui-page company-roles-ui">
       <div className="resource-heading">
         <PageHeader title="Create role" subtitle="Name the role, then grant only the page permissions that apply" />
         <Link className="btn btn-ghost" href="/app/company/roles">

@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+import { BillPayOverview } from "@/components/BillPayPresentation";
+import { SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -125,14 +131,7 @@ function BillsWorkspaceInner() {
       key: "invoiceNumber",
       header: "Invoice",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.invoiceNumber || "Bill"}</strong>
-          <small>
-            {vendorLabel(row.vendorId)}
-            {row.dueDate ? ` · due ${new Date(row.dueDate).toLocaleDateString()}` : ""}
-            {isUrgent(row) ? " · urgent" : ""}
-          </small>
-        </span>
+        <SpendRecord title={row.invoiceNumber || "Bill"} subtitle={`${vendorLabel(row.vendorId)}${row.dueDate ? ` · due ${new Date(row.dueDate).toLocaleDateString()}` : ""}${isUrgent(row) ? " · urgent" : ""}`} href={detailHref(row.id)} icon="Bills"/>
       ),
     },
     {
@@ -158,7 +157,7 @@ function BillsWorkspaceInner() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={detailHref(row.id)} label="Open bill"/>,
     },
   ];
 
@@ -166,7 +165,7 @@ function BillsWorkspaceInner() {
     stage === "overview" ? `/app/bill-pay/bills/${id}` : `/app/bill-pay/bills/${id}?stage=${stage}`;
 
   return (
-    <div className="bills-workspace-page">
+    <div className="bills-workspace-page personal-work-page spend-ui-page bill-pay-ui-page">
       <div className="stage-heading">
         <p>Bill Pay</p>
         <h1>Payables workspace</h1>
@@ -177,7 +176,8 @@ function BillsWorkspaceInner() {
           </Link>
         )}
       </div>
-      <div className="stage-tabs" role="tablist" aria-label="Bill stages">
+
+      <ResourcePage overview={(rows, loading) => <BillPayOverview kind="bills" rows={rows} loading={loading}/>} listIntro={<div className="stage-tabs" role="tablist" aria-label="Bill stages">
         {stageMeta.map((item) => (
           <button
             key={item.key}
@@ -191,8 +191,7 @@ function BillsWorkspaceInner() {
             <span>{counts[item.key]}</span>
           </button>
         ))}
-      </div>
-      <ResourcePage
+      </div>}
         title={stage === "overview" ? "All bills" : activeMeta.label}
         path="bills"
         columns={columns}

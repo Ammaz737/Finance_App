@@ -1,0 +1,60 @@
+.corporate-cards-page { position: relative; isolation: isolate; gap: 20px; padding: 0 2px 24px; }
+.corporate-cards-page::before { content: ""; position: absolute; z-index: -1; pointer-events: none; inset: -32px -24px auto; height: 380px; background: radial-gradient(ellipse at 78% 0%, #cccccc4d, transparent 65%), linear-gradient(165deg, #edf4f780, #f6f6f650 65%, transparent); }
+.corporate-cards-page::after { content: ""; position: absolute; z-index: -1; pointer-events: none; width: 60%; height: 220px; right: 0; top: -170px; border-radius: 50%; transform: rotate(26deg); border: 35px solid #ffffff50; box-shadow: 0 30px 0 #ffffff28, 0 65px 0 #ffffff20; }
+.cards-breadcrumb { display: flex; gap: 10px; color: #748394; font-size: 12px; margin-bottom: -15px; }
+.corporate-cards-page .resource-heading { align-items: center; gap: 20px; }
+.corporate-cards-page .page-header { margin: 0; }
+.corporate-cards-page .resource-heading h1 { font-size: 32px; letter-spacing: -1.2px; }
+.corporate-cards-page .resource-heading p { font-size: 13px; color: #748394; }
+.corporate-cards-page .resource-heading .btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 9px; font-size: 12px; white-space: nowrap; background: linear-gradient(130deg, #4c4c4c, #3e3e3e); box-shadow: 0 3px 8px #40404014; }
+.corporate-cards-page .corporate-cards-kpis { gap: 16px; }
+.corporate-cards-page .corporate-kpi { position: relative; overflow: hidden; display: flex; align-items: flex-start; gap: 16px; padding: 22px 18px; background: #ffffffba; border: 1px solid #ffffffc9; border-radius: 13px; color: #111b2b; min-height: 116px; }
+.corporate-cards-page .corporate-kpi.primary { background: #f8f8f8bc; }
+.cards-kpi-copy { display: grid; gap: 7px; position: relative; z-index: 1; min-width: 0; }
+.corporate-cards-page .corporate-kpi span { font-size: 11px; color: #6b7c8e; font-weight: 500; }
+.corporate-cards-page .corporate-kpi strong { font-size: clamp(20px, 1.7vw, 27px); color: #111b2b; letter-spacing: -.6px; }
+.corporate-cards-page .corporate-kpi small { font-size: 11px; color: #778798; }
+.corporate-cards-page .corporate-kpi .detail-link { font-size: 11px; color: #606060; font-weight: 650; }
+.cards-kpi-icon { display: grid; place-items: center; flex: 0 0 44px; height: 44px; border-radius: 11px; background: linear-gradient(135deg, #ededed, #f6f6f6); color: #6a6a6a; }
+.cards-kpi-icon .nav-icon { width: 24px; height: 24px; }
+.cards-kpi-icon.blue { color: #287be7; background: #e4f0ff; }
+.cards-kpi-bars { margin-left: auto; display: flex; align-items: flex-end; gap: 4px; height: 62px; align-self: flex-end; opacity: .65; }
+.cards-kpi-bars i { width: 11px; height: 20px; background: linear-gradient(#bbbbbb, #e6e6e6); border-radius: 3px; }
+.cards-kpi-bars i:nth-child(2) { height: 32px; }.cards-kpi-bars i:nth-child(3) { height: 46px; }.cards-kpi-bars i:nth-child(4) { height: 60px; }
+.cards-kpi-ring { flex-shrink: 0; margin: auto 0 auto auto; width: 50px; height: 50px; border: 10px solid #eeeeee; border-top-color: #a9a9a9; border-left-color: #d4d4d4; border-radius: 50%; transform: rotate(30deg); }
+.cards-kpi-squares { position: absolute; right: 20px; bottom: 15px; width: 60px; height: 64px; opacity: .6; }
+.cards-kpi-squares i { position: absolute; width: 40px; height: 48px; background: linear-gradient(135deg, #d0d0d0, #ededed); border-radius: 6px; right: 0; top: 0; }.cards-kpi-squares i + i { right: 24px; top: 23px; }
+.corporate-cards-page .corporate-cards-toolbar { background: none; border: 0; padding: 0; gap: 10px; flex-wrap: wrap; }
+.corporate-cards-page .corporate-cards-search { display: flex; align-items: center; gap: 9px; border: 1px solid #e9e9e9; background: #fff; padding: 0 12px; border-radius: 10px; flex: 1 1 250px; min-height: 44px; }
+.corporate-cards-search > svg { color: #647689; flex-shrink: 0; }
+.corporate-cards-page .corporate-cards-search .input { border: 0; box-shadow: none; background: none; padding: 10px 0; min-width: 0; width: 0; flex: 1; font-size: 12px; }
+.corporate-cards-page .corporate-cards-chips { display: flex; gap: 6px; padding: 6px; border-radius: 10px; border: 1px solid #ececec; background: #ffffffb8; }
+.corporate-cards-page .corporate-cards-chips .chip { font-size: 12px; border: 1px solid #e9e9e9; background: #fafafa; color: #586777; border-radius: 22px; padding: 5px 11px; }
+.corporate-cards-page .corporate-cards-chips .chip-active { background: #484848; border-color: #484848; color: #fff; box-shadow: 0 2px 5px #48484820; }
+.corporate-cards-page .chip-count { background: #efefef; color: #59717b; font-size: 10px; }.corporate-cards-page .chip-active .chip-count { background: #ffffff25; color: #fff; }
+.cards-filter-button, .cards-sort { min-height: 44px; display: flex; align-items: center; gap: 9px; background: #ffffffbd; border: 1px solid #e9e9e9; border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 12px; color: #344354; }
+.cards-filter-button { cursor: pointer; }.cards-filter-button.selected { border-color: #9b9b9b; }
+.cards-sort > span { color: #8290a0; font-size: 11px; }.cards-sort select { background: transparent; border: 0; color: #344354; font: inherit; max-width: 140px; }
+.cards-extra-filters { display: flex; align-items: center; gap: 18px; border: 1px solid #e8e8e8; background: #fff; border-radius: 10px; padding: 14px; font-size: 12px; }.cards-extra-filters label { display: flex; align-items: center; gap: 12px; }.cards-extra-filters select { padding: 7px; border: 1px solid #e2e2e2; border-radius: 6px; }
+.cards-result-count { text-align: right; font-size: 11px; color: #788a9c; margin: -12px 3px -12px; }
+.corporate-cards-page .corporate-cards-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.corporate-cards-page .corporate-card-tile { padding: 7px; border: 1px solid #ececec; border-radius: 14px; background: linear-gradient(#fff, #fefefe); cursor: default; display: flex; flex-direction: column; }
+.corporate-card-face-link { display: block; border-radius: 10px; }
+.corporate-cards-page .corporate-card-tile .virtual-card { border-radius: 10px; aspect-ratio: 2 / 1; min-height: 185px; padding: 18px 20px; background: radial-gradient(ellipse at 110% -10%, #575757 0%, transparent 60%), linear-gradient(115deg, #0b1215, #222222); box-shadow: inset 0 1px 0 #ffffff28; }
+.corporate-cards-page .virtual-card::before { content: ""; position: absolute; width: 140%; height: 150%; border: 1px solid #c2c2c216; border-radius: 48%; top: -115%; left: 15%; transform: rotate(27deg); box-shadow: 0 9px 0 #afafaf09, 0 21px 0 #afafaf0b, 0 35px 0 #afafaf09, 0 52px 0 #afafaf08, 0 75px 0 #afafaf07; }
+.corporate-cards-page .virtual-card.is-frozen { background: radial-gradient(ellipse at top right, #506978, transparent 70%), #1e2e38; }
+.corporate-cards-page .virtual-card.is-terminated { background: #393939; }
+.corporate-cards-page .virtual-card-brand { font-size: 10px; }.corporate-cards-page .virtual-card-chip { font-size: 9px; padding: 3px 10px; }
+.corporate-cards-page .virtual-card-pan { font-size: clamp(14px, 1.2vw, 18px); letter-spacing: .13em; }.corporate-cards-page .compact-footer strong { font-size: 10px; }.corporate-cards-page .virtual-card-label { font-size: 12px; color: #fff; font-style: italic; }.corporate-cards-page .virtual-card-contactless { transform: rotate(90deg); }
+.corporate-cards-page .corporate-card-meta { padding: 15px 10px 13px; border: 0; background: transparent; gap: 5px; }
+.corporate-cards-page .corporate-card-meta-top strong { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #192333; }
+.cards-you { font-size: 9px; font-weight: 600; color: #696969; background: #eeeeee; padding: 3px 5px; border-radius: 4px; }
+.corporate-cards-page .corporate-card-meta-top [class*="badge"] { font-size: 9px; border-radius: 4px; padding: 4px 6px; }
+.corporate-cards-page .corporate-card-meta-top .badge-active { background: #ededed; color: #616161; }
+.corporate-cards-page .corporate-card-meta-balance { font-size: 20px; color: #152131; font-variant-numeric: tabular-nums; }.corporate-cards-page .corporate-card-meta-fund { font-size: 11px; min-height: 16px; }
+.corporate-card-details { margin: 0 10px; font-size: 11px; }.corporate-card-details > div { display: grid; grid-template-columns: 1fr 1.2fr; align-items: center; gap: 14px; min-height: 34px; border-top: 1px solid #f0f0f0; }.corporate-card-details dt { display: flex; align-items: center; gap: 10px; color: #8290a1; }.corporate-card-details dt svg { width: 14px; height: 14px; flex-shrink: 0; }.corporate-card-details dd { margin: 0; color: #3a4959; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corporate-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px 5px 5px; margin-top: auto; }.corporate-card-actions a { display: flex; justify-content: center; align-items: center; min-height: 36px; font-size: 11px; font-weight: 650; color: #405266; border: 1px solid #ededed; border-radius: 7px; text-decoration: none; }.corporate-card-actions .cards-manage { background: #f5f5f5; border-color: #f5f5f5; color: #535353; }.corporate-card-actions a:hover { background: #eeeeee; border-color: #d3d3d3; }
+@media (max-width: 700px) { .corporate-cards-page::after { display: none; } }
+.corporate-cards-page :is(a, button, select, input):focus-visible { outline: 2px solid #6e6e6e; outline-offset: 3px; }
+@media (max-width: 1180px) { .cards-kpi-ring, .cards-kpi-bars, .cards-kpi-squares { display: none; }.corporate-cards-page .corporate-cards-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.corporate-cards-page .corporate-kpi { gap: 10px; padding: 18px 12px; }.cards-kpi-icon { flex-basis: 36px; height: 36px; } }
+@media (max-width: 700px) { .corporate-cards-page .corporate-cards-kpis, .corporate-cards-page .corporate-cards-grid { grid-template-columns: 1fr; }.corporate-cards-page .corporate-kpi { min-height: 98px; padding: 18px; }.cards-kpi-ring, .cards-kpi-bars, .cards-kpi-squares { display: flex; }.corporate-cards-page .resource-heading { flex-wrap: wrap; }.corporate-cards-page .resource-heading h1 { font-size: 27px; }.corporate-cards-page .corporate-cards-search { flex-basis: 100%; }.corporate-cards-page .corporate-card-tile .virtual-card { min-height: 170px; }.corporate-cards-page .virtual-card-pan { font-size: 16px; }.cards-sort { flex: 1; }.cards-extra-filters { flex-wrap: wrap; }.corporate-cards-page::before { inset-inline: -12px; }.corporate-cards-page .corporate-cards-chips .chip { padding-inline: 9px; } }

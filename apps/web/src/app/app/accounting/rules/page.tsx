@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { StatusBadge, type Column } from "@finance/design-system";
+import { AccountingOverview } from "@/components/AccountingPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 
 type RuleRow = {
@@ -56,8 +58,16 @@ export default function Page() {
   ];
 
   return (
-    <div className="accounting-queue-page">
-      <ResourcePage title="Accounting rules" path="accounting-rules" columns={columns} pageSize={20} />
+    <div className="accounting-queue-page personal-work-page spend-ui-page accounting-rules-page">
+      <ResourcePage
+        subtitle="Manage source matching, coding defaults and rule priority."
+        overview={(rows, loading) => <AccountingOverview kind="rules" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Coding rules" description="Manage source matching, coding defaults and rule priority."/>}
+        title="Accounting rules"
+        path="accounting-rules"
+        columns={columns}
+        pageSize={20}
+      />
       <p className="muted my-expenses-hint">
         Lower priority runs first when a source enters the queue. Review unmatched rows in{" "}
         <Link className="detail-link" href="/app/accounting/review">

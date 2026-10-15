@@ -108,7 +108,7 @@ export default function AccountingDimensionsPage() {
   }
 
   return (
-    <div className="stack-lg company-builder-page linked-dest-page">
+    <div className="stack-lg company-builder-page linked-dest-page company-ui-page spend-ui-page company-accounting-dimensions-ui">
       <div className="resource-heading">
         <PageHeader
           title="Accounting dimensions"

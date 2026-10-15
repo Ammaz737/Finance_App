@@ -1,10 +1,17 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/insights-ui.css";
+
+
 import Link from "next/link";
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { canSeeItem, findNavItem } from "@/config/navigation";
+import { BudgetOverview } from "@/components/InsightsPresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import { useSession } from "@/providers/session-provider";
 
@@ -59,13 +66,7 @@ function BudgetsContent() {
       key: "name",
       header: "Budget",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.name || "Budget"}</strong>
-          <small>
-            {row.period?.replaceAll("_", " ") || "Period"}
-            {row.freshness ? ` · as of ${new Date(row.freshness).toLocaleDateString()}` : ""}
-          </small>
-        </span>
+        <SpendRecord title={row.name || "Budget"} subtitle={(row.period?.replaceAll("_", " ") || "Period") + (row.freshness ? ` · as of ${new Date(row.freshness).toLocaleDateString()}` : "")} href={`/app/insights/budgets/${row.id}`} icon="Budgets"/>
       ),
     },
     {
@@ -112,25 +113,29 @@ function BudgetsContent() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/insights/budgets/${row.id}`} label={`Open ${row.name || "budget"}`}/>,
     },
   ];
 
   return (
-    <div className="insights-budgets-page linked-dest-page">
-      <div className="my-work-filters" role="toolbar" aria-label="Budget focus">
-        {focusLinks.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`chip${activeFocus === item.focus ? " chip-active" : ""}`}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </div>
-
+    <div className="insights-budgets-page insights-ui-page personal-work-page spend-ui-page linked-dest-page">
       <ResourcePage
+        subtitle="Monitor budget capacity, spending and outstanding commitments."
+        overview={(rows, loading) => <BudgetOverview rows={rows} loading={loading}/>}
+        listIntro={<>
+          <SpendIntro title="Budget allocation" description="Track utilization and spot budgets that need attention."/>
+          <div className="my-work-filters" role="toolbar" aria-label="Budget focus">
+            {focusLinks.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`chip${activeFocus === item.focus ? " chip-active" : ""}`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        </>}
         title="Budgets"
         path="budgets"
         columns={columns}

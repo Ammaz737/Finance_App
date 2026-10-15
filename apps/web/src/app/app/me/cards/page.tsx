@@ -10,6 +10,7 @@ import { canSeeItem, findNavItem } from "@/config/navigation";
 import { pickPrimaryCard } from "@/lib/card-primary";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
+import "./my-cards.css";
 
 type CardRow = {
   id: string;
@@ -337,30 +338,32 @@ export default function MyCardsPage() {
     },
   ];
 
+  const [activityView, setActivityView] = useState("activity");
+
   return (
     <div className="my-cards-page">
       <div className="resource-heading">
         <PageHeader
           title="My card"
-          subtitle="Approved spend tops up this wallet (company cash is not moved until card capture). Travel trips use a separate temp wallet."
+          subtitle="Your company card, spending balance and recent activity."
         />
         {data && canFreeze && (
           <div className="detail-actions-top">
             {data.card.status === "ACTIVE" && (
               <button
                 type="button"
-                className="btn btn-danger"
+                className="btn my-card-freeze"
                 disabled={freeze.isPending}
                 onClick={() => {
                   if (window.confirm("Freeze this card?")) freeze.mutate();
                 }}
               >
-                Freeze
+                Freeze card
               </button>
             )}
             {data.card.status === "FROZEN" && (
               <button type="button" className="btn" disabled={unfreeze.isPending} onClick={() => unfreeze.mutate()}>
-                Unfreeze
+                Unfreeze card
               </button>
             )}
           </div>
@@ -395,9 +398,9 @@ export default function MyCardsPage() {
             My requests
           </Link>
         </div>
-      ) : detail.isPending || !data ? (
+      ) : detail.isPending ? (
         <p className="muted">Loading card details…</p>
-      ) : detail.isError ? (
+      ) : detail.isError || !data ? (
         <div className="error-panel">
           Could not load card details.{" "}
           <button className="text-button" onClick={() => void detail.refetch()}>
@@ -406,46 +409,34 @@ export default function MyCardsPage() {
         </div>
       ) : (
         <div className="my-card-workspace">
-          <div className="my-card-info">
-            <div className="overview-stat-grid company">
-              <article className="overview-stat">
-                <span>Status</span>
-                <strong>
-                  <StatusBadge status={data.card.status} />
-                </strong>
-                <small>
-                  {data.card.type.replaceAll("_", " ")} ·{" "}
-                  {(data.card.provider === "stripe"
-                    ? "STRIPE"
-                    : data.card.network || data.card.brand || "MOCK"
-                  ).toUpperCase()}
-                </small>
-              </article>
-              <article className="overview-stat">
-                <span>Available</span>
-                <strong>{money(currency, data.totals.available)}</strong>
-                <small>
-                  Limit {data.fund ? money(data.fund.currency, data.fund.limitAmount) : "—"}
-                </small>
-              </article>
-              <article className="overview-stat">
-                <span>Pending / cleared</span>
-                <strong>
-                  {money(currency, data.totals.pending)} · {money(currency, data.totals.cleared)}
-                </strong>
-                <small>Holds vs captured</small>
-              </article>
+          <aside className="my-card-profile" aria-label="Your card">
+            <div className="my-card-profile-heading"><h2>Virtual card</h2><span>{(data.card.brand || data.card.network || "Card").toUpperCase()}</span></div>
+          <div className="my-card-face-col">
+            <VirtualCardFace
+              last4={data.card.last4}
+              holderName={holderName}
+              network={data.card.network}
+              brand={data.card.brand}
+              provider={data.card.provider}
+              type={data.card.type}
+              status={data.card.status}
+            />
+            <p className="my-card-face-note">
+              Virtual company card · •••• {data.card.last4}
+            </p>
+          </div>
+            <div className="my-card-hero-actions">
+              <Link className="btn btn-primary" href={`/app/me/cards/${data.card.id}`}>Manage card <span aria-hidden="true">↗</span></Link>
+              {canCreateSpend && <Link className="btn" href="/app/me/requests">My requests <span aria-hidden="true">→</span></Link>}
             </div>
-
-            <div className="detail-grid">
-              <section className="panel">
-                <h2>Linked records</h2>
+              <section className="my-card-identity">
+                <h2>Card details</h2>
                 <dl className="detail-list">
                   <div>
-                    <dt>Holder</dt>
+                    <dt>Cardholder</dt>
                     <dd>
-                      {holderName}
-                      {data.holder?.email ? ` · ${data.holder.email}` : ""}
+                      <strong>{holderName}</strong>
+                      {data.holder?.email && <small>{data.holder.email}</small>}
                     </dd>
                   </div>
                   <div>
@@ -489,41 +480,28 @@ export default function MyCardsPage() {
                   </div>
                 </dl>
               </section>
-
-              <section className="panel">
-                <h2>Controls</h2>
-                <dl className="detail-list">
-                  <div>
-                    <dt>Merchant lock</dt>
-                    <dd>{data.controls.merchantLock || "Open"}</dd>
-                  </div>
-                  <div>
-                    <dt>Allowed MCCs</dt>
-                    <dd>{data.controls.allowedMccs || "Any"}</dd>
-                  </div>
-                  <div>
-                    <dt>Per-txn limit</dt>
-                    <dd>
-                      {data.controls.perTransactionLimit
-                        ? money(currency, data.controls.perTransactionLimit)
-                        : "None"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Velocity</dt>
-                    <dd>
-                      {data.controls.velocityMaxCount ?? "—"} tx /{" "}
-                      {data.controls.velocityMaxAmount
-                        ? money(currency, data.controls.velocityMaxAmount)
-                        : "—"}{" "}
-                      in {data.controls.velocityWindowHours}h
-                    </dd>
-                  </div>
-                </dl>
-              </section>
-            </div>
-
-            <section className="panel">
+            <p className="my-card-funding-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="m8 12 3 3 5-6"/></svg>Approved spend tops up this card. Travel uses a separate wallet.</p>
+          </aside>
+          <div className="my-card-info">
+            <section className="my-card-summary" aria-label="Spending balance">
+              <div className="my-card-summary-top"><span>Available balance</span><StatusBadge status={data.card.status} /></div>
+              <div className="my-card-amount">{money(currency, data.totals.available)}</div>
+              <p className="my-card-limit">Card limit <strong>{data.fund ? money(data.fund.currency, data.fund.limitAmount) : "—"}</strong></p>
+              <div className="my-card-metrics">
+                <div><span className="my-card-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></span><div><span>Pending holds</span><strong>{money(currency, data.totals.pending)}</strong></div></div>
+                <div><span className="my-card-metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="3"/><path d="m8 12 3 3 5-6"/></svg></span><div><span>Cleared payments</span><strong>{money(currency, data.totals.cleared)}</strong></div></div>
+              </div>
+            </section>
+            <div className="my-card-history">
+              <div className="my-card-history-heading"><h2>Recent activity</h2><span>Card history</span></div>
+              <nav className="my-card-tabs" aria-label="Card history views">
+                <button type="button" aria-pressed={activityView === "activity"} aria-controls="my-card-activity" onClick={() => setActivityView("activity")}>Card activity<span>{(data.activity ?? []).length}</span></button>
+                <button type="button" aria-pressed={activityView === "transactions"} aria-controls="my-card-transactions" onClick={() => setActivityView("transactions")}>Transactions<span>{data.transactions.length}</span></button>
+                <button type="button" aria-pressed={activityView === "topups"} aria-controls="my-card-topups" onClick={() => setActivityView("topups")}>Spend top-ups<span>{(data.topUps ?? []).length}</span></button>
+                <button type="button" aria-pressed={activityView === "travel"} aria-controls="my-card-travel" onClick={() => setActivityView("travel")}>Travel wallets<span>{travelWallets.length}</span></button>
+                <button type="button" aria-pressed={activityView === "authorizations"} aria-controls="my-card-authorizations" onClick={() => setActivityView("authorizations")}>Authorizations<span>{data.authorizations.length}</span></button>
+              </nav>
+            <section className="panel my-card-history-panel" id="my-card-topups" hidden={activityView !== "topups"}>
               <div className="section-title" style={{ marginTop: 0 }}>
                 <h2>Spend top-ups</h2>
                 <span>{(data.topUps ?? []).length}</span>
@@ -541,7 +519,7 @@ export default function MyCardsPage() {
               )}
             </section>
 
-            <section className="panel">
+            <section className="panel my-card-history-panel" id="my-card-travel" hidden={activityView !== "travel"}>
               <div className="section-title" style={{ marginTop: 0 }}>
                 <h2>Travel wallets</h2>
                 <span>{travelWallets.length}</span>
@@ -559,7 +537,7 @@ export default function MyCardsPage() {
               )}
             </section>
 
-            <section className="panel">
+            <section className="panel my-card-history-panel" id="my-card-activity" hidden={activityView !== "activity"}>
               <div className="section-title" style={{ marginTop: 0 }}>
                 <h2>Card activity</h2>
                 <span>{(data.activity ?? []).length}</span>
@@ -579,7 +557,7 @@ export default function MyCardsPage() {
               )}
             </section>
 
-            <section className="panel">
+            <section className="panel my-card-history-panel" id="my-card-transactions" hidden={activityView !== "transactions"}>
               <div className="section-title" style={{ marginTop: 0 }}>
                 <h2>Transactions</h2>
                 <span>{data.transactions.length}</span>
@@ -597,15 +575,14 @@ export default function MyCardsPage() {
               )}
             </section>
 
-            <section className="panel">
+            <section className="panel my-card-history-panel" id="my-card-authorizations" hidden={activityView !== "authorizations"}>
               <div className="section-title" style={{ marginTop: 0 }}>
                 <h2>Authorizations</h2>
                 <span>{data.authorizations.length}</span>
               </div>
               {data.authorizations.length === 0 ? (
                 <p className="muted">
-                  No authorization attempts yet. Ask Finance to run{" "}
-                  <strong>Authorize &amp; capture</strong> on the full card workspace, then refresh.
+                  No authorization attempts yet. Authorization requests will appear here when your card is used.
                 </p>
               ) : (
                 <div className="table-wrap">
@@ -618,24 +595,40 @@ export default function MyCardsPage() {
                 </Link>
               </div>
             </section>
+            </div>
+              <section className="panel my-card-controls">
+                <h2>Spending controls</h2>
+                <dl className="detail-list">
+                  <div>
+                    <dt>Merchant lock</dt>
+                    <dd>{data.controls.merchantLock || "Open"}</dd>
+                  </div>
+                  <div>
+                    <dt>Merchant categories</dt>
+                    <dd>{data.controls.allowedMccs || "Any"}</dd>
+                  </div>
+                  <div>
+                    <dt>Transaction limit</dt>
+                    <dd>
+                      {data.controls.perTransactionLimit
+                        ? money(currency, data.controls.perTransactionLimit)
+                        : "None"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Spending window</dt>
+                    <dd>
+                      {data.controls.velocityMaxCount ?? "—"} tx /{" "}
+                      {data.controls.velocityMaxAmount
+                        ? money(currency, data.controls.velocityMaxAmount)
+                        : "—"}{" "}
+                      in {data.controls.velocityWindowHours}h
+                    </dd>
+                  </div>
+                </dl>
+              </section>
           </div>
 
-          <aside className="my-card-face-col">
-            <VirtualCardFace
-              last4={data.card.last4}
-              holderName={holderName}
-              network={data.card.network}
-              brand={data.card.brand}
-              provider={data.card.provider}
-              type={data.card.type}
-              status={data.card.status}
-              availableLabel={money(currency, data.totals.available)}
-              merchantLock={data.controls.merchantLock}
-            />
-            <p className="my-card-face-note">
-              New approved spend tops up this card. Full freeze / controls live in the card workspace.
-            </p>
-          </aside>
         </div>
       )}
     </div>

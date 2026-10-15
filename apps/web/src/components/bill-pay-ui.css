@@ -1,0 +1,98 @@
+.bill-pay-ui-page .my-expenses-hint { margin:0; padding:0 4px; font-size:12px; line-height:1.8; }
+.bill-pay-ui-page .panel { min-width:0; margin:0; }
+.bill-pay-ui-page .panel h2 { margin:0 0 20px; font-size:15px; letter-spacing:-.2px; }
+.bill-pay-ui-page .panel h3 { font-size:13px; margin:22px 0 12px; color:#555; }
+.bill-pay-ui-page .panel > .muted,.bill-pay-ui-page > .muted { font-size:12px; line-height:1.8; margin:0; }
+.billpay-detail-layout { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:20px; align-items:start; }
+.billpay-detail-main,.billpay-detail-aside { display:grid; min-width:0; gap:20px; }
+.bill-pay-ui-page:not(.payment-run-detail-page) .overview-stat-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.bill-pay-ui-page .overview-stat > strong { font-size:20px; }
+.bill-pay-ui-page .detail-actions:empty { display:none; }
+.bill-pay-ui-page .detail-checklist li { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.bill-pay-ui-page .record-form { grid-template-columns:minmax(0,1fr); gap:16px; }
+.bill-pay-ui-page .record-form label,.bill-pay-ui-page .form-grid label { min-width:0; display:grid; gap:8px; font-size:12px; font-weight:500; color:#777; }
+.bill-pay-ui-page .record-form > button { justify-self:start; }
+.bill-pay-ui-page .record-form .form-grid { min-width:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 16px; }
+.bill-pay-ui-page fieldset { min-width:0; border:1px solid #e5e5e5; border-radius:8px; padding:20px; margin:0; }
+.bill-pay-ui-page legend { padding:0 8px; font-size:12px; font-weight:600; color:#555; }
+.bill-pay-ui-page .record-form .checkbox { display:flex; align-items:center; gap:10px; line-height:1.7; color:#555; padding:10px 0; }
+.bill-pay-ui-page input[type=checkbox] { width:15px; height:15px; flex:0 0 15px; accent-color:#444; }
+.bill-pay-ui-page .timeline { margin:0; }
+.bill-pay-ui-page .timeline-item { border-left:2px solid #e5e5e5; padding:0 0 18px 16px; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.bill-pay-ui-page .timeline-item:last-child { padding-bottom:0; }
+.bill-pay-ui-page .timeline-item .muted { font-size:11px; }
+.bill-pay-ui-page .plain-list li { overflow-wrap:anywhere; }
+.bill-pay-ui-page .plain-list li > .btn { margin:8px 0 0 8px; }
+.bill-pay-ui-page .drawer-header { gap:16px; align-items:flex-start; border-bottom:1px solid #eee; padding-bottom:18px; margin-bottom:18px; }
+.bill-pay-ui-page .drawer-header h2 { font-size:18px; line-height:1.5; margin:0; }
+.bill-pay-ui-page .drawer .record-form { grid-template-columns:minmax(0,1fr); }
+.vendor-detail-page .panel .record-form { padding-top:0; }
+.vendor-detail-page .billpay-detail-main > .panel:first-child .record-form { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.vendor-detail-page .billpay-detail-aside .record-form { border-top:1px solid #eee; margin-top:18px; padding-top:18px; }
+.bill-record-detail .billpay-detail-layout { grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr); }
+.bill-record-detail .billpay-detail-aside .detail-list > div { grid-template-columns:95px minmax(0,1fr); gap:14px; }
+.bill-record-detail .panel > .resource-heading { margin-bottom:20px; }
+.bill-record-detail .panel .table-wrap { margin:0; }
+.bill-record-detail .data-table { min-width:570px; }
+.bill-record-detail .record-form .data-table { min-width:680px; }
+.bill-record-detail .data-table :is(th,td) { padding:12px 10px; }
+.bill-record-detail .record-form .data-table td:first-child { min-width:160px; }
+.bill-record-detail .record-form .data-table .input { min-width:70px; }
+.bill-record-detail .record-form .detail-actions-top { margin-top:2px; }
+.bill-record-detail .panel > .table-wrap + .muted { padding-top:16px; }
+.bills-workspace-page.bill-pay-ui-page .stage-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 20px; align-items:center; margin:0; }
+.bills-workspace-page .stage-heading p { grid-column:1; margin:0; font-size:10px; color:#888; font-weight:550; letter-spacing:1px; }
+.bills-workspace-page .stage-heading h1 { grid-column:1; margin:0; font-size:28px; letter-spacing:-.8px; }
+.bills-workspace-page .stage-heading > span { grid-column:1; line-height:1.7; font-size:13px; color:#818181; }
+.bills-workspace-page .stage-heading > .btn { grid-column:2; grid-row:1/4; margin:0; text-decoration:none; }
+.bills-workspace-page .resource-page { display:flex; flex-direction:column; }
+.bills-workspace-page .resource-page > .resource-heading { order:1; }
+.bills-workspace-page .resource-page > .expense-overview { order:0; }
+.bills-workspace-page .resource-page > .resource-list-surface { order:2; }
+.bills-workspace-page .resource-page > .resource-heading h1 { font-size:16px; letter-spacing:-.2px; margin:0; }
+.bills-workspace-page .resource-page > .resource-heading p { font-size:12px; margin-top:7px; }
+.bills-workspace-page .stage-tabs { margin:0; padding:0 24px; gap:22px; border-bottom:1px solid #ededed; }
+.bills-workspace-page .stage-tabs button { padding:18px 0 15px; color:#888; font-size:11px; font-weight:500; }
+.bills-workspace-page .stage-tabs button.active { color:#292929; border-bottom-color:#333; font-weight:650; }
+.bills-workspace-page .stage-tabs button span { background:#f3f3f3; color:#888; border-radius:4px; padding:2px 5px; font-size:9px; }
+.new-bill-page .record-form.panel { padding:26px; gap:24px; }
+.new-bill-page .record-form > .form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.new-bill-page .record-form fieldset { display:grid; gap:18px; }
+.new-bill-page .record-form fieldset > .form-grid { grid-template-columns:repeat(3,minmax(0,1fr)); padding:20px; border:1px solid #e7e7e7; background:#fafafa; border-radius:8px; }
+.new-bill-page fieldset > button { justify-self:start; }
+.new-bill-page .form-grid > div { font-size:12px; font-weight:600; color:#555; align-self:center; }
+.new-bill-page .record-form > strong { font-size:18px; color:#333; border-top:1px solid #eee; padding-top:20px; }
+.new-bill-page input[type=file] { padding:10px; background:#fafafa; border-style:dashed; }
+.new-bill-page input[type=file]::file-selector-button { border:1px solid #ddd; padding:6px 9px; border-radius:5px; background:#fff; color:#555; margin-right:8px; }
+@media(max-width:1100px) {
+  .bill-pay-ui-page:not(.payment-run-detail-page) .overview-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .billpay-detail-layout,.bill-record-detail .billpay-detail-layout { grid-template-columns:minmax(0,1fr); }
+  .new-bill-page .record-form fieldset > .form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:700px) {
+  .bill-pay-ui-page:not(.payment-run-detail-page) .overview-stat-grid { grid-template-columns:minmax(0,1fr); }
+  .bill-pay-ui-page .record-form .form-grid,.vendor-detail-page .billpay-detail-main > .panel:first-child .record-form,.new-bill-page .record-form fieldset > .form-grid { grid-template-columns:minmax(0,1fr); }
+  .bill-pay-ui-page .detail-list > div { grid-template-columns:100px minmax(0,1fr); }
+  .bill-pay-ui-page fieldset { padding:16px; }
+  .new-bill-page .record-form.panel { padding:20px; }
+  .new-bill-page .record-form fieldset > .form-grid { padding:16px; }
+  .bills-workspace-page.bill-pay-ui-page .stage-heading { grid-template-columns:minmax(0,1fr); }
+  .bills-workspace-page .stage-heading > .btn { grid-column:1; grid-row:auto; justify-self:start; margin-top:6px; }
+  .bills-workspace-page .stage-tabs { padding:0 18px; gap:20px; }
+}
+@media(max-width:600px) {
+  .vendors-page .data-table td:nth-child(2)::before { content:'Risk'; }
+  .vendors-page .data-table td:nth-child(3)::before { content:'Payment ready'; }
+  .vendors-page .data-table td:nth-child(4)::before { content:'Status'; }
+  .vendors-page .data-table td:nth-child(5)::before { content:'Added'; }
+  .bills-workspace-page .data-table td:nth-child(2)::before { content:'Amount'; }
+  .bills-workspace-page .data-table td:nth-child(3)::before { content:'Remaining'; }
+  .bills-workspace-page .data-table td:nth-child(4)::before { content:'Status'; }
+  .bills-workspace-page .data-table td:nth-child(5)::before { content:'Due'; }
+  .payments-page .data-table td:nth-child(2)::before { content:'Status'; }
+  .payments-page .data-table td:nth-child(3)::before { content:'Settlement'; }
+  .payments-page .data-table td:nth-child(4)::before { content:'Created'; }
+  .payment-runs-page .data-table td:nth-child(2)::before { content:'Status'; }
+  .payment-runs-page .data-table td:nth-child(3)::before { content:'Created'; }
+  .bill-pay-ui-page.personal-work-page .data-table td:last-child::before { content:none; }
+}

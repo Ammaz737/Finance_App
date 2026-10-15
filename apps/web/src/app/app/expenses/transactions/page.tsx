@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/expenses-ui.css";
+import { ExpenseOverview } from "@/components/ExpensePresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -54,10 +60,7 @@ export default function ExpenseReviewPage() {
       key: "merchant",
       header: "Expense",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.merchant || "Expense"}</strong>
-          <small>{row.memo?.trim() ? row.memo.slice(0, 56) : personLabel(peopleRows, row.userId)}</small>
-        </span>
+        <SpendRecord title={row.merchant || "Expense"} subtitle={row.memo?.trim() ? row.memo.slice(0, 56) : personLabel(peopleRows, row.userId)} href={`/app/expenses/${row.id}`} icon="Expense review"/>
       ),
     },
     {
@@ -93,13 +96,16 @@ export default function ExpenseReviewPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Review →</span>,
+      render: (row) => <SpendOpenLink href={`/app/expenses/${row.id}`} label={`Review ${row.merchant || "expense"}`}/>,
     },
   ];
 
   return (
-    <div className="expense-review-page">
+    <div className="expense-review-page personal-work-page spend-ui-page expenses-ui-page">
       <ResourcePage
+        subtitle="Review employee expenses, receipts and policy checks."
+        overview={(rows, loading) => <ExpenseOverview kind="review" rows={rows} loading={loading}/>}
+        listIntro={<><SpendIntro title="Expense queue" description="Review submissions and follow up on missing information."/></>}
         title="Expense review"
         path="expenses"
         columns={columns}

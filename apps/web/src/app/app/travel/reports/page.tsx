@@ -1,5 +1,9 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/travel-ui.css";
+
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@finance/design-system";
@@ -83,7 +87,7 @@ export default function TravelReportsPage() {
   const t = dash.data.travel;
 
   return (
-    <div className="travel-reports-page linked-dest-page spend-detail">
+    <div className="travel-reports-page travel-ui-page spend-ui-page linked-dest-page spend-detail">
       <div className="resource-heading">
         <PageHeader title="Travel reporting" subtitle="Confirmed booking spend, policy mix, cancellations, and refunds" />
         <div className="detail-actions-top">
@@ -154,7 +158,7 @@ export default function TravelReportsPage() {
             {(t?.spendByDestination ?? []).map((row) => (
               <li key={row.destination}>
                 <strong>{row.destination}</strong>
-                <span className="muted"> · {fmtAmount(row.amount)}</span>
+                <span className="muted">{fmtAmount(row.amount)}</span>
               </li>
             ))}
             {!(t?.spendByDestination ?? []).length && <li className="muted">No confirmed trip spend yet.</li>}

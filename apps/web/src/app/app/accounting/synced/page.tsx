@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { StatusBadge, type Column } from "@finance/design-system";
+import { AccountingOverview } from "@/components/AccountingPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import {
   accountingMoney,
@@ -50,8 +52,11 @@ function SyncedContent() {
   ];
 
   return (
-    <div className="accounting-queue-page">
+    <div className="accounting-queue-page personal-work-page spend-ui-page accounting-synced-page">
       <ResourcePage
+        subtitle="Acknowledged postings and their provider references."
+        overview={(rows, loading) => <AccountingOverview kind="entries" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Synced entries" description="Acknowledged postings and their provider references."/>}
         title="Synced"
         path="accounting"
         columns={columns}

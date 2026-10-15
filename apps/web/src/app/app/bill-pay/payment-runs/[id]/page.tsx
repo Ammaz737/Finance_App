@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -143,7 +146,7 @@ export default function PaymentRunDetailPage() {
   const currency = items[0]?.currency ?? detail.data.eligiblePayments[0]?.currency ?? "USD";
 
   return (
-    <div className="detail-page payment-run-detail-page">
+    <div className="spend-ui-page bill-pay-ui-page detail-page payment-run-detail-page">
       <div className="resource-heading">
         <PageHeader title={run.name} subtitle="Batch release gate — creator cannot release" />
         <Link className="btn btn-ghost" href={backHref}>
@@ -162,7 +165,7 @@ export default function PaymentRunDetailPage() {
         </p>
       )}
 
-      <div className="overview-stat-grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+      <div className="overview-stat-grid">
         <article className="overview-stat">
           <span>Status</span>
           <strong>

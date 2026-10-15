@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useDeferredValue, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useDeferredValue, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { DataTable, DrawerReview, PageHeader, StatusBadge, type Column } from "@finance/design-system";
 import { api } from "@/lib/api";
@@ -55,11 +55,16 @@ function initialValues(fields: FieldConfig[]) {
 
 export function ResourcePage(props: {
   title: string;
+  subtitle?: string;
+  overview?: (rows: Row[], loading: boolean) => ReactNode;
+  listIntro?: ReactNode;
   path: string;
   columns?: Column<Row>[];
   actions?: Action[];
   mineField?: string;
   filter?: Record<string, string[]>;
+  /** Use when the parent owns the status query parameter for a grouped queue. */
+  ignoreUrlStatus?: boolean;
   predicate?: (row: Row) => boolean;
   onRowNavigate?: (row: Row) => void;
   /** Called after a successful create so callers can deep-link into a detail screen. */
@@ -79,13 +84,17 @@ export function ResourcePage(props: {
   );
 }
 
-function ResourcePageInner({ title, path, columns, actions = [], mineField, filter, predicate, onRowNavigate, onCreated, getDetailHref, pageSize, myWorkFilters, needsActionStatuses, newWithinDays = DEFAULT_NEW_WITHIN_DAYS }: {
+function ResourcePageInner({ title, subtitle, overview, listIntro, path, columns, actions = [], mineField, filter, ignoreUrlStatus, predicate, onRowNavigate, onCreated, getDetailHref, pageSize, myWorkFilters, needsActionStatuses, newWithinDays = DEFAULT_NEW_WITHIN_DAYS }: {
   title: string;
+  subtitle?: string;
+  overview?: (rows: Row[], loading: boolean) => ReactNode;
+  listIntro?: ReactNode;
   path: string;
   columns?: Column<Row>[];
   actions?: Action[];
   mineField?: string;
   filter?: Record<string, string[]>;
+  ignoreUrlStatus?: boolean;
   predicate?: (row: Row) => boolean;
   onRowNavigate?: (row: Row) => void;
   onCreated?: (row: Row) => void;
@@ -100,7 +109,7 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("entry") ?? searchParams.get("id");
   const urlFocus = searchParams.get("focus");
-  const urlStatus = searchParams.get("status");
+  const urlStatus = ignoreUrlStatus ? null : searchParams.get("status");
   const config = resourceConfig[path];
   const fields = config?.fields ?? [];
   const [selected, setSelected] = useState<Row | null>(null);
@@ -193,7 +202,7 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
       }));
       return Object.fromEntries(results);
     },
-    enabled: creating && sourcePaths.length > 0,
+    enabled: (creating || Boolean(editing)) && sourcePaths.length > 0,
   });
 
   const create = useMutation({
@@ -523,19 +532,22 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
   }
 
   return <div className="resource-page">
-    <div className="resource-heading"><PageHeader title={title} subtitle={config?.description ?? `${title} across your organization.`} />
+    <div className="resource-heading"><PageHeader title={title} subtitle={subtitle ?? config?.description ?? `${title} across your organization.`} />
       {canCreate && <button type="button" className="btn btn-primary" onClick={openCreate}>{config?.createLabel}</button>}
     </div>
+    {overview?.(ownRows, query.isPending || query.isError)}
+    <ListSurface enabled={Boolean(overview)}>
+    {listIntro}
     {myWorkFilters && (
       <div className="my-work-filters" role="toolbar" aria-label="List filters">
-        <button type="button" className={`chip${activeFocus === "ALL" ? " chip-active" : ""}`} onClick={() => setActiveFocus("ALL")}>
+        <button type="button" className={`chip${activeFocus === "ALL" ? " chip-active" : ""}`} aria-pressed={activeFocus === "ALL"} onClick={() => setActiveFocus("ALL")}>
           All <span className="chip-count">{searchedRows.length}</span>
         </button>
-        <button type="button" className={`chip${activeFocus === "NEW" ? " chip-active" : ""}`} onClick={() => setActiveFocus("NEW")}>
+        <button type="button" className={`chip${activeFocus === "NEW" ? " chip-active" : ""}`} aria-pressed={activeFocus === "NEW"} onClick={() => setActiveFocus("NEW")}>
           New <span className="chip-count">{newCount}</span>
         </button>
         {actionStatuses.length > 0 && (
-          <button type="button" className={`chip${activeFocus === "NEEDS_ACTION" ? " chip-active" : ""}`} onClick={() => setActiveFocus("NEEDS_ACTION")}>
+          <button type="button" className={`chip${activeFocus === "NEEDS_ACTION" ? " chip-active" : ""}`} aria-pressed={activeFocus === "NEEDS_ACTION"} onClick={() => setActiveFocus("NEEDS_ACTION")}>
             Needs action <span className="chip-count">{needsCount}</span>
           </button>
         )}
@@ -544,6 +556,7 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
             key={item}
             type="button"
             className={`chip${activeFocus === item ? " chip-active" : ""}`}
+            aria-pressed={activeFocus === item}
             onClick={() => setActiveFocus(item)}
           >
             {item.replaceAll("_", " ")}
@@ -555,6 +568,7 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
     <div className="resource-toolbar">
       <label className="search-field"><span className="sr-only">Search {title}</span><input className="input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${title.toLowerCase()}…`} /></label>
       {!myWorkFilters && statuses.length > 1 && <select className="input status-filter" aria-label="Filter by status" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="ALL">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select>}
+      <SavedViewTools collapsed={Boolean(overview)}>
       {(savedViews.data?.length ?? 0) > 0 && (
         <select className="input status-filter" aria-label="Saved views" defaultValue="" onChange={(event) => {
           const view = savedViews.data?.find((item) => item.id === event.target.value);
@@ -574,8 +588,10 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
       <label className="sr-only" htmlFor={`save-view-${path}`}>Saved view name</label>
       <input id={`save-view-${path}`} className="input" style={{ maxWidth: 160 }} value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder="Save view name" />
       <button type="button" className="btn btn-ghost" disabled={saveView.isPending || (status === "ALL" && activeFocus === "ALL") && !viewName.trim()} onClick={() => saveView.mutate()}>Save view</button>
+      </SavedViewTools>
       <span className="record-count">{rows.length} records{myWorkFilters && activeFocus === "NEW" ? ` · last ${newWithinDays} days` : ""}</span>
     </div>
+    {saveView.isError && <p className="error-panel" role="alert">Could not save this view. {saveView.error.message}</p>}
     {message && <p className={message.includes("created") || message.includes("completed") || message.includes("invited") ? "notice" : "error"} role="status">{message}</p>}
     {sandboxLink && <div className="policy-box"><strong>Sandbox activation delivery</strong><p className="muted">Share this single-use link with the invited person. The raw token is not shown as the primary workflow.</p><button className="btn btn-ghost" type="button" onClick={() => void navigator.clipboard.writeText(`${window.location.origin}${sandboxLink}`)}>Copy activation link</button> <a href={sandboxLink}>Open activation</a></div>}
     {query.isError ? <div className="error-panel" role="alert">
@@ -592,6 +608,8 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
         </div>
       </nav>}
     </>}
+
+    </ListSurface>
 
     <DrawerReview open={Boolean(selected)} title={selected ? `${title} detail` : title} onClose={() => setSelected(null)}>
       {selected && <div className="detail-panel">
@@ -611,6 +629,8 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
         {path === "accounting" && ["NEEDS_REVIEW", "SYNC_ERROR", "READY_TO_SYNC"].includes(selected.status ?? "") && (session?.roles.includes("Owner") || session?.permissions.includes("*") || session?.permissions.includes("accounting.code")) && <form className="record-form" onSubmit={(event) => { event.preventDefault(); codeAccounting.mutate({ id: selected.id, draft: accountingDraft }); }}>
           <h3>Accounting coding</h3>
           <p className="muted">Use controlled dimensions where configured. Free text remains available when a list is empty.</p>
+          {dimensions.isPending && <p className="muted">Loading controlled accounting values…</p>}
+          {dimensions.isError && <p className="muted">Controlled dimensions could not be loaded. Manual coding remains available.</p>}
           {(() => {
             const categoryOpts = dimOptions(["category"]);
             const glOpts = dimOptions(["glAccount", "gl_account"]);
@@ -655,8 +675,8 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
                 {selectOrInput("Project", "project", projectOpts)}
                 {selectOrInput("Class", "class", classOpts)}
                 <label>
-                  Memo
-                  <input className="input" value={accountingDraft.memo} onChange={(event) => setAccountingDraft({ ...accountingDraft, memo: event.target.value })} maxLength={500} />
+                  Memo / posting description
+                  <input className="input" value={accountingDraft.memo} onChange={(event) => setAccountingDraft({ ...accountingDraft, memo: event.target.value })} maxLength={500} placeholder="Describe the business expense" />
                 </label>
               </>
             );
@@ -689,4 +709,12 @@ function ResourcePageInner({ title, path, columns, actions = [], mineField, filt
     </DrawerReview>
     <DrawerReview open={Boolean(editing)} title={`Edit ${title}`} onClose={() => setEditing(null)}><form className="record-form" onSubmit={(event) => { event.preventDefault(); if (editing) update.mutate({ id: editing.id, body: editValues }); }}>{fields.map((field) => <label key={field.key}>{field.label}{field.type === "select" ? <select className="input" value={editValues[field.key] ?? ""} onChange={(event) => setEditValues({ ...editValues, [field.key]: event.target.value })}>{fieldOptions(field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select> : <input className="input" type={field.type ?? "text"} value={editValues[field.key] ?? ""} onChange={(event) => setEditValues({ ...editValues, [field.key]: event.target.value })} />}</label>)}{update.isError && <p className="error">{update.error.message}</p>}<button className="btn btn-primary" disabled={update.isPending}>Save changes</button></form></DrawerReview>
   </div>;
+}
+
+function ListSurface({ enabled, children }: { enabled: boolean; children: ReactNode }) {
+  return enabled ? <section className="resource-list-surface" aria-label="Records">{children}</section> : <>{children}</>;
+}
+
+function SavedViewTools({ collapsed, children }: { collapsed: boolean; children: ReactNode }) {
+  return collapsed ? <details className="resource-saved-views"><summary>Saved views</summary><div>{children}</div></details> : <>{children}</>;
 }

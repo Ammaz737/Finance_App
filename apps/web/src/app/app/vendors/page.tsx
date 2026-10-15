@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+import { BillPayOverview } from "@/components/BillPayPresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge, type Column } from "@finance/design-system";
@@ -33,10 +39,7 @@ export default function VendorsPage() {
       key: "name",
       header: "Vendor",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.displayName || row.name || "Vendor"}</strong>
-          <small>{row.category?.trim() || "Counterparty"}</small>
-        </span>
+        <SpendRecord title={row.displayName || row.name || "Vendor"} subtitle={row.category?.trim() || "Counterparty"} href={`/app/vendors/${row.id}`} icon="Vendors"/>
       ),
     },
     {
@@ -62,13 +65,13 @@ export default function VendorsPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/vendors/${row.id}`} label="Open vendor"/>,
     },
   ];
 
   return (
-    <div className="vendors-page">
-      <ResourcePage
+    <div className="vendors-page personal-work-page spend-ui-page bill-pay-ui-page">
+      <ResourcePage subtitle="Manage vendor relationships, risk and payment readiness." overview={(rows, loading) => <BillPayOverview kind="vendors" rows={rows} loading={loading}/>} listIntro={<SpendIntro title="Vendor directory" description="Review vendor status and payment setup before paying invoices."/>}
         title="Vendors"
         path="vendors"
         columns={columns}

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { StatusBadge, type Column } from "@finance/design-system";
+import { AccountingOverview } from "@/components/AccountingPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import {
   accountingMoney,
@@ -53,8 +55,13 @@ function BillPayAccountingContent() {
   ];
 
   return (
-    <div className="accounting-queue-page">
-      <div className="my-work-filters" role="toolbar" aria-label="Bill Pay source filters">
+    <div className="accounting-queue-page personal-work-page spend-ui-page accounting-bill-pay-page">
+      <ResourcePage
+        subtitle="Code and sync your accounts payable activity."
+        overview={(rows, loading) => <AccountingOverview kind="entries" rows={rows} loading={loading}/>}
+        listIntro={<>
+          <SpendIntro title="Bill & payment entries" description="Code and sync your accounts payable activity."/>
+          <div className="my-work-filters" role="toolbar" aria-label="Bill Pay source filters">
         <Link className={`chip${!source ? " chip-active" : ""}`} href="/app/accounting/bill-pay">
           All
         </Link>
@@ -70,8 +77,8 @@ function BillPayAccountingContent() {
         >
           Payments
         </Link>
-      </div>
-      <ResourcePage
+          </div>
+        </>}
         title={title}
         path="accounting"
         columns={columns}

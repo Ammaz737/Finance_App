@@ -1,13 +1,25 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@finance/design-system";
 import { api } from "@/lib/api";
 
 type Ref = { id: string; name?: string; currency?: string; legalEntityId?: string; status?: string };
+type PoRef = {
+  id: string;
+  number?: string;
+  legalEntityId?: string;
+  vendorId?: string | null;
+  currency?: string;
+  amount?: string | number;
+  status?: string;
+};
 type Line = {
   description: string;
   quantity: string;
@@ -32,11 +44,14 @@ const emptyLine = (): Line => ({
   project: "",
 });
 
-export default function NewBillPage() {
+function NewBillForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const presetPoId = searchParams.get("purchaseOrderId") ?? "";
   const [form, setForm] = useState({
     vendorId: "",
     legalEntityId: "",
+    purchaseOrderId: presetPoId,
     invoiceNumber: "",
     invoiceDate: "",
     dueDate: "",
@@ -46,14 +61,31 @@ export default function NewBillPage() {
     draft: true,
   });
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
+  const [poPrefillDone, setPoPrefillDone] = useState(false);
 
   const refs = useQuery({
     queryKey: ["bill-form-refs"],
     queryFn: async () => ({
       vendors: await api.get<Ref[]>("/vendors"),
       entities: await api.get<Ref[]>("/entities"),
+      purchaseOrders: await api.get<PoRef[]>("/purchase-orders"),
     }),
   });
+
+  useEffect(() => {
+    if (poPrefillDone || !presetPoId || !refs.data?.purchaseOrders) return;
+    const po = refs.data.purchaseOrders.find((row) => row.id === presetPoId);
+    if (!po) return;
+    const entity = refs.data.entities.find((row) => row.id === po.legalEntityId);
+    setForm((current) => ({
+      ...current,
+      purchaseOrderId: po.id,
+      legalEntityId: po.legalEntityId ?? current.legalEntityId,
+      vendorId: po.vendorId ?? current.vendorId,
+      currency: po.currency ?? entity?.currency ?? current.currency,
+    }));
+    setPoPrefillDone(true);
+  }, [presetPoId, refs.data, poPrefillDone]);
 
   const upload = useMutation({
     mutationFn: async (file: File) => {
@@ -83,6 +115,7 @@ export default function NewBillPage() {
       const taxAmount = lines.reduce((sum, line) => sum + Number(line.taxAmount || 0), 0);
       return api.post<{ id: string }>("/bills", {
         ...form,
+        purchaseOrderId: form.purchaseOrderId || undefined,
         subtotal: subtotal.toFixed(2),
         taxAmount: taxAmount.toFixed(2),
         amount: (subtotal + taxAmount).toFixed(2),
@@ -111,9 +144,14 @@ export default function NewBillPage() {
   const vendors = (refs.data?.vendors ?? []).filter(
     (row) => row.status === "ACTIVE" && (!row.legalEntityId || row.legalEntityId === form.legalEntityId),
   );
+  const purchaseOrders = (refs.data?.purchaseOrders ?? []).filter(
+    (row) =>
+      !["CANCELLED", "CLOSED"].includes(row.status ?? "") &&
+      (!form.legalEntityId || row.legalEntityId === form.legalEntityId),
+  );
 
   return (
-    <div className="detail-page new-bill-page">
+    <div className="spend-ui-page bill-pay-ui-page detail-page new-bill-page">
       <div className="resource-heading">
         <PageHeader
           title="Create bill"
@@ -139,6 +177,7 @@ export default function NewBillPage() {
                   legalEntityId: event.target.value,
                   currency: entity?.currency ?? form.currency,
                   vendorId: "",
+                  purchaseOrderId: "",
                 });
               }}
             >
@@ -162,6 +201,30 @@ export default function NewBillPage() {
               {vendors.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Purchase order (optional)
+            <select
+              className="input"
+              value={form.purchaseOrderId}
+              onChange={(event) => {
+                const po = purchaseOrders.find((row) => row.id === event.target.value);
+                setForm({
+                  ...form,
+                  purchaseOrderId: event.target.value,
+                  ...(po?.vendorId ? { vendorId: po.vendorId } : {}),
+                  ...(po?.currency ? { currency: po.currency } : {}),
+                  ...(po?.legalEntityId ? { legalEntityId: po.legalEntityId } : {}),
+                });
+              }}
+            >
+              <option value="">No PO link</option>
+              {purchaseOrders.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.number ?? row.id.slice(0, 8)} · {row.currency ?? "USD"} {String(row.amount ?? "")}
                 </option>
               ))}
             </select>
@@ -292,5 +355,13 @@ export default function NewBillPage() {
         </button>
       </form>
     </div>
+  );
+}
+
+export default function NewBillPage() {
+  return (
+    <Suspense fallback={<p className="muted">Loading bill form…</p>}>
+      <NewBillForm />
+    </Suspense>
   );
 }

@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/procurement-ui.css";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -147,7 +150,7 @@ export default function ProcurementRequestDetailPage() {
   const approvedSteps = approvalProgress.filter((step) => step.status === "Approved").length;
 
   return (
-    <div className="detail-page procurement-detail-page">
+    <div className="spend-ui-page procurement-ui-page procurement-record-detail detail-page procurement-detail-page">
       <div className="resource-heading">
         <PageHeader
           title={request.name}
@@ -204,8 +207,8 @@ export default function ProcurementRequestDetailPage() {
         </article>
       </div>
 
-      <div className="detail-grid">
-        <section className="panel">
+      <div className="procurement-detail-layout">
+        <div className="procurement-detail-main"><section className="panel">
           <h2>Overview</h2>
           <dl className="detail-list">
             <div>
@@ -279,8 +282,19 @@ export default function ProcurementRequestDetailPage() {
             </p>
           )}
         </section>
-
-        <section className="panel">
+<section className="panel">
+          <h2>Activity</h2>
+          <div className="timeline">
+            {timeline.map((event) => (
+              <div key={event.id} className="timeline-item">
+                <strong>{event.action}</strong>
+                <div className="muted">{new Date(event.createdAt).toLocaleString()}</div>
+              </div>
+            ))}
+            {!timeline.length && <p className="muted">No activity yet.</p>}
+          </div>
+        </section></div>
+        <div className="procurement-detail-aside"><section className="panel">
           <h2>Approvals</h2>
           <p className="muted" style={{ marginTop: 0 }}>
             {approvedSteps} of {approvalProgress.length || 0} approvals completed
@@ -295,10 +309,7 @@ export default function ProcurementRequestDetailPage() {
             {!approvalProgress.length && <li className="muted">No approval steps yet.</li>}
           </ul>
         </section>
-      </div>
-
-      <div className="detail-grid">
-        <section className="panel">
+<section className="panel">
           <h2>Policy</h2>
           <dl className="detail-list">
             <div>
@@ -314,20 +325,7 @@ export default function ProcurementRequestDetailPage() {
               <dd>{policy.version ?? "—"}</dd>
             </div>
           </dl>
-        </section>
-
-        <section className="panel">
-          <h2>Activity</h2>
-          <div className="timeline">
-            {timeline.map((event) => (
-              <div key={event.id} className="timeline-item">
-                <strong>{event.action}</strong>
-                <div className="muted">{new Date(event.createdAt).toLocaleString()}</div>
-              </div>
-            ))}
-            {!timeline.length && <p className="muted">No activity yet.</p>}
-          </div>
-        </section>
+        </section></div>
       </div>
     </div>
   );

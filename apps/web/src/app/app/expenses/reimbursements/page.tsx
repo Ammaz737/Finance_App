@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/expenses-ui.css";
+import { ExpenseOverview } from "@/components/ExpensePresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -111,13 +117,7 @@ function ReimbursementsQueueInner() {
       key: "memo",
       header: "Reimbursement",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.memo?.trim() || `${row.type ?? "STANDARD"} reimbursement`}</strong>
-          <small>
-            {row.merchant || personLabel(peopleRows, row.userId)}
-            {row.status === "FAILED" && row.failureReason ? ` · ${row.failureReason.slice(0, 40)}` : ""}
-          </small>
-        </span>
+        <SpendRecord title={row.memo?.trim() || `${row.type ?? "STANDARD"} reimbursement`} subtitle={`${row.merchant || personLabel(peopleRows, row.userId)}${row.status === "FAILED" && row.failureReason ? ` · ${row.failureReason.slice(0, 40)}` : ""}`} href={detailHref(row.id)} icon="Reimbursements"/>
       ),
     },
     {
@@ -153,7 +153,7 @@ function ReimbursementsQueueInner() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Review →</span>,
+      render: (row) => <SpendOpenLink href={detailHref(row.id)} label={`Review ${row.memo || "reimbursement"}`}/>,
     },
   ];
 
@@ -163,8 +163,12 @@ function ReimbursementsQueueInner() {
       : `/app/expenses/reimbursements/${id}`;
 
   return (
-    <div className="linked-dest-page reimbursements-queue-page">
-      <div className="my-work-filters" role="toolbar" aria-label="Reimbursement queues">
+    <div className="linked-dest-page reimbursements-queue-page personal-work-page spend-ui-page expenses-ui-page">
+
+      <ResourcePage
+        subtitle="Review employee claims and track payouts through completion."
+        overview={(rows, loading) => <ExpenseOverview kind="reimbursements" rows={rows} loading={loading}/>}
+        listIntro={<><SpendIntro title="Reimbursement queue" description="Manage approvals, payouts and payment follow-up in one place."/><div className="my-work-filters" role="toolbar" aria-label="Reimbursement queues">
         {visibleQueues.map((item) => (
           <Link
             key={item.href}
@@ -174,8 +178,7 @@ function ReimbursementsQueueInner() {
             {item.label}
           </Link>
         ))}
-      </div>
-      <ResourcePage
+      </div></>}
         title={selectedStatus ? statusLabels[selectedStatus] : "Reimbursements"}
         path="reimbursements"
         filter={statusFilter ? { status: statusFilter } : undefined}

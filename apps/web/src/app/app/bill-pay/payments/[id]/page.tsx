@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -110,7 +113,7 @@ export default function PaymentDetailPage() {
         : "Back to overview";
 
   return (
-    <div className="detail-page payment-detail-page">
+    <div className="spend-ui-page bill-pay-ui-page detail-page payment-detail-page">
       <div className="resource-heading">
         <PageHeader
           title={money(payment.currency, payment.amount)}

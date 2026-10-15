@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/procurement-ui.css";
+import { ProcurementOverview } from "@/components/ProcurementPresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -79,10 +85,7 @@ export default function ProcurementRequestsPage() {
       key: "name",
       header: "Request",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.name || "Procurement request"}</strong>
-          <small>{row.memo?.trim() ? row.memo.slice(0, 56) : outcomeLabel(row.outcomeType)}</small>
-        </span>
+        <SpendRecord title={row.name || "Procurement request"} subtitle={row.memo?.trim() ? row.memo.slice(0, 56) : outcomeLabel(row.outcomeType)} href={`/app/procurement/requests/${row.id}`} icon="Requests"/>
       ),
     },
     {
@@ -113,13 +116,13 @@ export default function ProcurementRequestsPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/procurement/requests/${row.id}`} label="Open procurement request"/>,
     },
   ];
 
   return (
-    <div className="procurement-requests-page">
-      <ResourcePage
+    <div className="procurement-requests-page personal-work-page spend-ui-page procurement-ui-page">
+      <ResourcePage subtitle="Manage purchase requests from intake through approval." overview={(rows, loading) => <ProcurementOverview kind="requests" rows={rows} loading={loading}/>} listIntro={<SpendIntro title="Request queue" description="Track ownership, approvals and the requested fulfillment outcome."/>}
         title="Procurement requests"
         path="procurement"
         columns={columns}

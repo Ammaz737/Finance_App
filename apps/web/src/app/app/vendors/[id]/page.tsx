@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -198,7 +201,7 @@ export default function VendorDetailPage() {
   const title = vendor.displayName || vendor.name;
 
   return (
-    <div className="detail-page vendor-detail-page">
+    <div className="spend-ui-page bill-pay-ui-page detail-page vendor-detail-page">
       <div className="resource-heading">
         <PageHeader
           title={title}
@@ -248,8 +251,8 @@ export default function VendorDetailPage() {
         </article>
       </div>
 
-      <div className="detail-grid">
-        <section className="panel">
+      <div className="billpay-detail-layout">
+        <div className="billpay-detail-main"><section className="panel">
           <h2>Overview</h2>
           {canEdit ? (
             <form
@@ -344,8 +347,42 @@ export default function VendorDetailPage() {
             </button>
           )}
         </section>
-
-        <section className="panel">
+<section className="panel work-panel">
+          <h2>Bills</h2>
+          <ul className="plain-list">
+            {bills.map((bill) => (
+              <li key={bill.id}>
+                {canSeeBills ? (
+                  <Link className="detail-link" href={`/app/bill-pay/bills/${bill.id}`}>
+                    {bill.invoiceNumber} →
+                  </Link>
+                ) : (
+                  bill.invoiceNumber
+                )}{" "}
+                {money(bill.currency, bill.remainingAmount)} remaining · <StatusBadge status={bill.status} />
+              </li>
+            ))}
+            {!bills.length && <li className="muted">No bills.</li>}
+          </ul>
+          <h2 style={{ marginTop: 20 }}>Payments</h2>
+          <ul className="plain-list">
+            {payments.slice(0, 10).map((payment) => (
+              <li key={payment.id}>
+                {canSeePayments ? (
+                  <Link className="detail-link" href={`/app/bill-pay/payments/${payment.id}`}>
+                    {money(payment.currency, payment.amount)} →
+                  </Link>
+                ) : (
+                  money(payment.currency, payment.amount)
+                )}{" "}
+                · <StatusBadge status={payment.status} />
+                {payment.settlementId ? ` · ${payment.settlementId}` : ""}
+              </li>
+            ))}
+            {!payments.length && <li className="muted">No payments.</li>}
+          </ul>
+        </section></div>
+        <div className="billpay-detail-aside"><section className="panel">
           <h2>Banking / payment details</h2>
           <ul className="plain-list">
             {bankAccounts.map((account) => (
@@ -405,46 +442,7 @@ export default function VendorDetailPage() {
             </form>
           )}
         </section>
-      </div>
-
-      <div className="detail-grid">
-        <section className="panel work-panel">
-          <h2>Bills</h2>
-          <ul className="plain-list">
-            {bills.map((bill) => (
-              <li key={bill.id}>
-                {canSeeBills ? (
-                  <Link className="detail-link" href={`/app/bill-pay/bills/${bill.id}`}>
-                    {bill.invoiceNumber} →
-                  </Link>
-                ) : (
-                  bill.invoiceNumber
-                )}{" "}
-                {money(bill.currency, bill.remainingAmount)} remaining · <StatusBadge status={bill.status} />
-              </li>
-            ))}
-            {!bills.length && <li className="muted">No bills.</li>}
-          </ul>
-          <h2 style={{ marginTop: 20 }}>Payments</h2>
-          <ul className="plain-list">
-            {payments.slice(0, 10).map((payment) => (
-              <li key={payment.id}>
-                {canSeePayments ? (
-                  <Link className="detail-link" href={`/app/bill-pay/payments/${payment.id}`}>
-                    {money(payment.currency, payment.amount)} →
-                  </Link>
-                ) : (
-                  money(payment.currency, payment.amount)
-                )}{" "}
-                · <StatusBadge status={payment.status} />
-                {payment.settlementId ? ` · ${payment.settlementId}` : ""}
-              </li>
-            ))}
-            {!payments.length && <li className="muted">No payments.</li>}
-          </ul>
-        </section>
-
-        <section className="panel work-panel">
+<section className="panel work-panel">
           <h2>Purchase orders</h2>
           <ul className="plain-list">
             {(purchaseOrders ?? []).map((po) => (
@@ -471,7 +469,7 @@ export default function VendorDetailPage() {
             ))}
             {!(timeline ?? []).length && <p className="muted">No timeline events yet.</p>}
           </div>
-        </section>
+        </section></div>
       </div>
     </div>
   );

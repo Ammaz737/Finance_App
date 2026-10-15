@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { StatusBadge, type Column } from "@finance/design-system";
+import { AccountingOverview } from "@/components/AccountingPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import {
   accountingMoney,
@@ -45,8 +47,11 @@ function CardAccountingContent() {
   ];
 
   return (
-    <div className="accounting-queue-page">
+    <div className="accounting-queue-page personal-work-page spend-ui-page accounting-card-page">
       <ResourcePage
+        subtitle="Card purchases and expenses in the accounting queue."
+        overview={(rows, loading) => <AccountingOverview kind="entries" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Card & expense entries" description="Card purchases and expenses in the accounting queue."/>}
         title="Card accounting"
         path="accounting"
         columns={columns}

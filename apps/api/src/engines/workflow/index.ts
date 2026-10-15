@@ -18,6 +18,22 @@ export type WorkflowStep = {
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
+function defaultWorkflowSteps(objectType: string): WorkflowStep[] {
+  switch (objectType) {
+    case "spend_request":
+    case "procurement":
+    case "travel":
+      return [{ type: "manager" }, { type: "finance" }];
+    case "bill":
+      return [{ type: "ap" }, { type: "finance" }];
+    case "expense":
+    case "reimbursement":
+      return [{ type: "manager" }];
+    default:
+      return [{ type: "finance" }];
+  }
+}
+
 export function eligibleForStep(input: {
   step: WorkflowStep;
   actorId: string;
@@ -97,13 +113,7 @@ export async function startApproval(input: {
         },
         orderBy: { version: "desc" },
       })
-      // Seed historically created workflows with enabled=false (schema default). Fall back so
-      // manager → finance chains still start instead of collapsing to a single finance step.
-      ?? await db.approvalWorkflow.findFirst({
-        where: { organizationId: input.organizationId, objectType: input.objectType },
-        orderBy: { version: "desc" },
-      });
-  const rawSteps = Array.isArray(workflow?.steps) ? (workflow.steps as WorkflowStep[]) : undefined;
+  const rawSteps = Array.isArray(workflow?.steps) ? (workflow.steps as WorkflowStep[]) : defaultWorkflowSteps(input.objectType);
   const routed = rawSteps
     ? resolveWorkflowSteps({
         steps: rawSteps,
@@ -112,7 +122,8 @@ export async function startApproval(input: {
         legalEntityId: input.legalEntityId,
       })
     : undefined;
-  const steps = routed?.length ? routed.length : input.steps ?? 1;
+  const resolved = routed?.length ? routed : rawSteps;
+  const steps = resolved.length || input.steps || 1;
   const dueAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
   const instance = await db.approvalInstance.create({
     data: {
@@ -127,7 +138,7 @@ export async function startApproval(input: {
       priority: input.priority ?? (Number(input.amount ?? 0) >= 10000 ? "HIGH" : "NORMAL"),
       dueAt,
       parallelApprovals: [],
-      resolvedSteps: routed ?? rawSteps ?? [{ type: "finance" }],
+      resolvedSteps: resolved,
     },
   });
   await syncApprovalInboxItem({

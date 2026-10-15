@@ -1,0 +1,63 @@
+.expenses-ui-page .resource-list-surface { overflow:visible; }
+.expenses-ui-page .resource-list-surface > .my-work-filters { margin:0; }
+.expenses-ui-page .req-ok,.expenses-ui-page .req-missing { display:inline-flex; align-items:center; border-radius:5px; padding:4px 7px; font-size:10px; line-height:1.4; }
+.expenses-ui-page .req-ok { background:#f2f2f2; color:#555; }
+.expenses-ui-page .req-missing { background:#faf5ed; color:#8c7350; }
+.expenses-ui-page .my-expenses-hint { font-size:12px; line-height:1.8; margin:0; padding:0 4px; }
+.expense-detail-layout { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(0,1fr); gap:20px; align-items:start; }
+.expense-detail-main,.expense-detail-aside { display:grid; gap:20px; min-width:0; }
+.expenses-ui-page .panel { margin:0; min-width:0; }
+.expenses-ui-page .panel h2 { margin:0 0 20px; font-size:15px; letter-spacing:-.2px; }
+.expenses-ui-page .panel h3 { color:#444; }
+.expenses-ui-page .panel > .muted { font-size:12px; line-height:1.7; }
+.expenses-ui-page .panel .record-form { grid-template-columns:minmax(0,1fr); gap:14px; }
+.expenses-ui-page .record-form + .record-form { border-top:1px solid #eee; margin-top:20px; padding-top:16px; }
+.expenses-ui-page .form-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; align-items:end; }
+.expenses-ui-page .form-grid label { display:grid; gap:8px; min-width:0; font-size:12px; color:#777; }
+.expenses-ui-page .form-grid > button { justify-self:start; }
+.expenses-ui-page textarea.input { resize:vertical; min-height:90px; line-height:1.6; }
+.expenses-ui-page input[type=file] { padding:12px; background:#fafafa; border-style:dashed; min-height:48px; white-space:normal; }
+.expenses-ui-page input[type=file]::file-selector-button { border:1px solid #ddd; border-radius:5px; padding:7px 10px; background:#fff; color:#444; margin-right:10px; cursor:pointer; }
+.expenses-ui-page .detail-actions:empty { display:none; }
+.expenses-ui-page .detail-checklist li { display:flex; justify-content:space-between; align-items:center; gap:16px; }
+.expenses-ui-page .timeline { margin:0; }
+.expenses-ui-page .timeline-item { padding:0 0 18px 16px; border-left:2px solid #e5e5e5; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.expenses-ui-page .timeline-item:last-child { padding-bottom:0; }
+.expenses-ui-page .timeline-item .muted { font-size:11px; }
+.reimbursement-record-detail .overview-stat-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.reimbursement-record-detail .overview-stat > strong,.receipt-record-detail .overview-stat > strong { font-size:20px; }
+.receipt-record-detail .form-grid { grid-template-columns:minmax(0,1fr); max-width:680px; }
+.expenses-ui-page .receipt-candidate-list { display:grid; gap:12px; margin-top:20px; }
+.expenses-ui-page .receipt-candidate-list .receipt-candidate { padding:18px; border:1px solid #e5e5e5; border-radius:8px; background:#fff; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 20px; align-items:center; }
+.expenses-ui-page .receipt-candidate-main { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; min-width:0; }
+.expenses-ui-page .receipt-candidate-main strong { font-size:14px; overflow-wrap:anywhere; }
+.expenses-ui-page .receipt-candidate-main > span:not(.badge) { color:#555; font-variant-numeric:tabular-nums; }
+.expenses-ui-page .receipt-candidate > .muted { grid-column:1; font-size:11px; line-height:1.8; overflow-wrap:anywhere; }
+.expenses-ui-page .receipt-candidate > :is(button,a) { grid-column:2; grid-row:1/3; }
+.expenses-ui-page .receipt-candidate > a.btn { padding:10px 14px; border:1px solid #dedede; font-size:12px; }
+@media(max-width:1100px) {
+  .expense-detail-layout { grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:16px; }
+  .expenses-ui-page .form-grid { grid-template-columns:minmax(0,1fr); }
+  .reimbursement-record-detail .overview-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:900px) { .expense-detail-layout { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:700px) {
+  .expenses-ui-page .overview-stat-grid { grid-template-columns:minmax(0,1fr); }
+  .expenses-ui-page .receipt-candidate-list .receipt-candidate { grid-template-columns:minmax(0,1fr); padding:16px; }
+  .expenses-ui-page .receipt-candidate > :is(button,a) { grid-column:1; grid-row:auto; justify-self:start; }
+  .expenses-ui-page .detail-list > div { grid-template-columns:100px minmax(0,1fr); }
+}
+@media(max-width:600px) {
+  .expense-review-page .data-table td:nth-child(2)::before,.reimbursements-queue-page .data-table td:nth-child(2)::before { content:'Employee'; }
+  .expense-review-page .data-table td:nth-child(3)::before,.reimbursements-queue-page .data-table td:nth-child(3)::before { content:'Amount'; }
+  .expense-review-page .data-table td:nth-child(4)::before { content:'Receipt'; }
+  .reimbursements-queue-page .data-table td:nth-child(4)::before { content:'Type'; }
+  .expense-review-page .data-table td:nth-child(5)::before,.reimbursements-queue-page .data-table td:nth-child(5)::before { content:'Status'; }
+  .expense-review-page .data-table td:nth-child(6)::before,.reimbursements-queue-page .data-table td:nth-child(6)::before { content:'Policy'; }
+  .expense-review-page .data-table td:nth-child(7)::before,.reimbursements-queue-page .data-table td:nth-child(7)::before { content:'Created'; }
+  .receipts-page .data-table td:nth-child(2)::before { content:'Amount guess'; }
+  .receipts-page .data-table td:nth-child(3)::before { content:'Match'; }
+  .receipts-page .data-table td:nth-child(4)::before { content:'OCR'; }
+  .receipts-page .data-table td:nth-child(5)::before { content:'Expense'; }
+  .expenses-ui-page.personal-work-page .data-table td:last-child::before { content:none; }
+}

@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -220,7 +223,7 @@ function BillDetailInner() {
     : null;
 
   return (
-    <div className="detail-page">
+    <div className="spend-ui-page bill-pay-ui-page detail-page bill-record-detail">
       <div className="resource-heading">
         <PageHeader
           title={`Invoice ${bill.invoiceNumber}`}
@@ -283,84 +286,8 @@ function BillDetailInner() {
         )}
       </div>
 
-      <div className="detail-grid">
-        <section className="panel">
-          <h2>Summary & actions</h2>
-          <dl className="detail-list">
-            <div><dt>Memo</dt><dd>{bill.memo || "—"}</dd></div>
-            <div><dt>Payment method</dt><dd>{bill.paymentMethod ?? "ACH"}</dd></div>
-            <div><dt>Coding</dt><dd>{bill.codingSource ?? "MANUAL"}</dd></div>
-            <div>
-              <dt>Vendor bank</dt>
-              <dd>{vendorPayment ? `•••• ${vendorPayment.last4} (${vendorPayment.status})` : vendor?.paymentStatus ?? "—"}</dd>
-            </div>
-            <div><dt>Invoice date</dt><dd>{bill.invoiceDate ? new Date(bill.invoiceDate).toLocaleDateString() : "—"}</dd></div>
-            <div><dt>Due date</dt><dd>{bill.dueDate ? new Date(bill.dueDate).toLocaleDateString() : "—"}</dd></div>
-          </dl>
-          <div className="detail-actions">
-            {canSubmit && (
-              <button className="btn btn-primary" type="button" disabled={submit.isPending} onClick={() => submit.mutate()}>
-                Submit for approval
-              </button>
-            )}
-            {canApprove && (
-              <button className="btn btn-primary" type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>
-                Approve bill
-              </button>
-            )}
-            {canApprove && (
-              <p className="muted" style={{ width: "100%", margin: "8px 0 0", fontSize: 13 }}>
-                Reject or request info from{" "}
-                <Link className="detail-link" href="/app/inbox">
-                  Inbox
-                </Link>
-                .
-              </p>
-            )}
-            {["DRAFT", "NEEDS_REVIEW", "PENDING_APPROVAL", "APPROVED"].includes(bill.status) && (
-              <button
-                className="btn btn-danger"
-                type="button"
-                disabled={cancelBill.isPending}
-                onClick={() => window.confirm("Cancel this bill? Its audit history will be retained.") && cancelBill.mutate()}
-              >
-                Cancel bill
-              </button>
-            )}
-            {canSchedule && (
-              <>
-                <input
-                  className="input"
-                  style={{ maxWidth: 160 }}
-                  placeholder="Partial amount"
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                  aria-label="Partial amount"
-                />
-                <button className="btn btn-primary" type="button" disabled={schedule.isPending} onClick={() => schedule.mutate()}>
-                  Schedule payment
-                </button>
-              </>
-            )}
-          </div>
-        </section>
-
-        <section className="panel">
-          <h2>Approval</h2>
-          <p className="muted" style={{ marginTop: 0 }}>{approvalLabel || "No approval started"} · Approve ≠ payment release</p>
-          <ul className="plain-list detail-checklist">
-            {(approvalProgress ?? []).map((step) => (
-              <li key={step.label}>
-                <span>{step.label}</span>
-                <StatusBadge status={step.status} />
-              </li>
-            ))}
-            {!(approvalProgress ?? []).length && <li className="muted">Waiting for submission.</li>}
-          </ul>
-        </section>
-      </div>
-
-      <section className="panel">
+      <div className="billpay-detail-layout">
+        <div className="billpay-detail-main"><section className="panel">
         <div className="resource-heading">
           <h2 style={{ margin: 0 }}>Invoice lines</h2>
           <span className="muted">{lines.length} line{lines.length === 1 ? "" : "s"}</span>
@@ -460,9 +387,7 @@ function BillDetailInner() {
             : "None attached"}
         </p>
       </section>
-
-      <div className="detail-grid">
-        <section className="panel">
+<section className="panel">
           <h2>Payments</h2>
           <div className="table-wrap">
             <table className="data-table">
@@ -512,9 +437,7 @@ function BillDetailInner() {
               </tbody>
             </table>
           </div>
-        </section>
-
-        <section className="panel">
+        </section><section className="panel">
           <h2>Activity</h2>
           <div className="timeline">
             {(timeline ?? []).map((event, index) => (
@@ -526,6 +449,81 @@ function BillDetailInner() {
             {!(timeline ?? []).length && <p className="muted">No timeline events yet.</p>}
           </div>
         </section>
+</div>
+        <div className="billpay-detail-aside"><section className="panel">
+          <h2>Summary & actions</h2>
+          <dl className="detail-list">
+            <div><dt>Memo</dt><dd>{bill.memo || "—"}</dd></div>
+            <div><dt>Payment method</dt><dd>{bill.paymentMethod ?? "ACH"}</dd></div>
+            <div><dt>Coding</dt><dd>{bill.codingSource ?? "MANUAL"}</dd></div>
+            <div>
+              <dt>Vendor bank</dt>
+              <dd>{vendorPayment ? `•••• ${vendorPayment.last4} (${vendorPayment.status})` : vendor?.paymentStatus ?? "—"}</dd>
+            </div>
+            <div><dt>Invoice date</dt><dd>{bill.invoiceDate ? new Date(bill.invoiceDate).toLocaleDateString() : "—"}</dd></div>
+            <div><dt>Due date</dt><dd>{bill.dueDate ? new Date(bill.dueDate).toLocaleDateString() : "—"}</dd></div>
+          </dl>
+          <div className="detail-actions">
+            {canSubmit && (
+              <button className="btn btn-primary" type="button" disabled={submit.isPending} onClick={() => submit.mutate()}>
+                Submit for approval
+              </button>
+            )}
+            {canApprove && (
+              <button className="btn btn-primary" type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>
+                Approve bill
+              </button>
+            )}
+            {canApprove && (
+              <p className="muted" style={{ width: "100%", margin: "8px 0 0", fontSize: 13 }}>
+                Reject or request info from{" "}
+                <Link className="detail-link" href="/app/inbox">
+                  Inbox
+                </Link>
+                .
+              </p>
+            )}
+            {["DRAFT", "NEEDS_REVIEW", "PENDING_APPROVAL", "APPROVED"].includes(bill.status) && (
+              <button
+                className="btn btn-danger"
+                type="button"
+                disabled={cancelBill.isPending}
+                onClick={() => window.confirm("Cancel this bill? Its audit history will be retained.") && cancelBill.mutate()}
+              >
+                Cancel bill
+              </button>
+            )}
+            {canSchedule && (
+              <>
+                <input
+                  className="input"
+                  style={{ maxWidth: 160 }}
+                  placeholder="Partial amount"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                  aria-label="Partial amount"
+                />
+                <button className="btn btn-primary" type="button" disabled={schedule.isPending} onClick={() => schedule.mutate()}>
+                  Schedule payment
+                </button>
+              </>
+            )}
+          </div>
+        </section>
+<section className="panel">
+          <h2>Approval</h2>
+          <p className="muted" style={{ marginTop: 0 }}>{approvalLabel || "No approval started"} · Approve ≠ payment release</p>
+          <ul className="plain-list detail-checklist">
+            {(approvalProgress ?? []).map((step) => (
+              <li key={step.label}>
+                <span>{step.label}</span>
+                <StatusBadge status={step.status} />
+              </li>
+            ))}
+            {!(approvalProgress ?? []).length && <li className="muted">Waiting for submission.</li>}
+          </ul>
+        </section>
+</div>
       </div>
     </div>
   );

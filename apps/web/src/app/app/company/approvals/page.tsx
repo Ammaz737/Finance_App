@@ -27,6 +27,17 @@ type Workflow = {
 };
 type Named = { id: string; name: string };
 
+const APPROVER_LABELS: Record<string, string> = {
+  manager: "Direct manager",
+  budget: "Budget owner / Finance",
+  finance: "Finance Admin",
+  ap: "Accounts Payable",
+  controller: "Controller / Accounting Admin",
+  department_head: "Department head",
+  legal: "Legal / Owner",
+  cfo: "CFO / Owner",
+};
+
 function normalizeSteps(steps: Array<Partial<Step> | Record<string, unknown>> | undefined): Step[] {
   if (!Array.isArray(steps) || !steps.length) {
     return [{ type: "manager", mode: "sequential" }];
@@ -74,10 +85,13 @@ export default function ApprovalBuilderPage() {
 
   const refs = useQuery({
     queryKey: ["approval-builder-refs"],
-    queryFn: async () => ({
-      departments: await api.get<Named[]>("/departments"),
-      entities: await api.get<Named[]>("/entities"),
-    }),
+    queryFn: async () => {
+      const [departments, entities] = await Promise.all([
+        api.get<Named[]>("/departments").catch(() => [] as Named[]),
+        api.get<Named[]>("/entities").catch(() => [] as Named[]),
+      ]);
+      return { departments, entities };
+    },
   });
 
   const rows = useQuery({ queryKey: ["approval-workflows"], queryFn: () => api.get<Workflow[]>("/approvals") });
@@ -124,7 +138,7 @@ export default function ApprovalBuilderPage() {
   }
 
   return (
-    <div className="stack-lg company-builder-page linked-dest-page">
+    <div className="stack-lg company-builder-page linked-dest-page company-ui-page spend-ui-page company-approvals-ui">
       <div className="resource-heading">
         <PageHeader
           title="Approval workflow builder"
@@ -176,68 +190,61 @@ export default function ApprovalBuilderPage() {
           <fieldset>
             <legend>Approval steps</legend>
             {form.steps.map((step, index) => (
-              <div className="form-grid" key={index}>
-                <select className="input" aria-label={`Approver ${index + 1}`} value={step.type} onChange={(e) => updateStep(index, { type: e.target.value })}>
-                  {["manager", "budget", "finance", "ap", "controller", "department_head", "legal", "cfo", "entity"].map((value) => (
-                    <option key={value}>{value}</option>
+              <fieldset className="policy-box" key={index}>
+                <legend>Step {index + 1}</legend>
+                <div className="form-grid">
+                <label>
+                  Approver
+                  <select className="input" value={step.type} onChange={(e) => updateStep(index, { type: e.target.value })}>
+                  {["manager", "budget", "finance", "ap", "controller", "department_head", "legal", "cfo"].map((value) => (
+                    <option key={value} value={value}>{APPROVER_LABELS[value]}</option>
                   ))}
-                </select>
-                <select
-                  className="input"
-                  aria-label="Step mode"
-                  value={step.mode}
-                  onChange={(e) => updateStep(index, { mode: e.target.value as Step["mode"] })}
-                >
-                  <option value="sequential">Sequential</option>
-                  <option value="parallel">Parallel</option>
-                </select>
-                {step.mode === "parallel" && (
-                  <input
+                  </select>
+                </label>
+                <label>
+                  Approval mode
+                  <select
                     className="input"
-                    placeholder="Parallel group"
-                    aria-label="Parallel group"
-                    value={step.parallelGroup ?? ""}
-                    onChange={(e) => updateStep(index, { parallelGroup: e.target.value || undefined })}
-                  />
+                    value={step.mode}
+                    onChange={(e) => updateStep(index, { mode: e.target.value as Step["mode"] })}
+                  >
+                    <option value="sequential">Sequential — after previous step</option>
+                    <option value="parallel">Parallel — alongside group members</option>
+                  </select>
+                </label>
+                {step.mode === "parallel" && (
+                  <label>
+                    Parallel group
+                    <input
+                      className="input"
+                      placeholder="e.g. finance-review"
+                      value={step.parallelGroup ?? ""}
+                      onChange={(e) => updateStep(index, { parallelGroup: e.target.value || undefined })}
+                    />
+                  </label>
                 )}
-                <input
-                  className="input"
-                  type="number"
-                  placeholder="Minimum amount"
-                  aria-label="Minimum amount"
-                  value={step.minAmount ?? ""}
-                  onChange={(e) => updateStep(index, { minAmount: e.target.value ? Number(e.target.value) : undefined })}
-                />
-                <input
-                  className="input"
-                  type="number"
-                  placeholder="Maximum amount"
-                  aria-label="Maximum amount"
-                  value={step.maxAmount ?? ""}
-                  onChange={(e) => updateStep(index, { maxAmount: e.target.value ? Number(e.target.value) : undefined })}
-                />
-                <select
-                  className="input"
-                  aria-label="Department routing"
-                  value={step.departmentId ?? ""}
-                  onChange={(e) => updateStep(index, { departmentId: e.target.value || undefined })}
-                >
-                  <option value="">Any department</option>
-                  {(refs.data?.departments ?? []).map((row) => (
-                    <option key={row.id} value={row.id}>{row.name}</option>
-                  ))}
-                </select>
-                <select
-                  className="input"
-                  aria-label="Entity routing"
-                  value={step.legalEntityId ?? ""}
-                  onChange={(e) => updateStep(index, { legalEntityId: e.target.value || undefined })}
-                >
-                  <option value="">Any entity</option>
-                  {(refs.data?.entities ?? []).map((row) => (
-                    <option key={row.id} value={row.id}>{row.name}</option>
-                  ))}
-                </select>
+                <label>
+                  Minimum amount
+                  <input className="input" type="number" min="0" placeholder="No minimum" value={step.minAmount ?? ""} onChange={(e) => updateStep(index, { minAmount: e.target.value ? Number(e.target.value) : undefined })} />
+                </label>
+                <label>
+                  Maximum amount
+                  <input className="input" type="number" min="0" placeholder="No maximum" value={step.maxAmount ?? ""} onChange={(e) => updateStep(index, { maxAmount: e.target.value ? Number(e.target.value) : undefined })} />
+                </label>
+                <label>
+                  Department condition
+                  <select className="input" value={step.departmentId ?? ""} onChange={(e) => updateStep(index, { departmentId: e.target.value || undefined })}>
+                    <option value="">Any department</option>
+                    {(refs.data?.departments ?? []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Legal entity condition
+                  <select className="input" value={step.legalEntityId ?? ""} onChange={(e) => updateStep(index, { legalEntityId: e.target.value || undefined })}>
+                    <option value="">Any legal entity</option>
+                    {(refs.data?.entities ?? []).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+                  </select>
+                </label>
                 <button
                   className="btn btn-ghost"
                   type="button"
@@ -246,7 +253,8 @@ export default function ApprovalBuilderPage() {
                 >
                   Remove
                 </button>
-              </div>
+                </div>
+              </fieldset>
             ))}
             <button
               className="btn btn-ghost"
@@ -318,7 +326,7 @@ export default function ApprovalBuilderPage() {
             <ol>
               {preview.data.steps.map((step, i) => (
                 <li key={i}>
-                  {step.type} · {step.mode}
+                  {APPROVER_LABELS[step.type] ?? step.type} · {step.mode}
                   {step.minAmount != null ? ` · min ${step.minAmount}` : ""}
                   {step.parallelGroup ? ` · group ${step.parallelGroup}` : ""}
                 </li>

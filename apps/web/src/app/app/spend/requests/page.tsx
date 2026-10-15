@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { ResourcePage } from "@/components/ResourcePage";
+import { SpendIntro, SpendOverview, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
 import { api } from "@/lib/api";
 
 type RequestRow = {
@@ -53,12 +56,7 @@ export default function SpendRequestsPage() {
     {
       key: "name",
       header: "Request",
-      render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.name || "Spend request"}</strong>
-          <small>{row.purpose?.trim() ? row.purpose.slice(0, 60) : "No purpose yet"}</small>
-        </span>
-      ),
+      render: (row) => <SpendRecord title={row.name || "Spend request"} subtitle={row.purpose?.trim() ? row.purpose.slice(0, 60) : "No purpose yet"} href={`/app/spend/requests/${row.id}?from=queue`} icon="Spend requests"/>,
     },
     {
       key: "requesterId",
@@ -93,14 +91,17 @@ export default function SpendRequestsPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Review →</span>,
+      render: (row) => <SpendOpenLink href={`/app/spend/requests/${row.id}?from=queue`} label={`Open request ${row.name || row.id}`}/>,
     },
   ];
 
   return (
-    <div className="spend-requests-page">
+    <div className="spend-requests-page personal-work-page spend-ui-page">
       <ResourcePage
         title="Spend requests"
+        subtitle="Review company spending requests and follow approvals through fulfillment."
+        overview={(rows, loading) => <SpendOverview kind="requests" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Approval queue" description="Review requesters, amounts, policy checks and fulfillment status."/>}
         path="spend-requests"
         columns={columns}
         pageSize={20}

@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Suspense } from "react";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { ResourcePage } from "@/components/ResourcePage";
+import { SpendIntro, SpendOverview, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
 import { useSession } from "@/providers/session-provider";
 
 type TxnRow = {
@@ -44,18 +47,7 @@ function TransactionsContent() {
     {
       key: "merchant",
       header: "Merchant",
-      render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.merchant || "Transaction"}</strong>
-          <small>
-            {row.authorizedAt
-              ? new Date(row.authorizedAt).toLocaleString()
-              : row.memo?.trim()
-                ? row.memo.slice(0, 48)
-                : "Card activity"}
-          </small>
-        </span>
-      ),
+      render: (row) => <SpendRecord title={row.merchant || "Transaction"} subtitle={row.authorizedAt ? new Date(row.authorizedAt).toLocaleString() : row.memo?.trim() ? row.memo.slice(0, 48) : "Card activity"} href={`/app/spend/transactions/${row.id}`} icon="Transactions"/>,
     },
     {
       key: "amount",
@@ -75,14 +67,17 @@ function TransactionsContent() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/spend/transactions/${row.id}`} label={`Open record ${row.merchant || row.id}`}/>,
     },
   ];
 
   return (
-    <div className="spend-transactions-page">
+    <div className="spend-transactions-page personal-work-page spend-ui-page">
       <ResourcePage
         title="Transactions"
+        subtitle="Track card authorizations, cleared payments and linked expenses."
+        overview={(rows, loading) => <SpendOverview kind="transactions" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Transaction activity" description="Review merchants, payment amounts and settlement status."/>}
         path="transactions"
         columns={columns}
         pageSize={25}

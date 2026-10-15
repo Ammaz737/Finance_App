@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader, StatusBadge, type Column } from "@finance/design-system";
+import { AccountingOverview } from "@/components/AccountingPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import { canSeeItem, findNavItem } from "@/config/navigation";
 import { useSession } from "@/providers/session-provider";
@@ -118,7 +120,7 @@ export default function Page() {
   const callbackMessage = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("message") : null;
 
   return (
-    <div className="accounting-queue-page">
+    <div className="accounting-queue-page personal-work-page spend-ui-page accounting-integrations-page">
       <div className="stack-lg">
         <PageHeader title="QuickBooks Online" subtitle="Secure OAuth connection, accounting mappings, and sync health for this workspace." />
         {callbackMessage && <p className="error-panel" role="alert">{callbackMessage}</p>}
@@ -179,6 +181,9 @@ export default function Page() {
         </section>
       </div>
       <ResourcePage
+        subtitle="Monitor connector status and synchronization activity."
+        overview={(rows, loading) => <AccountingOverview kind="integrations" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Connected providers" description="Monitor connector status and synchronization activity."/>}
         title="Accounting integrations"
         path="integrations"
         columns={columns}

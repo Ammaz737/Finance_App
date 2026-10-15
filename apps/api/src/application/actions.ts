@@ -33,6 +33,8 @@ import { getPaymentRailProvider } from "../integrations/payment-rail";
 import { MockAccountingAdapter } from "../integrations/accounting/mock.accounting.adapter";
 import { getTravelProvider, getTravelCapabilities } from "../integrations/travel";
 import { evaluateCardAuthorizationRules, merchantMatchesLock, mergeMerchantLocks } from "../modules/cards/domain/authorization-rules";
+import { settleCompanyBankForCardClear } from "../modules/cards/application/company-bank-settle";
+import { debitReimbursementCash, adjustedSandboxCash, SANDBOX_REIMBURSEMENT_CASH } from "../modules/reimbursements/company-cash";
 import { evaluateExpenseRequirements } from "../modules/expenses/domain/requirements";
 import { evaluateBillDuplicate } from "../modules/ap/domain/duplicate-check";
 import { matchVendor } from "../modules/ap/domain/vendor-match";
@@ -719,7 +721,7 @@ export const credentials = {
 };
 
 const POLICY_RULE_TYPES = new Set(["receipt_required", "memo_required", "vendor_required", "quote_required", "high_value", "category_amount", "manager_approval", "hard_policy_block", "block", "travel_max_amount", "travel_out_of_policy"]);
-const WORKFLOW_STEP_TYPES = new Set(["manager", "budget", "finance", "ap", "controller", "legal", "cfo", "department_head", "entity"]);
+const WORKFLOW_STEP_TYPES = new Set(["manager", "budget", "finance", "ap", "controller", "legal", "cfo", "department_head"]);
 
 export const adminConfiguration = {
   async createPolicy(ctx: RequestContext, body: { name: string; objectType: string; priority: number; effectiveFrom?: string; enabled?: boolean; rules: Array<Record<string, unknown>> }) {
@@ -749,6 +751,14 @@ export const adminConfiguration = {
       if (!policy) throw new AppError("NOT_FOUND", "Policy not found", 404);
       const updated = await tx.policy.update({ where: { id }, data: { enabled: false, effectiveTo: new Date() } });
       return { result: updated, oldValue: { enabled: policy.enabled }, newValue: { enabled: false } };
+    });
+  },
+  async setPolicyEnabled(ctx: RequestContext, id: string, enabled: boolean) {
+    return auditedCommand(ctx, { action: enabled ? "policy.enable" : "policy.disable", objectType: "Policy", objectId: id, event: enabled ? "policy.enabled" : "policy.disabled" }, async (tx) => {
+      const policy = await tx.policy.findFirst({ where: { id, organizationId: ctx.organizationId } });
+      if (!policy) throw new AppError("NOT_FOUND", "Policy not found", 404);
+      const updated = await tx.policy.update({ where: { id }, data: { enabled, effectiveTo: enabled ? null : new Date() } });
+      return { result: updated, oldValue: { enabled: policy.enabled }, newValue: { enabled } };
     });
   },
   async createWorkflow(ctx: RequestContext, body: { name: string; objectType: string; enabled?: boolean; effectiveFrom?: string; steps: Array<Record<string, unknown>> }) {
@@ -1550,6 +1560,21 @@ export const cards = {
         where: { organizationId: ctx.organizationId, stripeTransactionId: stripeTxn.id },
       });
 
+      // Ensure company Operating cash is cut even if the Stripe txn row already existed
+      // (webhook race) or an older settle path skipped the bank debit.
+      if (localTxn && localTxn.status === "CLEARED" && localTxn.amount.greaterThan(0)) {
+        await prisma.$transaction(async (tx) => {
+          await settleCompanyBankForCardClear(tx, {
+            organizationId: ctx.organizationId,
+            legalEntityId: card.legalEntityId,
+            amount: localTxn.amount,
+            currency: localTxn.currency,
+            transactionId: localTxn.id,
+            direction: "debit",
+          });
+        });
+      }
+
       return { ...localAuth, transactionId: localTxn?.id };
     } catch (error) {
       await prisma.fund.update({
@@ -1818,6 +1843,20 @@ export const cards = {
         ], tx);
       }
 
+      // Settle the captured hold into cleared, then cut company Operating cash.
+      await postLedger(ctx.organizationId, `capture clear ${txn.id}`, [
+        { account: "card.pending", direction: "DEBIT", amount: String(captureAmount), currency: txn.currency },
+        { account: "card.cleared", direction: "CREDIT", amount: String(captureAmount), currency: txn.currency },
+      ], tx);
+      const companyBank = await settleCompanyBankForCardClear(tx, {
+        organizationId: ctx.organizationId,
+        legalEntityId: txn.legalEntityId,
+        amount: captureAmount,
+        currency: txn.currency,
+        transactionId: txn.id,
+        direction: "debit",
+      });
+
       await applyBudgetCapture(tx, ctx.organizationId, txn.legalEntityId, txn.fundId, captureAmount);
 
       let holderId = ctx.userId;
@@ -1927,14 +1966,26 @@ export const cards = {
         organizationId: ctx.organizationId, actorId: ctx.userId, action: "transaction.capture",
         objectType: "Transaction", objectId: txn.id,
         oldValue: { status: "PENDING", amount: String(txn.amount) },
-        newValue: { status: "CLEARED", amount: String(captureAmount), expenseId: expense.id },
+        newValue: {
+          status: "CLEARED",
+          amount: String(captureAmount),
+          expenseId: expense.id,
+          companyBankId: companyBank?.id ?? null,
+          companyBankName: companyBank?.name ?? null,
+        },
         correlationId: ctx.correlationId,
       } });
       await tx.outboxEvent.create({ data: {
         organizationId: ctx.organizationId, type: "transaction.cleared",
-        payload: { objectType: "Transaction", objectId: txn.id, expenseId: expense.id, capturedAmount: String(captureAmount) },
+        payload: {
+          objectType: "Transaction",
+          objectId: txn.id,
+          expenseId: expense.id,
+          capturedAmount: String(captureAmount),
+          companyBankId: companyBank?.id ?? null,
+        },
       } });
-      return { transaction: updated, expense };
+      return { transaction: updated, expense, companyBank };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   },
 
@@ -2008,6 +2059,14 @@ export const cards = {
           { account: `fund:${txn.fundId}`, direction: "CREDIT", amount: String(captured), currency: txn.currency },
         ], tx);
       }
+      await settleCompanyBankForCardClear(tx, {
+        organizationId: ctx.organizationId,
+        legalEntityId: txn.legalEntityId,
+        amount: captured,
+        currency: txn.currency,
+        transactionId: txn.id,
+        direction: "credit",
+      });
       await applyBudgetReverse(tx, ctx.organizationId, txn.legalEntityId, txn.fundId, captured);
       await tx.expense.updateMany({
         where: { organizationId: ctx.organizationId, transactionId: txn.id, status: { not: "CANCELLED" } },
@@ -3800,6 +3859,7 @@ export const reimbursements = {
       return { reimbursement: again, accounting: existing };
     }
 
+    await debitReimbursementCash(tx, record);
     const accounting = await queueAccounting(ctx, "REIMBURSEMENT", id, record.legalEntityId, tx, {
       amount: record.amount,
       currency: record.currency,
@@ -5940,7 +6000,16 @@ export const procurement = {
       prisma.receivingRecord.findMany({ where: { organizationId: ctx.organizationId, purchaseOrderId: id }, orderBy: { createdAt: "desc" } }),
       prisma.matchRecord.findMany({ where: { organizationId: ctx.organizationId, purchaseOrderId: id }, orderBy: { createdAt: "desc" } }),
       prisma.purchaseRequest.findFirst({ where: { id: po.requestId, organizationId: ctx.organizationId } }),
-      prisma.bill.findMany({ where: { organizationId: ctx.organizationId, purchaseOrderId: id } }),
+      prisma.bill.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          legalEntityId: po.legalEntityId,
+          currency: po.currency,
+          OR: [{ purchaseOrderId: id }, { purchaseOrderId: null }],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
       po.vendorId ? prisma.vendor.findFirst({ where: { id: po.vendorId, organizationId: ctx.organizationId } }) : null,
       prisma.poChangeOrder.findMany({ where: { organizationId: ctx.organizationId, purchaseOrderId: id }, orderBy: { createdAt: "desc" } }),
       prisma.auditEvent.findMany({
@@ -5965,6 +6034,8 @@ export const procurement = {
         invoiceNumber: bill.invoiceNumber,
         amount: bill.amount,
         status: bill.status,
+        purchaseOrderId: bill.purchaseOrderId,
+        vendorId: bill.vendorId,
       })),
       vendor,
       changeOrders: changeOrders ?? [],
@@ -7873,32 +7944,53 @@ export const reporting = {
       };
     });
 
-    // Company cash: Stripe Issuing FA when CARD_ISSUER_PROVIDER=stripe; else local BankAccount rows.
+    // Company cash: Stripe FA when issuer is Stripe (real). Local BankAccount only for mock issuer.
     let companyCashByCurrency: Array<{ currency: string; amount: string }> = [];
     let companyCashSource: "stripe" | "bank_accounts" | "unavailable" = "unavailable";
     let companyCashAccountId: string | null = null;
     let companyCashStatus: string | null = null;
     let companyCashError: string | null = null;
+    let companyCashAccounts: Array<{ id: string; name: string; currency: string; available: string }> = [];
     try {
       const issuer = getCardIssuer();
       if (issuer.name === "stripe" && issuer.getCompanyBalance) {
         const balance = await issuer.getCompanyBalance();
         if (balance) {
           companyCashByCurrency = balance.available;
+          if (env.nodeEnv !== "production" && env.stripeSecretKey.startsWith("sk_test_")) {
+            const deductions = await prisma.ledgerEntry.findMany({where: {organizationId: orgId, account: SANDBOX_REIMBURSEMENT_CASH, direction: "DEBIT"}, select: {currency: true, amount: true}});
+            companyCashByCurrency = adjustedSandboxCash(balance.available, deductions.map(row => ({currency: row.currency, amount: String(row.amount)})));
+            companyCashStatus = "Stripe TEST balance minus simulated reimbursement payouts (app ledger; no external transfer)";
+          }
           companyCashSource = "stripe";
           companyCashAccountId = balance.financialAccountId;
-          companyCashStatus = balance.status;
+          companyCashStatus ??= balance.status ? `Stripe Issuing FA · ${balance.status}` : "Stripe Issuing FA";
+        } else {
+          companyCashError = "Stripe financial account balance unavailable";
+          companyCashSource = "stripe";
         }
       } else {
         const bankAccounts = await prisma.bankAccount.findMany({
           where: { organizationId: orgId },
-          select: { currency: true, available: true },
+          select: { id: true, name: true, currency: true, available: true },
           take: 50,
+          orderBy: { name: "asc" },
         });
+        companyCashAccounts = bankAccounts.map((row) => ({
+          id: row.id,
+          name: row.name,
+          currency: row.currency,
+          available: Number(row.available).toFixed(2),
+        }));
         companyCashByCurrency = sumByCurrency(
           bankAccounts.map((row) => ({ currency: row.currency, amount: Number(row.available) })),
         );
         companyCashSource = "bank_accounts";
+        const operating = bankAccounts.find((row) => /operating/i.test(row.name));
+        companyCashAccountId = operating?.id ?? bankAccounts[0]?.id ?? null;
+        companyCashStatus = companyCashAccounts
+          .map((row) => `${row.name} ${row.currency} ${Number(row.available).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+          .join(" + ") || null;
       }
     } catch (error) {
       companyCashError = error instanceof Error ? error.message : "Company cash unavailable";
@@ -7911,6 +8003,7 @@ export const reporting = {
       companyCashAccountId,
       companyCashStatus,
       companyCashError,
+      companyCashAccounts,
       clearedSpendByCurrency: spend.map((item) => ({ currency: item.currency, amount: String(item._sum.amount ?? 0) })),
       openPayablesByCurrency: payables.map((item) => ({ currency: item.currency, amount: String(item._sum.remainingAmount ?? 0) })),
       budgetCapacityByCurrency: sumByCurrency(budgetRows.map((row) => ({ currency: row.currency, amount: row.remainingAmount }))),

@@ -76,7 +76,7 @@ export default function Page() {
   });
 
   return (
-    <div className="accounting-overview-page linked-dest-page stack-lg">
+    <div className="accounting-overview-page spend-ui-page linked-dest-page stack-lg">
       <div className="resource-heading">
         <PageHeader
           title="Accounting queue"

@@ -1,0 +1,84 @@
+.my-cards-page { width:100%; max-width:1240px; margin:0 auto; display:grid; gap:24px; padding:4px 0 28px; color:#242424; }
+.my-cards-page .resource-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; margin:0; }
+.my-cards-page .resource-heading .page-header { margin:0; }
+.my-cards-page .resource-heading h1 { font-size:28px; letter-spacing:-.9px; margin:0 0 7px; }
+.my-cards-page .resource-heading p { font-size:13px; line-height:1.6; color:#757575; margin:0; }
+.my-cards-page .btn { display:inline-flex; align-items:center; justify-content:center; gap:12px; min-height:38px; padding:9px 14px; border:1px solid #dedede; border-radius:7px; background:#fff; color:#404040; font-size:12px; font-weight:600; text-decoration:none; }
+.my-cards-page .btn-primary { background:#292929; color:#fff; border-color:#292929; }
+.my-cards-page .btn:hover { filter:brightness(.96); }
+.my-cards-page .btn:disabled { opacity:.5; }
+.my-cards-page .my-card-workspace { display:grid; grid-template-columns:350px minmax(0,1fr); align-items:start; gap:22px; }
+.my-card-profile,.my-card-summary,.my-card-history,.my-cards-page .my-card-controls { background:#fff; border:1px solid #e3e3e3; border-radius:12px; box-shadow:0 2px 3px #00000002; min-width:0; }
+.my-card-profile { padding:22px; }
+.my-card-profile-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+.my-card-profile-heading h2 { margin:0; font-size:14px; font-weight:650; }
+.my-card-profile-heading > span { color:#8a8a8a; font-size:10px; font-weight:650; letter-spacing:1px; }
+.my-cards-page .my-card-face-col { position:static; order:0; max-width:none; gap:0; }
+.my-cards-page .virtual-card { width:100%; max-width:none; padding:20px; border-radius:12px; background:radial-gradient(ellipse at 0 0,#505050 0%,transparent 65%),linear-gradient(135deg,#303030,#191919); box-shadow:0 12px 20px -14px #0008,inset 0 1px #ffffff25; }
+.my-cards-page .virtual-card.is-frozen,.my-cards-page .virtual-card.is-terminated { background:linear-gradient(135deg,#616161,#383838); }
+.my-cards-page .virtual-card-shine { opacity:.3; }
+.my-cards-page .virtual-card-pan { font-size:18px; letter-spacing:.16em; }
+.my-cards-page .virtual-card-chip-row { gap:10px; }
+.my-cards-page .virtual-card-emv { width:32px; height:25px; background:linear-gradient(135deg,#d7d7d7,#a7a7a7); }
+.my-cards-page .virtual-card-holder strong,.my-cards-page .virtual-card-network strong { font-size:11px; }
+.my-cards-page .virtual-card-chip { padding:3px 7px; font-size:9px; }
+.my-cards-page .my-card-face-note { display:none; }
+.my-card-hero-actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:20px 0 24px; }
+.my-card-identity { padding-top:22px; border-top:1px solid #ededed; }
+.my-card-identity h2,.my-cards-page .my-card-controls h2 { font-size:13px; font-weight:650; margin:0 0 15px; }
+.my-cards-page .detail-list { margin:0; }
+.my-cards-page .detail-list > div { display:flex; justify-content:space-between; align-items:baseline; gap:16px; border:0; padding:10px 0; }
+.my-cards-page .detail-list dt { font-size:11px; color:#858585; line-height:1.6; flex-shrink:0; }
+.my-cards-page .detail-list dd { font-size:12px; color:#414141; margin:0; text-align:right; line-height:1.6; overflow-wrap:anywhere; min-width:0; }
+.my-card-identity dd strong { font-weight:500; }
+.my-card-identity dd small { display:block; color:#888; font-size:10px; }
+.my-cards-page .detail-link { color:#414141; font-weight:500; text-underline-offset:3px; }
+.my-card-funding-note { display:flex; align-items:flex-start; gap:9px; font-size:11px; line-height:1.7; color:#858585; border-top:1px solid #ededed; padding-top:18px; margin:18px 0 0; }
+.my-card-funding-note svg { width:17px; height:17px; flex-shrink:0; margin-top:2px; fill:none; stroke:#999; stroke-width:1.5; }
+.my-cards-page .my-card-info { display:grid; gap:20px; min-width:0; }
+.my-card-summary { padding:24px; }
+.my-card-summary-top { display:flex; align-items:center; justify-content:space-between; gap:16px; color:#747474; font-size:12px; }
+.my-card-amount { font-size:34px; font-weight:650; letter-spacing:-1.2px; margin-top:10px; font-variant-numeric:tabular-nums; line-height:1.3; }
+.my-card-limit { margin:7px 0 22px; font-size:11px; color:#909090; }
+.my-card-limit strong { color:#6a6a6a; font-weight:500; margin-left:8px; }
+.my-card-metrics { display:grid; grid-template-columns:1fr 1fr; gap:20px; border-top:1px solid #eee; padding-top:20px; }
+.my-card-metrics > div { display:flex; align-items:center; gap:12px; }
+.my-card-metrics > div + div { border-left:1px solid #eee; padding-left:20px; }
+.my-card-metrics > div > div { display:grid; gap:5px; }
+.my-card-metrics > div > div > span { font-size:11px; color:#858585; }
+.my-card-metrics strong { font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.25px; }
+.my-card-metric-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:9px; background:#f5f5f5; color:#777; flex-shrink:0; }
+.my-card-metric-icon svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+.my-card-history { overflow:hidden; }
+.my-card-history-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:22px 22px 16px; }
+.my-card-history-heading h2 { margin:0; font-size:14px; letter-spacing:-.2px; }
+.my-card-history-heading > span { font-size:10px; color:#999; }
+.my-card-tabs { display:flex; gap:20px; padding:0 22px; overflow-x:auto; border-bottom:1px solid #ededed; }
+.my-card-tabs button { display:flex; align-items:center; gap:6px; padding:13px 0; background:none; border:0; border-bottom:2px solid transparent; font:inherit; font-size:11px; color:#888; cursor:pointer; white-space:nowrap; }
+.my-card-tabs button[aria-pressed="true"] { color:#222; border-bottom-color:#333; font-weight:600; }
+.my-card-tabs button span { background:#f4f4f4; color:#777; border-radius:4px; font-size:9px; padding:2px 5px; }
+.my-cards-page .my-card-history-panel { border:0; border-radius:0; box-shadow:none; padding:16px 22px 22px; background:transparent; min-width:0; }
+.my-cards-page .my-card-history-panel[hidden] { display:none; }
+.my-card-history-panel .section-title { display:none; }
+.my-card-history-panel > .muted { text-align:center; padding:38px 18px; margin:0; font-size:12px; line-height:1.7; color:#888; }
+.my-card-history-panel .table-wrap { border:0; border-radius:0; overflow:auto; }
+.my-card-history-panel table { width:100%; font-size:11px; }
+.my-card-history-panel th { background:#fafafa; padding:11px 10px; font-size:10px; font-weight:500; color:#888; text-transform:none; letter-spacing:0; white-space:nowrap; }
+.my-card-history-panel td { padding:17px 10px; border-bottom:1px solid #f1f1f1; font-size:11px; }
+.my-card-history-panel tr:last-child td { border-bottom:0; }
+.my-card-history-panel td .muted { margin-top:4px; font-size:10px; }
+.my-card-history-panel td strong { font-weight:600; }
+.my-cards-page .my-card-controls { padding:22px; }
+.my-card-controls .detail-list { display:grid; grid-template-columns:1fr 1fr; gap:12px 24px; }
+.my-cards-page .my-card-controls .detail-list > div { display:grid; gap:5px; padding:0; justify-content:stretch; }
+.my-card-controls .detail-list dd { text-align:left; font-weight:500; }
+.my-cards-page .empty-work { background:#fff; border:1px solid #e3e3e3; border-radius:12px; padding:64px 24px; text-align:center; }
+.my-cards-page button:focus-visible,.my-cards-page a:focus-visible { outline:2px solid #555; outline-offset:3px; }
+@media(max-width:1100px) { .my-cards-page .my-card-workspace { grid-template-columns:310px minmax(0,1fr); gap:18px; } .my-card-profile { padding:18px; } .my-card-metrics { gap:12px; } .my-card-metrics > div + div { padding-left:12px; } .my-card-metric-icon { display:none; } .my-card-amount { font-size:30px; } .my-card-tabs { gap:16px; } }
+@media(max-width:850px) { .my-cards-page .my-card-workspace { grid-template-columns:minmax(0,1fr); } .my-card-profile { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0 24px; } .my-card-profile-heading { grid-column:1/-1; } .my-card-identity { grid-column:2; grid-row:2/4; padding:0; border:0; } .my-card-hero-actions { margin-bottom:0; } .my-card-funding-note { grid-column:1/-1; } .my-card-metric-icon { display:grid; } }
+@media(max-width:560px) { .my-cards-page { gap:20px; } .my-cards-page .resource-heading { align-items:flex-start; } .my-cards-page .resource-heading h1 { font-size:25px; } .my-cards-page .resource-heading p { font-size:12px; max-width:230px; } .my-cards-page .resource-heading .btn { min-height:34px; padding:8px 10px; white-space:nowrap; font-size:11px; } .my-card-profile { display:block; padding:20px; } .my-card-identity { padding-top:20px; border-top:1px solid #eee; } .my-card-hero-actions { margin-bottom:24px; } .my-card-summary { padding:20px; } .my-card-metric-icon { display:none; } .my-card-amount { font-size:30px; } .my-card-metrics strong { font-size:14px; } .my-cards-page .my-card-controls { padding:20px; } .my-card-controls .detail-list { column-gap:16px; } }
+.my-cards-page .my-card-controls .detail-list > div { grid-template-columns:minmax(0,1fr); }
+.my-cards-page .my-card-controls .detail-list dd { text-align:left; }
+.my-cards-page .resource-heading .page-header { min-width:0; flex:1; }
+.my-cards-page .resource-heading .page-header > div { min-width:0; }
+@media(max-width:360px) { .my-cards-page .virtual-card { padding:16px; } .my-cards-page .virtual-card-pan { font-size:15px; } .my-card-profile { padding:16px; } .my-cards-page .resource-heading { flex-wrap:wrap; } .my-cards-page .resource-heading .page-header { flex-basis:100%; } .my-card-controls .detail-list { grid-template-columns:1fr; gap:16px; } }

@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/spend-ui.css";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -188,7 +190,7 @@ export default function ProgramDetailPage() {
   }
 
   return (
-    <div className="spend-detail">
+    <div className="spend-ui-page spend-detail spend-program-detail">
       <div className="resource-heading">
         <PageHeader
           title={program.name}
@@ -230,7 +232,8 @@ export default function ProgramDetailPage() {
         </article>
       </div>
 
-      <div className="work-panels">
+      <div className={`program-detail-layout ${canManage && isActive ? "has-editor" : "view-only"}`}>
+      <div className="program-detail-aside">
         <section className="work-panel">
           <h2>Program details</h2>
           <dl className="detail-list">
@@ -300,7 +303,7 @@ export default function ProgramDetailPage() {
       </div>
 
       {canManage && isActive && (
-        <section className="work-panel">
+        <section className="work-panel program-editor">
           <h2>Edit controls</h2>
           <p className="muted">Currency cannot change after create. Lowering the max is blocked if an active fund already exceeds it.</p>
           <form className="record-form" onSubmit={submit}>
@@ -364,6 +367,8 @@ export default function ProgramDetailPage() {
           </form>
         </section>
       )}
+
+      </div>
 
       {canManage && !isActive && (
         <p className="muted">This program is inactive. Create a new program if you need to reopen these controls.</p>

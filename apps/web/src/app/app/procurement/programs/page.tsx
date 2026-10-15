@@ -1,5 +1,12 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/procurement-ui.css";
+import { WorkIcon } from "@/components/PersonalWorkPresentation";
+import { ProcurementOverview } from "@/components/ProcurementPresentation";
+import { SpendIntro } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { ResourcePage } from "@/components/ResourcePage";
@@ -27,10 +34,10 @@ export default function ProcurementProgramsPage() {
       key: "name",
       header: "Program",
       render: (row) => (
-        <span className="inbox-table-request">
+        <span className="expense-merchant"><span className="expense-merchant-icon"><WorkIcon kind="receipt"/></span><span className="inbox-table-request">
           <strong>{row.name || "Intake program"}</strong>
           <small>{row.description?.trim() ? row.description.slice(0, 70) : "Routes purchase requests to reviewers"}</small>
-        </span>
+        </span></span>
       ),
     },
     {
@@ -60,8 +67,8 @@ export default function ProcurementProgramsPage() {
   ];
 
   return (
-    <div className="procurement-programs-page">
-      <ResourcePage title="Procurement programs" path="procurement-programs" columns={columns} pageSize={20} />
+    <div className="procurement-programs-page personal-work-page spend-ui-page procurement-ui-page">
+      <ResourcePage subtitle="Configure intake programs, receiving requirements and matching tolerances." overview={(rows, loading) => <ProcurementOverview kind="programs" rows={rows} loading={loading}/>} listIntro={<SpendIntro title="Intake programs" description="Manage how purchase requests are routed and fulfilled."/>} title="Procurement programs" path="procurement-programs" columns={columns} pageSize={20} />
       <p className="muted my-expenses-hint">
         Active programs appear when creating procurement requests. After approval, fulfillment continues in{" "}
         <Link className="detail-link" href="/app/procurement/requests">

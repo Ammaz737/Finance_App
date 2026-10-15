@@ -65,9 +65,8 @@ const FEATURES = [
   "stack",
 ];
 
-async function main() {
-  const passwordHash = await bcrypt.hash(process.env.SEED_PASSWORD ?? "password123", 10);
-
+/** Wipe transactional / financial rows. Foundation is recreated below. */
+async function wipeAll() {
   await prisma.webhookDelivery.deleteMany();
   await prisma.webhookEndpoint.deleteMany();
   await prisma.oAuthApp.deleteMany();
@@ -79,11 +78,13 @@ async function main() {
   await prisma.bankTransfer.deleteMany();
   await prisma.bankAccount.deleteMany();
   await prisma.travelBooking.deleteMany();
+  await prisma.travelerProfile.deleteMany().catch(() => undefined);
   await prisma.travelTrip.deleteMany();
   await prisma.renewal.deleteMany();
   await prisma.contract.deleteMany();
   await prisma.matchRecord.deleteMany();
   await prisma.receivingRecord.deleteMany();
+  await prisma.poChangeOrder.deleteMany().catch(() => undefined);
   await prisma.purchaseOrderLine.deleteMany();
   await prisma.purchaseOrder.deleteMany();
   await prisma.purchaseRequest.deleteMany();
@@ -94,6 +95,7 @@ async function main() {
   await prisma.bill.deleteMany();
   await prisma.vendorBankAccount.deleteMany();
   await prisma.vendor.deleteMany();
+  await prisma.syncAttempt.deleteMany().catch(() => undefined);
   await prisma.syncJob.deleteMany();
   await prisma.accountingRule.deleteMany();
   await prisma.accountingEntry.deleteMany();
@@ -104,6 +106,7 @@ async function main() {
   await prisma.reimbursement.deleteMany();
   await prisma.txn.deleteMany();
   await prisma.cardAuthorization.deleteMany();
+  await prisma.cardEvent.deleteMany().catch(() => undefined);
   await prisma.card.deleteMany();
   await prisma.fund.deleteMany();
   await prisma.spendRequest.deleteMany();
@@ -142,14 +145,26 @@ async function main() {
   await prisma.department.deleteMany();
   await prisma.location.deleteMany();
   await prisma.legalEntity.deleteMany();
+  await prisma.quickBooksWebhookEvent.deleteMany().catch(() => undefined);
+  await prisma.quickBooksEntityMap.deleteMany().catch(() => undefined);
+  await prisma.quickBooksConnection.deleteMany().catch(() => undefined);
+  await prisma.providerOAuthState.deleteMany().catch(() => undefined);
   await prisma.integrationConnection.deleteMany();
   await prisma.organization.deleteMany();
+}
 
+async function main() {
+  const passwordHash = await bcrypt.hash(process.env.SEED_PASSWORD ?? "password123", 10);
+
+  await wipeAll();
+
+  // --- Foundation only: org, entity, users, roles, policies, workflows ---
+  // No seed cards, funds, expenses, bills, vendors, travel, bank balances, or demo transactions.
   const org = await prisma.organization.create({ data: { name: "Acme Manufacturing", slug: "acme" } });
   const us = await prisma.legalEntity.create({
     data: { organizationId: org.id, name: "Acme US LLC", country: "US", currency: "USD" },
   });
-  const uk = await prisma.legalEntity.create({
+  await prisma.legalEntity.create({
     data: { organizationId: org.id, name: "Acme UK Ltd", country: "GB", currency: "GBP" },
   });
   await prisma.countryCapability.createMany({
@@ -192,7 +207,6 @@ async function main() {
     const perm = permissionRows.find((p) => p.key === key);
     if (perm) await prisma.rolePermission.create({ data: { roleId: employee.id, permissionId: perm.id, scope: "SELF" } });
   }
-  // Entity-scoped vendor list so employees can pick a vendor on spend/procurement forms.
   const vendorRead = permissionRows.find((p) => p.key === "vendor.read");
   if (vendorRead) {
     await prisma.rolePermission.create({ data: { roleId: employee.id, permissionId: vendorRead.id, scope: "ENTITY" } });
@@ -263,7 +277,7 @@ async function main() {
   await prisma.entitlement.createMany({
     data: FEATURES.map((featureKey) => ({ organizationId: org.id, featureKey, enabled: true })),
   });
-  // enabled must be true — schema default is false, and startApproval only loads enabled workflows.
+
   await prisma.approvalWorkflow.createMany({
     data: [
       { organizationId: org.id, name: "Spend request", objectType: "spend_request", enabled: true, steps: [{ type: "manager" }, { type: "finance" }] },
@@ -274,11 +288,13 @@ async function main() {
       { organizationId: org.id, name: "Travel", objectType: "travel", enabled: true, steps: [{ type: "manager" }, { type: "finance" }] },
     ],
   });
+
   await prisma.policy.create({
     data: {
       organizationId: org.id,
       name: "Procurement policy",
       objectType: "procurement",
+      enabled: true,
       rules: [
         { type: "vendor_required" },
         { type: "memo_required", threshold: 0 },
@@ -292,6 +308,7 @@ async function main() {
       organizationId: org.id,
       name: "Travel policy",
       objectType: "travel",
+      enabled: true,
       rules: [{ type: "travel_max_amount", threshold: 2500 }, { type: "travel_out_of_policy" }],
     },
   });
@@ -300,6 +317,7 @@ async function main() {
       organizationId: org.id,
       name: "Receipt required",
       objectType: "expense",
+      enabled: true,
       rules: [{ type: "receipt_required", threshold: 75 }],
     },
   });
@@ -308,136 +326,28 @@ async function main() {
       organizationId: org.id,
       name: "Reimbursement receipt required",
       objectType: "reimbursement",
+      enabled: true,
       rules: [{ type: "receipt_required", threshold: 75 }, { type: "memo_required", threshold: 0 }],
     },
   });
-  await prisma.businessLimit.create({
-    data: { organizationId: org.id, legalEntityId: us.id, amount: "200000", currency: "USD" },
-  });
-  const budget = await prisma.budget.create({
+
+  // Empty config shells so live forms can create requests (no fake money / transactions).
+  await prisma.spendProgram.create({
     data: {
       organizationId: org.id,
       legalEntityId: us.id,
-      name: "Engineering 2026",
-      ownerId: mgr.id,
-      amount: "100000",
+      name: "General spend",
+      maxAmount: "50000",
       currency: "USD",
+      status: "ACTIVE",
+      defaultFulfillmentType: "VIRTUAL_CARD",
     },
   });
-  const program = await prisma.spendProgram.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      name: "Software tools",
-      budgetId: budget.id,
-      maxAmount: "5000",
-      currency: "USD",
-    },
+  await prisma.procurementProgram.create({
+    data: { organizationId: org.id, name: "General procurement", status: "ACTIVE" },
   });
-  const fund = await prisma.fund.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      name: "Elena software fund",
-      ownerId: emp.id,
-      availableAmount: "2500",
-      limitAmount: "2500",
-      currency: "USD",
-    },
-  });
-  const card = await prisma.card.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      fundId: fund.id,
-      holderId: emp.id,
-      type: "VIRTUAL",
-      last4: "4242",
-      token: "tok_seed_4242",
-      merchantLock: "OpenAI",
-    },
-  });
-  const adminFund = await prisma.fund.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      name: "Ava ops fund",
-      ownerId: admin.id,
-      availableAmount: "5000",
-      limitAmount: "5000",
-      currency: "USD",
-    },
-  });
-  await prisma.card.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      fundId: adminFund.id,
-      holderId: admin.id,
-      type: "VIRTUAL",
-      last4: "1001",
-      token: "tok_seed_1001",
-      merchantLock: null,
-    },
-  });
-  const txn = await prisma.txn.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      cardId: card.id,
-      fundId: fund.id,
-      amount: "42.00",
-      currency: "USD",
-      merchant: "OpenAI",
-      status: "CLEARED",
-      clearedAt: new Date(),
-    },
-  });
-  await prisma.expense.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      userId: emp.id,
-      transactionId: txn.id,
-      amount: "42.00",
-      currency: "USD",
-      merchant: "OpenAI",
-      status: "INCOMPLETE",
-      memo: "ChatGPT team plan",
-    },
-  });
-  const vendor = await prisma.vendor.create({
-    data: { organizationId: org.id, legalEntityId: us.id, name: "OpenAI", category: "SaaS", ownerId: emp.id },
-  });
-  await prisma.bill.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      vendorId: vendor.id,
-      invoiceNumber: "INV-10034",
-      amount: "4500.00",
-      remainingAmount: "4500.00",
-      currency: "USD",
-      status: "DRAFT",
-      createdBy: admin.id,
-    },
-  });
-  const procProgram = await prisma.procurementProgram.create({
-    data: { organizationId: org.id, name: "Software intake" },
-  });
-  await prisma.purchaseRequest.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      programId: procProgram.id,
-      requesterId: emp.id,
-      name: "Datadog expansion",
-      amount: "18000.00",
-      currency: "USD",
-      outcomeType: "PURCHASE_ORDER",
-      status: "DRAFT",
-    },
-  });
+
+  // Accounting coding lists only (no seeded journal entries).
   await prisma.accountingDimension.createMany({
     data: [
       {
@@ -497,103 +407,11 @@ async function main() {
       },
     ],
   });
-  await prisma.accountingEntry.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      sourceType: "CARD_TRANSACTION",
-      sourceId: txn.id,
-      status: "NEEDS_REVIEW",
-      category: "Software",
-      amount: "42.00",
-      currency: "USD",
-      memo: "OpenAI card charge",
-    },
-  });
-  await prisma.bankAccount.createMany({
-    data: [
-      { organizationId: org.id, legalEntityId: us.id, name: "Operating", last4: "1111", currency: "USD", available: "500000" },
-      { organizationId: org.id, legalEntityId: us.id, name: "Payroll", last4: "2222", currency: "USD", available: "120000" },
-    ],
-  });
-  const customer = await prisma.customer.create({ data: { organizationId: org.id, name: "Northwind" } });
-  await prisma.invoice.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      customerId: customer.id,
-      number: "AR-2001",
-      amount: "9000.00",
-      balance: "9000.00",
-      currency: "USD",
-      status: "SENT",
-    },
-  });
-  const trip = await prisma.travelTrip.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      travelerId: emp.id,
-      name: "NYC customer visit",
-      origin: "Austin",
-      destination: "New York",
-      purpose: "Customer workshop",
-      startDate: new Date("2026-10-10"),
-      endDate: new Date("2026-10-12"),
-      estimatedAmount: "1200.00",
-      currency: "USD",
-      status: "DRAFT",
-    },
-  });
-  await prisma.integrationConnection.createMany({
-    data: [
-      { organizationId: org.id, family: "ERP", provider: "mock-netsuite", status: "CONNECTED", health: "HEALTHY", cursor: "mock_seed_erp", lastSyncAt: new Date() },
-      { organizationId: org.id, family: "TRAVEL", provider: "mock-travel", status: "CONNECTED", health: "UNKNOWN", cursor: null },
-      { organizationId: org.id, family: "CARD_ISSUER", provider: "mock-issuer", status: "CONNECTED", health: "HEALTHY", cursor: "mock_seed_cards", lastSyncAt: new Date() },
-    ],
-  });
-  await prisma.notification.create({
-    data: {
-      organizationId: org.id,
-      userId: emp.id,
-      type: "TRAVEL",
-      title: "Complete your trip request",
-      body: "Add dates and a quote before submitting NYC customer visit.",
-      href: `/app/travel/trips/${trip.id}`,
-      objectType: "travel",
-      objectId: trip.id,
-    },
-  });
-  await prisma.agentIdentity.create({
-    data: {
-      organizationId: org.id,
-      legalEntityId: us.id,
-      name: "Sourcing agent",
-      ownerId: admin.id,
-      monthlyBudget: "1000.00",
-    },
-  });
-  await prisma.workbook.create({
-    data: { organizationId: org.id, name: "FY26 headcount model", ownerId: admin.id, snapshot: { sheets: ["Assumptions"] } },
-  });
-  await prisma.integrationConnection.create({
-    data: { organizationId: org.id, family: "AccountingProvider", provider: "MOCK_QBO", status: "CONNECTED" },
-  });
-  await prisma.accountingRule.create({
-    data: {
-      organizationId: org.id,
-      name: "Mileage reimbursements",
-      match: { sourceType: "REIMBURSEMENT", memoContains: "mile" },
-      coding: { category: "Travel", coding: { glAccount: "6200" } },
-      priority: 10,
-    },
-  });
-  await prisma.aiUsageRecord.create({
-    data: { organizationId: org.id, provider: "openai", model: "gpt-4.1", userId: emp.id, tokens: 88000, cost: "12.40" },
-  });
 
-  console.log("Seeded Acme Manufacturing");
+  console.log("Seeded foundation only (org / users / roles / policies / workflows).");
+  console.log("No financial demo data — create spend, cards, bills, travel live.");
   console.log("Login: admin@acme.test / password123");
+  console.log("Note: QuickBooks OAuth was cleared — reconnect under Accounting → Integrations if needed.");
 }
 
 main()

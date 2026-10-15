@@ -1,0 +1,66 @@
+.procurement-ui-page .my-expenses-hint { margin:0; padding:0 4px; font-size:12px; line-height:1.8; }
+.procurement-ui-page .panel { margin:0; min-width:0; }
+.procurement-ui-page .panel h2 { margin:0 0 20px; font-size:15px; letter-spacing:-.2px; }
+.procurement-ui-page .panel h3 { font-size:13px; margin:22px 0 12px; color:#555; }
+.procurement-ui-page .panel > .muted { font-size:12px; line-height:1.8; }
+.procurement-detail-layout { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:20px; align-items:start; }
+.procurement-detail-main,.procurement-detail-aside { display:grid; gap:20px; min-width:0; }
+.procurement-record-detail .overview-stat-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.procurement-record-detail .overview-stat > strong { font-size:20px; }
+.procurement-ui-page .record-form { grid-template-columns:minmax(0,1fr); }
+.procurement-ui-page .panel .record-form { border-top:1px solid #eee; margin-top:18px; padding-top:18px; gap:16px; }
+.procurement-ui-page .record-form > h3 { margin:0!important; }
+.procurement-ui-page .record-form label,.procurement-ui-page .work-panel > label { display:grid; gap:8px; font-size:12px; color:#777; min-width:0; }
+.procurement-ui-page textarea.input { min-height:90px; resize:vertical; line-height:1.6; }
+.procurement-ui-page .detail-checklist li { display:flex; justify-content:space-between; align-items:center; gap:14px; }
+.procurement-ui-page .detail-actions:empty { display:none; }
+.procurement-ui-page .timeline { margin:0; }
+.procurement-ui-page .timeline-item { border-left:2px solid #e5e5e5; padding:0 0 18px 16px; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.procurement-ui-page .timeline-item:last-child { padding-bottom:0; }
+.procurement-ui-page .timeline-item .muted { font-size:11px; }
+.procurement-ui-page .plain-list li { overflow-wrap:anywhere; }
+.procurement-ui-page .drawer-header { gap:16px; align-items:flex-start; border-bottom:1px solid #eee; padding-bottom:18px; margin-bottom:18px; }
+.procurement-ui-page .drawer-header h2 { font-size:18px; line-height:1.5; margin:0; }
+.match-exceptions-page .detail-grid { grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); }
+.procurement-ui-page .match-exception-list { display:grid; gap:10px; margin-top:16px; }
+.procurement-ui-page .match-exception-list > li { border:0; padding:0; }
+.procurement-ui-page .match-exception-item { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:16px; border:1px solid #e5e5e5; border-radius:8px; background:#fff; color:#444; text-align:left; cursor:pointer; }
+.procurement-ui-page .match-exception-item:hover { background:#fafafa; border-color:#ccc; }
+.procurement-ui-page .match-exception-item.is-selected { background:#f4f4f4; border-color:#888; box-shadow:inset 3px 0 #555; }
+.procurement-ui-page .match-exception-item strong { font-size:12px; line-height:1.7; }
+.procurement-ui-page .match-exception-item small { display:block; font-size:11px; color:#888; margin-top:5px; }
+.procurement-ui-page .match-exception-item .inbox-table-request { min-width:0; }
+.procurement-ui-page .match-exception-list > li.muted { padding:20px; border:1px dashed #ddd; border-radius:8px; background:#fafafa; font-size:12px; line-height:1.9; }
+.procurement-ui-page .match-exception-item:focus-visible { outline:2px solid #666; outline-offset:3px; }
+.procurement-ui-page .section-title h2 { margin:0; }
+.match-exceptions-page .work-panel > label { margin-top:18px; }
+@media(max-width:1100px) {
+  .procurement-record-detail .overview-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .procurement-detail-layout { gap:16px; }
+}
+@media(max-width:900px) { .procurement-detail-layout,.match-exceptions-page .detail-grid { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:700px) {
+  .procurement-record-detail .overview-stat-grid { grid-template-columns:minmax(0,1fr); }
+  .procurement-ui-page .detail-list > div { grid-template-columns:100px minmax(0,1fr); }
+}
+@media(max-width:600px) {
+  .procurement-requests-page .data-table td:nth-child(2)::before { content:'Requester'; }
+  .procurement-requests-page .data-table td:nth-child(3)::before { content:'Amount'; }
+  .procurement-requests-page .data-table td:nth-child(4)::before { content:'Outcome'; }
+  .procurement-requests-page .data-table td:nth-child(5)::before { content:'Status'; }
+  .procurement-requests-page .data-table td:nth-child(6)::before { content:'Approvals'; }
+  .procurement-programs-page .data-table td:nth-child(2)::before { content:'Default outcome'; }
+  .procurement-programs-page .data-table td:nth-child(3)::before { content:'Receiving'; }
+  .procurement-programs-page .data-table td:nth-child(4)::before { content:'Match tolerance'; }
+  .procurement-programs-page .data-table td:nth-child(5)::before { content:'Status'; }
+  .procurement-pos-page .data-table td:nth-child(2)::before { content:'Amount'; }
+  .procurement-pos-page .data-table td:nth-child(3)::before { content:'Received'; }
+  .procurement-pos-page .data-table td:nth-child(4)::before { content:'Billed'; }
+  .procurement-pos-page .data-table td:nth-child(5)::before { content:'Status'; }
+  .procurement-pos-page .data-table td:nth-child(6)::before { content:'Match'; }
+  .procurement-receiving-page .data-table td:nth-child(2)::before { content:'Amount'; }
+  .procurement-receiving-page .data-table td:nth-child(3)::before { content:'Received by'; }
+  .procurement-receiving-page .data-table td:nth-child(4)::before { content:'When'; }
+  .procurement-ui-page.personal-work-page:not(.procurement-programs-page) .data-table td:last-child::before { content:none; }
+  .procurement-programs-page .data-table td:last-child { position:static; }
+}

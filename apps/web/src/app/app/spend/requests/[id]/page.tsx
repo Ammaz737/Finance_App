@@ -1,5 +1,7 @@
 "use client";
 
+import "../../../../../components/spend-ui.css";
+
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -186,7 +188,7 @@ function SpendRequestDetailInner() {
     : "Requester";
 
   return (
-    <div className="spend-detail spend-request-detail">
+    <div className="spend-ui-page spend-detail spend-request-detail">
       <div className="resource-heading">
         <PageHeader
           title={req.name}
@@ -267,8 +269,9 @@ function SpendRequestDetailInner() {
         </article>
       </div>
 
-      <div className="work-panels">
-        <section className="work-panel">
+      <div className="request-detail-layout">
+        <div className="request-detail-main">
+          <section className="work-panel">
           <h2>Request</h2>
           <dl className="detail-list">
             <div>
@@ -336,8 +339,21 @@ function SpendRequestDetailInner() {
             </div>
           </dl>
         </section>
-
-        <section className="work-panel">
+          <section className="work-panel request-timeline">
+        <h2>Timeline</h2>
+        <div className="timeline">
+          {data.timeline.map((event) => (
+            <div key={event.id} className="timeline-item">
+              <strong>{event.action}</strong>
+              <div className="muted">{new Date(event.createdAt).toLocaleString()}</div>
+            </div>
+          ))}
+          {!data.timeline.length && <p className="muted">No activity yet.</p>}
+        </div>
+      </section>
+        </div>
+        <div className="request-detail-aside">
+          <section className="work-panel">
           <h2>Approval progress</h2>
           <p className="muted" style={{ marginTop: 0 }}>
             {data.approvalLabel || "No approval started"}
@@ -361,10 +377,7 @@ function SpendRequestDetailInner() {
             </p>
           )}
         </section>
-      </div>
-
-      <div className="work-panels">
-        <section className="work-panel">
+          <section className="work-panel">
           <h2>Fulfillment</h2>
           <dl className="detail-list">
             <div>
@@ -434,8 +447,7 @@ function SpendRequestDetailInner() {
             </p>
           )}
         </section>
-
-        <section className="work-panel">
+          <section className="work-panel">
           <h2>Policy</h2>
           <p style={{ marginTop: 0 }}>
             <StatusBadge status={data.policy.result || "PASS"} /> {data.policy.reason || "No blocking policy matched."}
@@ -447,20 +459,8 @@ function SpendRequestDetailInner() {
             <p className="muted">Required: {(data.policy.requiredActions as string[]).join(", ")}</p>
           ) : null}
         </section>
-      </div>
-
-      <section className="work-panel" style={{ marginTop: 14 }}>
-        <h2>Timeline</h2>
-        <div className="timeline">
-          {data.timeline.map((event) => (
-            <div key={event.id} className="timeline-item">
-              <strong>{event.action}</strong>
-              <div className="muted">{new Date(event.createdAt).toLocaleString()}</div>
-            </div>
-          ))}
-          {!data.timeline.length && <p className="muted">No activity yet.</p>}
         </div>
-      </section>
+      </div>
     </div>
   );
 }

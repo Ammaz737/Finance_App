@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+import { BillPayOverview } from "@/components/BillPayPresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge, type Column } from "@finance/design-system";
@@ -22,10 +28,7 @@ export default function PaymentRunsPage() {
       key: "name",
       header: "Run",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.name || "Payment run"}</strong>
-          <small>{row.createdAt ? new Date(row.createdAt).toLocaleDateString() : "Batch release gate"}</small>
-        </span>
+        <SpendRecord title={row.name || "Payment run"} subtitle={row.createdAt ? new Date(row.createdAt).toLocaleDateString() : "Batch release gate"} href={`/app/bill-pay/payment-runs/${row.id}`} icon="Payment runs"/>
       ),
     },
     {
@@ -41,13 +44,13 @@ export default function PaymentRunsPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/bill-pay/payment-runs/${row.id}`} label="Open payment run"/>,
     },
   ];
 
   return (
-    <div className="payment-runs-page">
-      <ResourcePage
+    <div className="payment-runs-page personal-work-page spend-ui-page bill-pay-ui-page">
+      <ResourcePage subtitle="Prepare and release batches of scheduled payments." overview={(rows, loading) => <BillPayOverview kind="runs" rows={rows} loading={loading}/>} listIntro={<SpendIntro title="Payment batches" description="Manage batch preparation and the separate release gate."/>}
         title="Payment runs"
         path="payment-runs"
         columns={columns}

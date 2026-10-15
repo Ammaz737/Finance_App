@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/spend-ui.css";
+
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -159,7 +161,7 @@ export default function FundDetailPage() {
   ];
 
   return (
-    <div className="spend-detail fund-detail-page">
+    <div className="spend-ui-page spend-detail fund-detail-page">
       <div className="resource-heading">
         <PageHeader title={data.fund.name} subtitle={`Owned by ${ownerName}`} />
         <Link className="btn btn-ghost" href={backHref}>

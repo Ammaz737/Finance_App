@@ -76,7 +76,7 @@ export default function Page() {
   }
 
   return (
-    <div className="settings-page company-settings-page linked-dest-page">
+    <div className="settings-page company-settings-page linked-dest-page company-ui-page spend-ui-page company-settings-ui">
       <PageHeader
         title="Company settings"
         subtitle="Organization identity and the structure used across spend, approvals, and accounting."

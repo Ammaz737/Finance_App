@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/spend-ui.css";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -195,7 +197,7 @@ export default function TransactionDetailPage() {
   const actions = [...pendingActions, ...clearedActions];
 
   return (
-    <div className="detail-page txn-detail-page">
+    <div className="spend-ui-page detail-page txn-detail-page">
       <div className="resource-heading">
         <PageHeader title={txn.merchant || "Transaction"} subtitle={money(txn.currency, txn.amount)} />
         <Link className="btn btn-ghost" href={backHref}>

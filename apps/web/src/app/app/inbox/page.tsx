@@ -1,10 +1,13 @@
 "use client";
 
+import "./inbox.css";
+
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { DrawerReview, PageHeader, StatusBadge, DataTable, type Column } from "@finance/design-system";
+import { DrawerReview, PageHeader, StatusBadge, type Column } from "@finance/design-system";
+import { NavigationIcon } from "@/components/NavigationIcon";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
 
@@ -83,6 +86,24 @@ const OBJECT_TYPE_LABELS: Record<string, string> = {
   match: "Match",
 };
 
+const TASK_ICONS: Record<string, string> = {
+  spend_request: "Cards", expense: "Receipts", reimbursement: "Reimbursements",
+  bill: "Bills", procurement: "Procurement", travel: "Travel", payment: "Payments",
+  accounting: "Accounting", match: "Receiving",
+};
+
+function InboxStatus({ value }: { value: string }) {
+  return <span className="inbox-neutral-status"><i aria-hidden="true" />{value.toLowerCase().replaceAll("_", " ")}</span>;
+}
+
+function inboxDate(value: string) {
+  return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function reviewDate(value: string) {
+  return new Date(value).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 function sourceHref(task: Task) {
   const base = routes[task.objectType];
   if (!base) return "/app/home";
@@ -158,6 +179,7 @@ export default function Page() {
   const [visitedAt, setVisitedAt] = useState<string | null>(null);
   const [newSinceOpen, setNewSinceOpen] = useState(0);
   const knownIdsRef = useRef<Set<string>>(new Set());
+  const tableRef = useRef<HTMLDivElement>(null);
   const bootstrappedRef = useRef(false);
 
   const tasks = useQuery({
@@ -292,6 +314,10 @@ export default function Page() {
     setPage(0);
   }, [category, objectType, priority, search, sort]);
 
+  useEffect(() => {
+    if (tableRef.current) tableRef.current.scrollTop = 0;
+  }, [page, category, objectType, priority, search, sort]);
+
   const selected = detail.data ?? filtered.find((row) => row.id === selectedId) ?? null;
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
@@ -299,13 +325,8 @@ export default function Page() {
   const columns: Column<Task>[] = [
     {
       key: "new",
-      header: "",
-      render: (row) => (isNewTask(row, seenSet, visitedAt) ? <span className="inbox-badge-new">New</span> : null),
-    },
-    {
-      key: "type",
-      header: "Type",
-      render: (row) => TYPE_LABELS[row.type] ?? row.type.replaceAll("_", " "),
+      header: "Update",
+      render: (row) => (isNewTask(row, seenSet, visitedAt) ? <span className="inbox-badge-new">New</span> : <span className="inbox-update-empty" aria-label="No new update">—</span>),
     },
     {
       key: "name",
@@ -314,7 +335,7 @@ export default function Page() {
         <div className="inbox-table-request">
           <strong>{row.name}</strong>
           <small>
-            {row.requestedBy}
+            <span className="inbox-requester-initial" aria-hidden="true">{row.requestedBy?.trim().charAt(0).toUpperCase() || "•"}</span>{row.requestedBy}
             {row.entity ? ` · ${row.entity}` : ""}
             {isApprovalType(row.type) ? ` · Step ${row.currentStep}/${row.totalSteps}` : ""}
           </small>
@@ -322,19 +343,24 @@ export default function Page() {
       ),
     },
     {
+      key: "type",
+      header: "Type",
+      render: (row) => <span className="inbox-task-type"><span className="inbox-task-symbol"><NavigationIcon label={TASK_ICONS[row.objectType] ?? "Requests"} /></span><span>{TYPE_LABELS[row.type] ?? row.type.replaceAll("_", " ")}</span></span>,
+    },
+    {
       key: "amount",
       header: "Amount",
-      render: (row) => formatAmount(row),
+      render: (row) => <span className="inbox-table-amount">{formatAmount(row)}</span>,
     },
     {
       key: "priority",
       header: "Priority",
-      render: (row) => <StatusBadge status={row.priority} />,
+      render: (row) => <span className={`inbox-neutral-priority priority-${row.priority.toLowerCase()}`}><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 13V9m5 4V6m5 7V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>{row.priority.toLowerCase()}</span>,
     },
     {
       key: "status",
       header: "Status",
-      render: (row) => <StatusBadge status={row.status} />,
+      render: (row) => <InboxStatus value={row.status} />,
     },
     {
       key: "policySummary",
@@ -343,8 +369,8 @@ export default function Page() {
     },
     {
       key: "createdAt",
-      header: "Received",
-      render: (row) => (row.dueAt ? `Due ${new Date(row.dueAt).toLocaleDateString()}` : new Date(row.createdAt).toLocaleString()),
+      header: "Due / received",
+      render: (row) => <span className="inbox-table-date">{row.dueAt ? <><strong>{inboxDate(row.dueAt)}</strong><small>Due date</small></> : <><strong>{inboxDate(row.createdAt)}</strong><small>{new Date(row.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</small></>}</span>,
     },
     {
       key: "action",
@@ -352,36 +378,36 @@ export default function Page() {
       render: (row) => (
         row.type === "ACCOUNTING_EXCEPTION" ? (
           <Link
-            className="btn btn-primary"
+            className="inbox-table-action"
             href={sourceHref(row)}
             onClick={(event) => {
               event.stopPropagation();
               markSeen([row.id]);
             }}
           >
-            Open in Accounting
+            Open in Accounting <span aria-hidden="true">↗</span>
           </Link>
         ) : row.type === "PROCUREMENT_MATCH_EXCEPTION" ? (
           <Link
-            className="btn btn-primary"
+            className="inbox-table-action"
             href={sourceHref(row)}
             onClick={(event) => {
               event.stopPropagation();
               markSeen([row.id]);
             }}
           >
-            Resolve
+            Resolve <span aria-hidden="true">↗</span>
           </Link>
         ) : (
           <button
             type="button"
-            className="btn btn-ghost"
+            className="inbox-table-action"
             onClick={(event) => {
               event.stopPropagation();
               openTask(row.id);
             }}
           >
-            Review
+            Review <span aria-hidden="true">›</span>
           </button>
         )
       ),
@@ -393,26 +419,39 @@ export default function Page() {
     markSeen([id]);
   }
 
-  const categoryChips: Array<{ key: CategoryFilter; label: string; count: number }> = [
-    { key: "ALL", label: "All", count: counts.all },
-    { key: "APPROVALS", label: "Approvals", count: counts.approvals },
-    { key: "PAYMENT_RELEASE", label: "Payments", count: counts.payments },
-    { key: "ACCOUNTING_EXCEPTION", label: "Accounting", count: counts.accounting },
-    { key: "PROCUREMENT_MATCH_EXCEPTION", label: "Match exceptions", count: counts.matches },
+  const categoryChips: Array<{ key: CategoryFilter; label: string; icon: string; count: number }> = [
+    { key: "ALL", label: "All tasks", icon: "Inbox", count: counts.all },
+    { key: "APPROVALS", label: "Approvals", icon: "For approval", count: counts.approvals },
+    { key: "PAYMENT_RELEASE", label: "Payments", icon: "Payments", count: counts.payments },
+    { key: "ACCOUNTING_EXCEPTION", label: "Accounting", icon: "Accounting", count: counts.accounting },
+    { key: "PROCUREMENT_MATCH_EXCEPTION", label: "Match exceptions", icon: "Receiving", count: counts.matches },
   ];
+
+  const hasFilters = category !== "ALL" || objectType !== "ALL" || priority !== "ALL" || Boolean(search);
+  function clearFilters() {
+    setCategory("ALL");
+    setObjectType("ALL");
+    setPriority("ALL");
+    setSearch("");
+  }
 
   return (
     <div className="inbox-page">
+      <nav className="inbox-breadcrumb" aria-label="Breadcrumb"><span>Workspace</span><span aria-hidden="true">›</span><span>Inbox</span></nav>
       <div className="inbox-heading">
+        <div className="inbox-heading-title"><div>
         <PageHeader
           title="Inbox"
-          subtitle="Only tasks assigned to you — approvals, payment release, accounting, and match exceptions"
+          subtitle="Your next decisions, all in one place. Review requests and keep work moving."
         />
-        <div className="inbox-heading-meta">
-          <span className="inbox-count-pill">{counts.all} open</span>
-          {counts.fresh > 0 && <span className="inbox-new-pill">{counts.fresh} new</span>}
-          {counts.high > 0 && <span className="inbox-high-pill">{counts.high} high priority</span>}
-        </div>
+        </div></div>
+        <span className="inbox-auto-refresh"><i aria-hidden="true" />Updates every 30 seconds</span>
+      </div>
+
+      <div className="inbox-summary" aria-label="Task summary">
+        <div className="inbox-summary-card summary-open"><span className="inbox-summary-symbol"><NavigationIcon label="Inbox" /></span><div><span>Open tasks</span><strong>{tasks.isPending || tasks.isError ? "—" : counts.all}</strong><small>Assigned to you</small></div></div>
+        <div className="inbox-summary-card summary-new"><span className="inbox-summary-symbol"><NavigationIcon label="Notifications" /></span><div><span>New tasks</span><strong>{tasks.isPending || tasks.isError ? "—" : counts.fresh}</strong><small>Ready for your first look</small></div></div>
+        <div className="inbox-summary-card summary-priority"><span className="inbox-summary-symbol"><NavigationIcon label="Needs review" /></span><div><span>High priority</span><strong>{tasks.isPending || tasks.isError ? "—" : counts.high}</strong><small>High and urgent requests</small></div></div>
       </div>
 
       {newSinceOpen > 0 && (
@@ -428,6 +467,8 @@ export default function Page() {
         </div>
       )}
 
+      <div className="inbox-workspace">
+      <div className="inbox-workspace-head"><div><h2>Assigned to you</h2><span>{tasks.isPending || tasks.isError ? "—" : `${filtered.length} task${filtered.length === 1 ? "" : "s"}${filtered.length !== counts.all ? ` of ${counts.all}` : ""}`}</span></div><div className="inbox-workspace-actions">{counts.fresh > 0 && <button type="button" className="inbox-mark-seen" onClick={markAllVisibleSeen}>Mark new as seen</button>}<button type="button" className="inbox-refresh" disabled={tasks.isFetching} onClick={() => void tasks.refetch()}><NavigationIcon label="Synced" />{tasks.isFetching ? "Refreshing…" : "Refresh"}</button></div></div>
       <section className="inbox-toolbar" aria-label="Inbox filters">
         <div className="filter-row inbox-category-row">
           {categoryChips.map((chip) => (
@@ -435,9 +476,10 @@ export default function Page() {
               key={chip.key}
               type="button"
               className={`chip ${category === chip.key ? "chip-active" : ""}`}
+              aria-pressed={category === chip.key}
               onClick={() => { setCategory(chip.key); setObjectType("ALL"); }}
             >
-              {chip.label}
+              <NavigationIcon label={chip.icon} />{chip.label}
               <span className="chip-count">{chip.count}</span>
             </button>
           ))}
@@ -446,6 +488,7 @@ export default function Page() {
         <div className="inbox-controls">
           <label className="inbox-search">
             <span className="sr-only">Search inbox</span>
+            <NavigationIcon label="Search" />
             <input
               className="input"
               value={search}
@@ -454,8 +497,8 @@ export default function Page() {
             />
           </label>
           <label>
-            <span className="sr-only">Object type</span>
-            <select className="input inbox-select" value={objectType} onChange={(event) => setObjectType(event.target.value)}>
+            <span className="inbox-filter-caption">Type</span>
+            <select aria-label="Object type" className="input inbox-select" value={objectType} onChange={(event) => setObjectType(event.target.value)}>
               <option value="ALL">All types</option>
               {objectTypeOptions.map((key) => (
                 <option key={key} value={key}>{OBJECT_TYPE_LABELS[key] ?? key}</option>
@@ -463,29 +506,25 @@ export default function Page() {
             </select>
           </label>
           <label>
-            <span className="sr-only">Priority</span>
-            <select className="input inbox-select" value={priority} onChange={(event) => setPriority(event.target.value as PriorityFilter)}>
+            <span className="inbox-filter-caption">Priority</span>
+            <select aria-label="Priority" className="input inbox-select" value={priority} onChange={(event) => setPriority(event.target.value as PriorityFilter)}>
               <option value="ALL">All priorities</option>
               <option value="HIGH">High / urgent</option>
               <option value="NORMAL">Normal / low</option>
             </select>
           </label>
           <label>
-            <span className="sr-only">Sort</span>
-            <select className="input inbox-select" value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
-              <option value="priority">Sort: priority</option>
-              <option value="newest">Sort: newest</option>
-              <option value="oldest">Sort: oldest</option>
-              <option value="amount">Sort: amount</option>
-              <option value="due">Sort: due soon</option>
+            <span className="inbox-filter-caption">Sort by</span>
+            <select aria-label="Sort" className="input inbox-select" value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
+              <option value="priority">Priority</option>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="amount">Highest amount</option>
+              <option value="due">Due soon</option>
             </select>
           </label>
-          {counts.fresh > 0 && (
-            <button type="button" className="btn btn-ghost" onClick={markAllVisibleSeen}>
-              Mark new as seen
-            </button>
-          )}
         </div>
+        {hasFilters && <div className="inbox-filter-feedback"><span>{filtered.length} matching task{filtered.length === 1 ? "" : "s"}</span><button type="button" onClick={clearFilters}>Clear filters <span aria-hidden="true">×</span></button></div>}
       </section>
 
       {tasks.isError ? (
@@ -494,31 +533,39 @@ export default function Page() {
           <button className="text-button" type="button" onClick={() => void tasks.refetch()}>Try again</button>
         </p>
       ) : tasks.isPending ? (
-        <p className="muted">Loading tasks…</p>
+        <div className="inbox-loading" role="status"><span className="inbox-state-icon"><NavigationIcon label="Synced" /></span><strong>Getting your tasks ready</strong><p>Loading your assigned requests and reviews…</p></div>
       ) : filtered.length === 0 ? (
-        <div className="empty-work">
+        <div className="empty-work inbox-empty">
+          <span className="inbox-state-icon"><NavigationIcon label={(tasks.data ?? []).length ? "Search" : "For approval"} /></span>
           <strong>{(tasks.data ?? []).length ? "No tasks match these filters" : "You are all caught up"}</strong>
           <p>
             {(tasks.data ?? []).length
               ? "Clear search or change filters to see remaining work."
               : "No approvals or exceptions are waiting for you. New items appear here automatically."}
           </p>
+          {hasFilters && <button className="btn btn-primary" type="button" onClick={clearFilters}>Clear filters</button>}
         </div>
       ) : (
         <>
-          <div className="table-wrap inbox-unified-table">
-            <DataTable
-              rows={pageRows}
-              columns={columns}
-              onRowClick={(row) => {
+          <div ref={tableRef} className="table-wrap inbox-unified-table" role="region" aria-label="Assigned tasks table" tabIndex={0}>
+            <table className="data-table inbox-data-table">
+              <caption className="sr-only">Assigned inbox tasks. Select a request to review it or use its action.</caption>
+              <thead><tr>{columns.map((column) => <th key={column.key} scope="col" className={`inbox-col-${column.key}`}>{column.header}</th>)}</tr></thead>
+              <tbody>{pageRows.map((row) => {
+                const activate = () => {
                 if (row.type === "ACCOUNTING_EXCEPTION" || row.type === "PROCUREMENT_MATCH_EXCEPTION") {
                   markSeen([row.id]);
                   router.push(sourceHref(row));
                   return;
                 }
                 openTask(row.id);
-              }}
-            />
+                };
+                return <tr key={row.id} className={isNewTask(row, seenSet, visitedAt) ? "is-new" : undefined} tabIndex={0} aria-label={`Open ${row.name}`} onClick={activate} onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); }
+                }}>{columns.map((column) => <td key={column.key} data-label={column.header} className={`inbox-col-${column.key}`}>{column.render ? column.render(row) : String(row[column.key as keyof Task] ?? "")}</td>)}</tr>;
+              })}</tbody>
+            </table>
           </div>
           <div className="inbox-pagination">
             <span className="muted">
@@ -526,6 +573,7 @@ export default function Page() {
               {filtered.length !== counts.all ? ` (filtered from ${counts.all})` : ""}
             </span>
             <div>
+              <span className="inbox-page-number">Page {page + 1} of {pageCount}</span>
               <button className="btn btn-ghost" type="button" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>
                 Previous
               </button>
@@ -536,15 +584,18 @@ export default function Page() {
           </div>
         </>
       )}
+      </div>
 
       <DrawerReview open={Boolean(selectedId)} title="Review task" onClose={() => setSelectedId(null)}>
         {selected && (
           <div className="detail-panel">
             <div className="review-summary">
-              <span>{TYPE_LABELS[selected.type] ?? selected.type.replaceAll("_", " ")}</span>
+              <div className="inbox-review-type"><span className="inbox-review-icon"><NavigationIcon label={TASK_ICONS[selected.objectType] ?? "Requests"} /></span><span>{TYPE_LABELS[selected.type] ?? selected.type.replaceAll("_", " ")}</span></div>
               <h2>{selected.name}</h2>
-              <strong>{selected.amount === "0" ? selected.policySummary : formatAmount(selected)}</strong>
+              <div className="inbox-review-amount"><div><small>{selected.amount === "0" ? "Review summary" : "Requested amount"}</small><strong>{selected.amount === "0" ? selected.policySummary : formatAmount(selected)}</strong></div><InboxStatus value={selected.status} /></div>
             </div>
+
+            <h3 className="inbox-review-section-title">Request details</h3>
 
             {selected.type === "ACCOUNTING_EXCEPTION" ? (
               <>
@@ -553,7 +604,7 @@ export default function Page() {
                   {selected.entity && <div><dt>Legal entity</dt><dd>{selected.entity}</dd></div>}
                   <div><dt>Status</dt><dd><StatusBadge status={selected.status} /></dd></div>
                   <div><dt>Coding / issue</dt><dd>{selected.category || selected.policySummary || "Needs coding review"}</dd></div>
-                  <div><dt>Updated</dt><dd>{new Date(selected.createdAt).toLocaleString()}</dd></div>
+                  <div><dt>Updated</dt><dd>{reviewDate(selected.createdAt)}</dd></div>
                 </dl>
                 <div className="detail-actions">
                   <Link
@@ -574,19 +625,21 @@ export default function Page() {
                   <div><dt>Priority</dt><dd><StatusBadge status={selected.priority} /></dd></div>
                   {isApprovalType(selected.type) && <div><dt>Approval step</dt><dd>{selected.currentStep} of {selected.totalSteps}</dd></div>}
                   <div><dt>Policy</dt><dd>{selected.policySummary || "—"}</dd></div>
-                  {selected.dueAt && <div><dt>Due</dt><dd>{new Date(selected.dueAt).toLocaleString()}</dd></div>}
-                  <div><dt>Received</dt><dd>{new Date(selected.createdAt).toLocaleString()}</dd></div>
+                  {selected.dueAt && <div><dt>Due</dt><dd>{reviewDate(selected.dueAt)}</dd></div>}
+                  <div><dt>Received</dt><dd>{reviewDate(selected.createdAt)}</dd></div>
                 </dl>
 
                 {detail.isPending && <p className="muted">Loading policy and activity…</p>}
+                {detail.isError && <p className="error" role="alert">Could not load policy and activity. <button type="button" className="text-button" onClick={() => void detail.refetch()}>Try again</button></p>}
 
                 {detail.data?.policy && (
-                  <div className="policy-box">
-                    <strong>Policy result: {detail.data.policy.result}</strong>
+                  <div className="policy-box inbox-review-policy" data-result={detail.data.policy.result.toUpperCase()}>
+                    <span className="inbox-policy-icon"><NavigationIcon label="Policies" /></span>
+                    <div><strong>Policy result: {detail.data.policy.result}</strong>
                     <p>{detail.data.policy.explanation}</p>
                     {detail.data.policy.matchedRules?.length > 0 && (
                       <p className="muted">Matched: {detail.data.policy.matchedRules.join(", ")}</p>
-                    )}
+                    )}</div>
                   </div>
                 )}
 
@@ -596,14 +649,14 @@ export default function Page() {
                     {detail.data.timeline.map((item, index) => (
                       <div key={`${item.at}-${index}`} className="timeline-item">
                         <strong>{item.action}</strong> · {item.actor}
-                        <div className="muted">{new Date(item.at).toLocaleString()}</div>
+                        <div className="muted">{reviewDate(item.at)}</div>
                         {item.comment && <p>{item.comment}</p>}
                       </div>
                     ))}
                   </div>
                 ) : null}
 
-                <Link className="detail-link" href={sourceHref(selected)}>View source record →</Link>
+                <Link className="detail-link" href={sourceHref(selected)}>View source record <span aria-hidden="true">↗</span></Link>
 
                 {selected.status === "INFO_REQUESTED" ? (
                   <div className="policy-box">
@@ -614,14 +667,17 @@ export default function Page() {
 
                 {selected.availableActions.some((action) => ["approve", "reject", "request_info", "release"].includes(action)) && (
                   <label className="review-comment">
-                    Comment
+                    <span>Comment</span>
                     <textarea
                       className="input"
+                      aria-label="Comment"
+                      aria-describedby="inbox-comment-help"
                       rows={3}
                       value={comment}
                       onChange={(event) => setComment(event.target.value)}
-                      placeholder="Required for reject / request info"
+                      placeholder="Add context for the requester…"
                     />
+                    <small id="inbox-comment-help">Required when requesting information or rejecting. Optional for approval.</small>
                   </label>
                 )}
 
@@ -630,12 +686,12 @@ export default function Page() {
                 <div className="detail-actions">
                   {selected.availableActions.includes("approve") && (
                     <button className="btn btn-primary" disabled={decision.isPending} onClick={() => decision.mutate({ id: selected.id, action: "approve" })}>
-                      Approve
+                      <NavigationIcon label="For approval" />Approve
                     </button>
                   )}
                   {selected.availableActions.includes("release") && (
                     <button className="btn btn-primary" disabled={decision.isPending} onClick={() => decision.mutate({ id: selected.id, action: "release" })}>
-                      Release payment
+                      <NavigationIcon label="Payments" />Release payment
                     </button>
                   )}
                   {selected.availableActions.includes("request_info") && (

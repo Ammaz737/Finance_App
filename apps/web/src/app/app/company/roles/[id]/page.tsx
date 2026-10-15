@@ -99,7 +99,7 @@ export default function RoleDetailPage() {
   };
 
   return (
-    <div className="stack-lg company-role-detail linked-dest-page">
+    <div className="stack-lg company-role-detail linked-dest-page company-ui-page spend-ui-page company-roles-ui">
       <div className="resource-heading">
         <PageHeader title={role.name} subtitle={role.description || "Role permissions and scope"} />
         <div className="detail-actions-top">
@@ -132,7 +132,7 @@ export default function RoleDetailPage() {
         />
       ) : (
         <>
-          <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+          <div className="kpi-grid" >
             <article className="kpi-card">
               <span>Permissions</span>
               <strong>{permissions.length}</strong>

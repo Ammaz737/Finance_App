@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader, StatusBadge } from "@finance/design-system";
 import { canSeeItem, findNavItem } from "@/config/navigation";
 import { VirtualCardFace } from "@/components/VirtualCardFace";
+import { NavigationIcon } from "@/components/NavigationIcon";
+import "./cards.css";
+import "@/components/spend-ui.css";
 import { primaryPerHolder, type CardLike } from "@/lib/card-primary";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
@@ -19,6 +21,7 @@ type CardRow = CardLike & {
   stripeCardId?: string | null;
   merchantLock?: string | null;
   fundId?: string;
+  allowedMccs?: string | null;
 };
 type FundRow = {
   id: string;
@@ -35,8 +38,10 @@ function money(currency: string, value: string | number) {
 }
 
 export default function CorporateCardsPage() {
-  const router = useRouter();
   const session = useSession();
+  const [sort, setSort] = useState("name");
+  const [showFilters, setShowFilters] = useState(false);
+  const [lockFilter, setLockFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [statusFocus, setStatusFocus] = useState<"ALL" | "ACTIVE" | "FROZEN">("ALL");
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
@@ -73,6 +78,8 @@ export default function CorporateCardsPage() {
   const visible = useMemo(() => {
     return primaries.filter((card) => {
       if (statusFocus !== "ALL" && card.status !== statusFocus) return false;
+      if (lockFilter === "locked" && !card.merchantLock) return false;
+      if (lockFilter === "open" && card.merchantLock) return false;
       if (!deferredSearch) return true;
       const holder = personById.get(card.holderId ?? "");
       const holderName = holder
@@ -81,8 +88,13 @@ export default function CorporateCardsPage() {
       const fund = fundById.get(card.fundId ?? "");
       const haystack = `${holderName} ${card.last4 ?? ""} ${fund?.name ?? ""} ${card.merchantLock ?? ""}`.toLowerCase();
       return haystack.includes(deferredSearch);
+    }).sort((a, b) => {
+      if (sort === "balance") return Number(fundById.get(b.fundId ?? "")?.availableAmount ?? 0) - Number(fundById.get(a.fundId ?? "")?.availableAmount ?? 0);
+      if (sort === "newest") return String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? ""));
+      const name = (id?: string) => { const person = personById.get(id ?? ""); return `${person?.firstName ?? ""} ${person?.lastName ?? ""}`; };
+      return name(a.holderId).localeCompare(name(b.holderId));
     });
-  }, [primaries, statusFocus, deferredSearch, personById, fundById]);
+  }, [primaries, statusFocus, deferredSearch, personById, fundById, sort, lockFilter]);
 
   const active = primaries.filter((row) => row.status === "ACTIVE").length;
   const frozen = primaries.filter((row) => row.status === "FROZEN").length;
@@ -106,26 +118,33 @@ export default function CorporateCardsPage() {
   const issueLabel = canSeeQueue ? "Open spend requests" : canCreateSpend ? "My requests" : "Overview";
 
   return (
-    <div className="corporate-cards-page">
+    <div className="corporate-cards-page spend-ui-page">
+      <nav className="cards-breadcrumb" aria-label="Breadcrumb"><span>Spend</span><span aria-hidden>›</span><span>Cards</span></nav>
       <div className="resource-heading">
         <PageHeader
           title="Corporate cards"
           subtitle="One virtual card per person. New spend approvals top up that card’s fund."
         />
         <Link className="btn btn-primary" href={issueHref}>
-          Issue / top up
+          <span aria-hidden>＋</span> Issue / top up
         </Link>
       </div>
 
       <div className="corporate-cards-kpis">
         <article className="corporate-kpi primary">
+          <div className="cards-kpi-icon"><NavigationIcon label="People" /></div>
+          <div className="cards-kpi-copy">
           <span>People with cards</span>
           <strong>{primaries.length}</strong>
           <small>
             {active} active{frozen ? ` · ${frozen} frozen` : ""}
           </small>
+          </div>
+          <div className="cards-kpi-bars" aria-hidden><i /><i /><i /><i /></div>
         </article>
         <article className="corporate-kpi">
+          <div className="cards-kpi-icon"><NavigationIcon label="Funds" /></div>
+          <div className="cards-kpi-copy">
           <span>Available across cards</span>
           <strong>{money(currency, availableTotal)}</strong>
           <small>
@@ -137,8 +156,12 @@ export default function CorporateCardsPage() {
               "Wallet balances"
             )}
           </small>
+          </div>
+          <div className="cards-kpi-ring" aria-hidden />
         </article>
         <article className="corporate-kpi">
+          <div className="cards-kpi-icon blue"><NavigationIcon label="Travel" /></div>
+          <div className="cards-kpi-copy">
           <span>Issue path</span>
           <strong>Spend request</strong>
           <small>
@@ -146,11 +169,14 @@ export default function CorporateCardsPage() {
               {issueLabel} →
             </Link>
           </small>
+          </div>
+          <div className="cards-kpi-squares" aria-hidden><i /><i /></div>
         </article>
       </div>
 
       <div className="corporate-cards-toolbar">
         <label className="search-field corporate-cards-search">
+          <NavigationIcon label="Search" />
           <span className="sr-only">Search cards</span>
           <input
             className="input"
@@ -172,13 +198,17 @@ export default function CorporateCardsPage() {
               type="button"
               className={`chip${statusFocus === key ? " chip-active" : ""}`}
               onClick={() => setStatusFocus(key)}
+              aria-pressed={statusFocus === key}
             >
               {label} <span className="chip-count">{count}</span>
             </button>
           ))}
         </div>
-        <span className="record-count">{visible.length} shown</span>
+        <button className={`cards-filter-button${showFilters ? " selected" : ""}`} type="button" aria-expanded={showFilters} onClick={() => setShowFilters(!showFilters)}><NavigationIcon label="Rules" /> More filters{lockFilter !== "all" ? " · 1" : ""}</button>
+        <label className="cards-sort"><span>Sort by</span><select aria-label="Sort cards" value={sort} onChange={(event) => setSort(event.target.value)}><option value="name">Name (A–Z)</option><option value="balance">Highest balance</option><option value="newest">Newest first</option></select></label>
       </div>
+      {showFilters && <div className="cards-extra-filters"><label>Merchant lock<select value={lockFilter} onChange={(event) => setLockFilter(event.target.value)}><option value="all">All cards</option><option value="open">Open</option><option value="locked">Merchant locked</option></select></label><button type="button" className="text-button" onClick={() => setLockFilter("all")}>Reset filters</button></div>}
+      <div className="cards-result-count" aria-live="polite">{visible.length} {visible.length === 1 ? "card" : "cards"}</div>
 
       {cards.isPending ? (
         <p className="muted">Loading cards…</p>
@@ -217,12 +247,11 @@ export default function CorporateCardsPage() {
             if (card.extraLiveCount > 0) notes.push(`${card.extraLiveCount} other live`);
 
             return (
-              <button
+              <article
                 key={card.id}
-                type="button"
                 className="corporate-card-tile"
-                onClick={() => router.push(`/app/cards/${card.id}`)}
               >
+                <Link className="corporate-card-face-link" href={`/app/cards/${card.id}`} aria-label={`View ${holderName}'s card ending ${card.last4 ?? "unknown"}`}>
                 <VirtualCardFace
                   compact
                   last4={card.last4}
@@ -232,9 +261,10 @@ export default function CorporateCardsPage() {
                   type={card.type}
                   status={card.status}
                 />
+                </Link>
                 <div className="corporate-card-meta">
                   <div className="corporate-card-meta-top">
-                    <strong>{holderName}</strong>
+                    <strong>{holderName}{card.holderId === session?.userId && <span className="cards-you">You</span>}</strong>
                     <StatusBadge status={card.status ?? "UNKNOWN"} />
                   </div>
                   <div className="corporate-card-meta-balance">
@@ -246,7 +276,14 @@ export default function CorporateCardsPage() {
                     {notes.length ? ` · ${notes.join(" · ")}` : ""}
                   </div>
                 </div>
-              </button>
+                <dl className="corporate-card-details">
+                  <div><dt><NavigationIcon label="Funds" />Fund</dt><dd title={fund?.name}>{fund?.name ?? "Wallet fund"}</dd></div>
+                  <div><dt><NavigationIcon label="Cards" />Spend limit</dt><dd>{fund?.limitAmount != null ? money(fund.currency ?? "USD", fund.limitAmount) : "—"}</dd></div>
+                  <div><dt><NavigationIcon label="Policies" />Merchant lock</dt><dd title={card.merchantLock ?? undefined}>{card.merchantLock || "Open"}</dd></div>
+                  <div><dt><NavigationIcon label="Policies" />Allowed MCCs</dt><dd title={card.allowedMccs ?? undefined}>{card.allowedMccs || "Any"}</dd></div>
+                </dl>
+                <footer className="corporate-card-actions"><Link href={`/app/cards/${card.id}`}>View details</Link><Link className="cards-manage" href={`/app/cards/${card.id}#card-controls`}>Manage</Link></footer>
+              </article>
             );
           })}
         </div>

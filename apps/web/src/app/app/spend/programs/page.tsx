@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { ResourcePage } from "@/components/ResourcePage";
+import { SpendIntro, SpendOverview, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
 
 type ProgramRow = {
   id: string;
@@ -27,12 +30,7 @@ export default function SpendProgramsPage() {
     {
       key: "name",
       header: "Program",
-      render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.name || "Spend program"}</strong>
-          <small>{row.description?.trim() ? row.description.slice(0, 70) : "Controls max amount and card defaults"}</small>
-        </span>
-      ),
+      render: (row) => <SpendRecord title={row.name || "Spend program"} subtitle={row.description?.trim() ? row.description.slice(0, 70) : "Controls max amount and card defaults"} href={`/app/spend/programs/${row.id}`} icon="Spend programs"/>,
     },
     {
       key: "maxAmount",
@@ -57,14 +55,17 @@ export default function SpendProgramsPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/spend/programs/${row.id}`} label={`Open record ${row.name || row.id}`}/>,
     },
   ];
 
   return (
-    <div className="spend-programs-page">
+    <div className="spend-programs-page personal-work-page spend-ui-page">
       <ResourcePage
         title="Spend programs"
+        subtitle="Manage spending limits, merchant restrictions and card defaults."
+        overview={(rows, loading) => <SpendOverview kind="programs" rows={rows} loading={loading}/>}
+        listIntro={<SpendIntro title="Program directory" description="Review the controls employees use when requesting company funds."/>}
         path="spend-programs"
         columns={columns}
         pageSize={20}

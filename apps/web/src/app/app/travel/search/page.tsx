@@ -1,5 +1,9 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/travel-ui.css";
+
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader, StatusBadge } from "@finance/design-system";
@@ -56,11 +60,11 @@ export default function TravelSearchPage() {
     .slice(0, 8);
 
   return (
-    <div className="travel-search-page linked-dest-page spend-detail">
-      <PageHeader
+    <div className="travel-search-page travel-ui-page spend-ui-page linked-dest-page spend-detail">
+      <div className="resource-heading"><PageHeader
         title="Travel search"
         subtitle={capabilities.data?.message ?? "Search available travel offers from a trip"}
-      />
+      /></div>
 
       <div className="overview-stat-grid" style={{ marginBottom: 8 }}>
         <article className="overview-stat">
@@ -127,12 +131,13 @@ export default function TravelSearchPage() {
                 <Link className="detail-link" href={`/app/travel/trips/${trip.id}?from=${trip.travelerId === mineId ? "mine" : "trips"}`}>
                   <strong>{trip.name || "Trip"}</strong>
                 </Link>
-                {" · "}
+                <div className="travel-search-route">
                 {trip.origin ? `${trip.origin} → ` : ""}
                 {trip.destination || "Destination TBD"}
-                {" · "}
+                </div>
+                <div className="travel-search-dates">
                 {fmtDate(trip.startDate)} – {fmtDate(trip.endDate)}
-                {" · "}
+                </div>
                 <StatusBadge status={trip.status ?? "UNKNOWN"} />
               </li>
             ))}

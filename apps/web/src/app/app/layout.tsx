@@ -1,5 +1,7 @@
 "use client";
 
+import "@/components/app-colors.css";
+
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";

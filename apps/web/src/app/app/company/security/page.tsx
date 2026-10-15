@@ -11,7 +11,7 @@ export default function SecurityPage() {
     try { await api.post("/identity/change-password", { currentPassword: form.currentPassword, newPassword: form.newPassword }); setForm({ currentPassword: "", newPassword: "", confirm: "" }); setMessage("Password changed. Other sessions were signed out."); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Password change failed"); } finally { setPending(false); }
   }
-  return <div className="stack-lg"><PageHeader title="Security" subtitle="Manage your sign-in credentials." /><section className="panel"><h2>Change password</h2><form className="record-form" onSubmit={submit}>
+  return <div className="stack-lg company-ui-page spend-ui-page company-security-ui"><PageHeader title="Security" subtitle="Manage your sign-in credentials." /><section className="panel"><h2>Change password</h2><form className="record-form" onSubmit={submit}>
     <label>Current password<input className="input" type="password" value={form.currentPassword} onChange={(e) => setForm({ ...form, currentPassword: e.target.value })} required /></label>
     <label>New password<input className="input" type="password" minLength={12} value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} required /></label>
     <label>Confirm password<input className="input" type="password" minLength={12} value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} required /></label>

@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/procurement-ui.css";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,7 +28,14 @@ type Detail = {
   receiving: Array<{ id: string; amount: string | number; memo: string; createdAt: string }>;
   matches: Array<{ id: string; matchType: string; status: string; variance: string | number; billId: string | null }>;
   request: { id: string; name: string } | null;
-  bills: Array<{ id: string; invoiceNumber: string; amount: string | number; status: string }>;
+  bills: Array<{
+    id: string;
+    invoiceNumber: string;
+    amount: string | number;
+    status: string;
+    purchaseOrderId?: string | null;
+    vendorId?: string | null;
+  }>;
   remainingCommitment?: number;
   timeline?: Array<{ id: string; action: string; createdAt: string }>;
 };
@@ -189,7 +199,7 @@ export default function PurchaseOrderDetailPage() {
   const openExceptions = matches.filter((row) => ["EXCEPTION", "BLOCKED"].includes(row.status));
 
   return (
-    <div className="detail-page procurement-detail-page">
+    <div className="spend-ui-page procurement-ui-page procurement-record-detail detail-page procurement-detail-page">
       <div className="resource-heading">
         <PageHeader title={po.number} subtitle={request?.name ?? "Purchase order"} />
         <Link className="btn btn-ghost" href={backHref}>
@@ -253,8 +263,8 @@ export default function PurchaseOrderDetailPage() {
         </article>
       </div>
 
-      <div className="detail-grid">
-        <section className="panel">
+      <div className="procurement-detail-layout">
+        <div className="procurement-detail-main"><section className="panel">
           <h2>Lines</h2>
           <ul className="plain-list">
             {lines.map((line) => (
@@ -284,6 +294,19 @@ export default function PurchaseOrderDetailPage() {
               }}
             >
               <h3 style={{ marginTop: 12 }}>Record receiving</h3>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
+                Enter quantity and/or amount. If both are set, quantity is used and amount is derived from the PO unit price.
+              </p>
+              <label>
+                Quantity
+                <input
+                  className="input"
+                  value={receiveQuantity}
+                  onChange={(event) => setReceiveQuantity(event.target.value)}
+                  placeholder="e.g. 1"
+                  inputMode="decimal"
+                />
+              </label>
               <label>
                 Amount
                 <input
@@ -291,17 +314,7 @@ export default function PurchaseOrderDetailPage() {
                   value={receiveAmount}
                   onChange={(event) => setReceiveAmount(event.target.value)}
                   placeholder="e.g. 600.00"
-                  disabled={Boolean(receiveQuantity.trim())}
-                />
-              </label>
-              <label>
-                Quantity
-                <input
-                  className="input"
-                  value={receiveQuantity}
-                  onChange={(event) => setReceiveQuantity(event.target.value)}
-                  placeholder="e.g. 2"
-                  disabled={Boolean(receiveAmount.trim())}
+                  inputMode="decimal"
                 />
               </label>
               <label>
@@ -323,8 +336,19 @@ export default function PurchaseOrderDetailPage() {
             </form>
           )}
         </section>
-
-        <section className="panel work-panel">
+<section className="panel">
+        <h2>Activity</h2>
+        <div className="timeline">
+          {(timeline ?? []).map((event) => (
+            <div key={event.id} className="timeline-item">
+              <strong>{event.action}</strong>
+              <div className="muted">{new Date(event.createdAt).toLocaleString()}</div>
+            </div>
+          ))}
+          {!(timeline ?? []).length && <p className="muted">No activity yet.</p>}
+        </div>
+      </section></div>
+        <div className="procurement-detail-aside"><section className="panel work-panel">
           <h2>Matching</h2>
           <ul className="plain-list">
             {matches.map((row) => (
@@ -351,6 +375,9 @@ export default function PurchaseOrderDetailPage() {
                   {bill.invoiceNumber}
                 </button>{" "}
                 {money(po.currency, bill.amount)} · <StatusBadge status={bill.status} />
+                {!bill.purchaseOrderId ? (
+                  <span className="muted"> · unlinked (match will attach)</span>
+                ) : null}
                 {canSeeBills ? (
                   <>
                     {" "}
@@ -362,8 +389,30 @@ export default function PurchaseOrderDetailPage() {
                 ) : null}
               </li>
             ))}
-            {!bills.length && <li className="muted">Create a bill with this PO, then match.</li>}
+            {!bills.length && (
+              <li className="muted">
+                No matchable bills yet. Create a supplier bill for this entity
+                {canSeeBills ? (
+                  <>
+                    {" "}
+                    (
+                    <Link className="detail-link" href={`/app/bill-pay/bills/new?purchaseOrderId=${po.id}`}>
+                      create bill for this PO
+                    </Link>
+                    )
+                  </>
+                ) : null}
+                , then run match. Exceptions appear only when amounts/qty differ.
+              </li>
+            )}
           </ul>
+          {canSeeBills && bills.length > 0 && (
+            <p style={{ marginTop: 8 }}>
+              <Link className="detail-link" href={`/app/bill-pay/bills/new?purchaseOrderId=${po.id}`}>
+                Create another bill for this PO →
+              </Link>
+            </p>
+          )}
           {canReview && (
             <form
               className="record-form"
@@ -372,14 +421,18 @@ export default function PurchaseOrderDetailPage() {
                 match.mutate();
               }}
             >
-              <p className="muted">{selectedBill ? `Selected: ${selectedBill.invoiceNumber}` : "Select a linked bill above."}</p>
+              <p className="muted">
+                {selectedBill
+                  ? `Selected: ${selectedBill.invoiceNumber}`
+                  : "Select a bill above (linked or unlinked for this entity)."}
+              </p>
               <label>
                 Invoiced quantity (optional)
                 <input
                   className="input"
                   value={invoicedQuantity}
                   onChange={(event) => setInvoicedQuantity(event.target.value)}
-                  placeholder="For qty 3-way match exceptions"
+                  placeholder="e.g. 2 — use higher than received to open an exception"
                 />
               </label>
               <button className="btn btn-primary" type="submit" disabled={match.isPending || !billId}>
@@ -394,21 +447,8 @@ export default function PurchaseOrderDetailPage() {
               </Link>
             </p>
           )}
-        </section>
+        </section></div>
       </div>
-
-      <section className="panel">
-        <h2>Activity</h2>
-        <div className="timeline">
-          {(timeline ?? []).map((event) => (
-            <div key={event.id} className="timeline-item">
-              <strong>{event.action}</strong>
-              <div className="muted">{new Date(event.createdAt).toLocaleString()}</div>
-            </div>
-          ))}
-          {!(timeline ?? []).length && <p className="muted">No activity yet.</p>}
-        </div>
-      </section>
     </div>
   );
 }

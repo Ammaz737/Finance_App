@@ -292,7 +292,7 @@ export function RoleBuilderForm({
           </button>
         ) : null}
         {step < STEPS.length - 1 ? (
-          <button type="button" className="btn btn-primary" onClick={goNext}>
+          <button type="button" className="btn btn-primary" onClick={(event) => { event.preventDefault(); goNext(); }}>
             Continue
           </button>
         ) : (

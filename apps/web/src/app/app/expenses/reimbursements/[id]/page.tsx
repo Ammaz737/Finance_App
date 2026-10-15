@@ -1,5 +1,8 @@
 "use client";
 
+import "@/components/spend-ui.css";
+import "@/components/expenses-ui.css";
+
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -198,7 +201,7 @@ function ReimbursementDetailInner() {
   const approvedSteps = detail.data.approvalProgress.filter((step) => step.status === "Approved").length;
 
   return (
-    <div className="detail-page">
+    <div className="spend-ui-page expenses-ui-page reimbursement-record-detail detail-page">
       <div className="resource-heading">
         <PageHeader
           title={data.memo || `${data.type} reimbursement`}
@@ -260,8 +263,8 @@ function ReimbursementDetailInner() {
         )}
       </div>
 
-      <div className="detail-grid">
-        <section className="panel">
+      <div className="expense-detail-layout">
+        <div className="expense-detail-main"><section className="panel">
           <h2>Overview</h2>
           <dl className="detail-list">
             <div>
@@ -336,24 +339,7 @@ function ReimbursementDetailInner() {
             </p>
           )}
         </section>
-
-        <section className="panel">
-          <h2>Requirements</h2>
-          <ul className="plain-list detail-checklist">
-            {detail.data.requirements.requirements.map((row) => (
-              <li key={row.label}>
-                <span>{row.label}</span>
-                <span className={row.status === "Complete" || row.status === "COMPLETE" ? "req-ok" : "req-missing"}>
-                  {row.status}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
-
-      <div className="detail-grid">
-        <section className="panel">
+<section className="panel">
           <h2>Receipt / Evidence</h2>
           {detail.data.receipt ? (
             <dl className="detail-list">
@@ -401,8 +387,32 @@ function ReimbursementDetailInner() {
             </form>
           )}
         </section>
-
-        <section className="panel">
+<section className="panel">
+        <h2>Activity</h2>
+        <div className="timeline">
+          {detail.data.timeline.map((event) => (
+            <div key={event.id} className="timeline-item">
+              <strong>{event.action}</strong>
+              <div className="muted">{new Date(event.createdAt).toLocaleString()}</div>
+            </div>
+          ))}
+          {!detail.data.timeline.length && <p className="muted">No activity yet.</p>}
+        </div>
+      </section></div>
+        <div className="expense-detail-aside"><section className="panel">
+          <h2>Requirements</h2>
+          <ul className="plain-list detail-checklist">
+            {detail.data.requirements.requirements.map((row) => (
+              <li key={row.label}>
+                <span>{row.label}</span>
+                <span className={row.status === "Complete" || row.status === "COMPLETE" ? "req-ok" : "req-missing"}>
+                  {row.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+<section className="panel">
           <h2>Approvals</h2>
           <p className="muted" style={{ marginTop: 0 }}>
             {approvedSteps} of {detail.data.approvalProgress.length || 0} approvals completed
@@ -445,21 +455,8 @@ function ReimbursementDetailInner() {
               </div>
             )}
           </dl>
-        </section>
+        </section></div>
       </div>
-
-      <section className="panel">
-        <h2>Activity</h2>
-        <div className="timeline">
-          {detail.data.timeline.map((event) => (
-            <div key={event.id} className="timeline-item">
-              <strong>{event.action}</strong>
-              <div className="muted">{new Date(event.createdAt).toLocaleString()}</div>
-            </div>
-          ))}
-          {!detail.data.timeline.length && <p className="muted">No activity yet.</p>}
-        </div>
-      </section>
     </div>
   );
 }

@@ -1,11 +1,17 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/travel-ui.css";
+
 import Link from "next/link";
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { StatusBadge, type Column } from "@finance/design-system";
 import { canSeeItem, findNavItem } from "@/config/navigation";
+import { TravelOverview } from "@/components/TravelPresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
 import { ResourcePage } from "@/components/ResourcePage";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
@@ -103,14 +109,7 @@ function RequestsContent() {
       key: "name",
       header: "Trip",
       render: (row) => (
-        <span className="inbox-table-request">
-          <strong>{row.name || "Trip request"}</strong>
-          <small>
-            {row.origin ? `${row.origin} → ` : ""}
-            {row.destination || "Destination TBD"}
-            {row.purpose?.trim() ? ` · ${row.purpose.slice(0, 40)}` : ""}
-          </small>
-        </span>
+        <SpendRecord title={row.name || "Trip request"} subtitle={(row.origin ? `${row.origin} → ` : "") + (row.destination || "Destination TBD") + (row.purpose?.trim() ? ` · ${row.purpose.slice(0, 40)}` : "")} href={detailHref(row.id)} icon="Travel"/>
       ),
     },
     {
@@ -146,7 +145,7 @@ function RequestsContent() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Review →</span>,
+      render: (row) => <SpendOpenLink href={detailHref(row.id)} label={`Open ${row.name || "trip"}`}/>,
     },
   ];
 
@@ -156,8 +155,15 @@ function RequestsContent() {
       : `/app/travel/trips/${id}?from=requests`;
 
   return (
-    <div className="travel-requests-page linked-dest-page">
-      <div className="my-work-filters" role="toolbar" aria-label="Trip request queues">
+    <div className="travel-requests-page travel-ui-page personal-work-page spend-ui-page linked-dest-page">
+      <ResourcePage
+        key={active.status}
+        ignoreUrlStatus
+        subtitle="Review travel requests, booking readiness and past decisions."
+        overview={(rows, loading) => <TravelOverview rows={rows} loading={loading}/>}
+        listIntro={<>
+          <SpendIntro title="Trip request queue" description="Review travel requests, booking readiness and past decisions."/>
+          <div className="my-work-filters" role="toolbar" aria-label="Trip request queues">
         {queueLinks.map((item) => (
           <Link
             key={item.href}
@@ -167,9 +173,8 @@ function RequestsContent() {
             {item.label}
           </Link>
         ))}
-      </div>
-
-      <ResourcePage
+          </div>
+        </>}
         title={active.label}
         path="travel"
         filter={{ status: active.filter }}

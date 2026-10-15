@@ -320,7 +320,8 @@ export const routers = {
       create: (ctx, body) => actions.adminConfiguration.createPolicy(ctx, parsePolicy(body)),
       actions: {
         version: (ctx, id, body) => actions.adminConfiguration.versionPolicy(ctx, id, parsePolicy(body)),
-        disable: (ctx, id) => actions.adminConfiguration.disablePolicy(ctx, id),
+        enable: (ctx, id) => actions.adminConfiguration.setPolicyEnabled(ctx, id, true),
+        disable: (ctx, id) => actions.adminConfiguration.setPolicyEnabled(ctx, id, false),
       },
     });
     router.post("/simulate", async (req, res, next) => {

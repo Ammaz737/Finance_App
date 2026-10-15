@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/procurement-ui.css";
+import { ProcurementOverview } from "@/components/ProcurementPresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -65,10 +71,7 @@ export default function ReceivingPage() {
       render: (row) => {
         const po = poRows.find((item) => item.id === row.purchaseOrderId);
         return (
-          <span className="inbox-table-request">
-            <strong>{po?.number || (row.purchaseOrderId ? row.purchaseOrderId.slice(0, 8) : "PO")}</strong>
-            <small>{row.memo?.trim() ? row.memo.slice(0, 56) : "Goods / services receipt"}</small>
-          </span>
+          row.purchaseOrderId ? <SpendRecord title={po?.number || (row.purchaseOrderId ? row.purchaseOrderId.slice(0, 8) : "PO")} subtitle={row.memo?.trim() ? row.memo.slice(0, 56) : "Goods / services receipt"} href={`/app/procurement/purchase-orders/${row.purchaseOrderId}`} icon="Receiving"/> : <span className="inbox-table-request"><strong>{po?.number || (row.purchaseOrderId ? row.purchaseOrderId.slice(0, 8) : "PO")}</strong><small>{row.memo?.trim() ? row.memo.slice(0, 56) : "Goods / services receipt"}</small></span>
         );
       },
     },
@@ -90,13 +93,13 @@ export default function ReceivingPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open PO →</span>,
+      render: (row) => row.purchaseOrderId ? <SpendOpenLink href={`/app/procurement/purchase-orders/${row.purchaseOrderId}`} label="Open purchase order"/> : <span className="muted">—</span>,
     },
   ];
 
   return (
-    <div className="procurement-receiving-page">
-      <ResourcePage
+    <div className="procurement-receiving-page personal-work-page spend-ui-page procurement-ui-page">
+      <ResourcePage subtitle="Record goods and services received against purchase orders." overview={(rows, loading) => <ProcurementOverview kind="receiving" rows={rows} loading={loading}/>} listIntro={<SpendIntro title="Receiving register" description="Track deliveries, receipt amounts and the people recording them."/>}
         title="Receiving"
         path="receiving"
         columns={columns}

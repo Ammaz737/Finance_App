@@ -1,5 +1,11 @@
 "use client";
 
+import "@/components/personal-work.css";
+import "@/components/spend-ui.css";
+import "@/components/bill-pay-ui.css";
+import { BillPayOverview } from "@/components/BillPayPresentation";
+import { SpendIntro, SpendRecord, SpendOpenLink } from "@/components/SpendPresentation";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -46,13 +52,7 @@ export default function PaymentsPage() {
       render: (row) => {
         const bill = billRows.find((item) => item.id === row.billId);
         return (
-          <span className="inbox-table-request">
-            <strong>{money(row.currency ?? "USD", row.amount)}</strong>
-            <small>
-              {row.rail || "ACH"}
-              {bill?.invoiceNumber ? ` · ${bill.invoiceNumber}` : ""}
-            </small>
-          </span>
+          <SpendRecord title={money(row.currency ?? "USD", row.amount)} subtitle={`${row.rail || "ACH"}${bill?.invoiceNumber ? ` · ${bill.invoiceNumber}` : ""}`} href={`/app/bill-pay/payments/${row.id}`} icon="Payments"/>
         );
       },
     },
@@ -74,13 +74,13 @@ export default function PaymentsPage() {
     {
       key: "open",
       header: "",
-      render: () => <span className="detail-link">Open →</span>,
+      render: (row) => <SpendOpenLink href={`/app/bill-pay/payments/${row.id}`} label="Open payment"/>,
     },
   ];
 
   return (
-    <div className="payments-page">
-      <ResourcePage
+    <div className="payments-page personal-work-page spend-ui-page bill-pay-ui-page">
+      <ResourcePage subtitle="Track scheduled payments, releases and settlements." overview={(rows, loading) => <BillPayOverview kind="payments" rows={rows} loading={loading}/>} listIntro={<SpendIntro title="Payment register" description="Follow each payment from scheduling through final settlement."/>}
         title="Payments"
         path="payments"
         columns={columns}

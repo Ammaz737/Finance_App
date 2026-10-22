@@ -1,5 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
+import { cards } from "../application/actions";
+import * as issuerProvider from "../integrations/card-issuer";
+import { StripeCardIssuerAdapter } from "../integrations/card-issuer/stripe.card-issuer.adapter";
+import type { RequestContext } from "../platform/auth/context";
 import { prisma } from "../database/client";
 import { applyStripeIssuingAuthorizationRequest, applyStripeIssuingTransactionCreated } from "../modules/cards/application/stripe-issuing-webhook";
 describe.runIf(process.env.RUN_DB_TESTS !== "0")("Stripe webhook atomic ledger regression", () => {
@@ -57,4 +61,41 @@ describe.runIf(process.env.RUN_DB_TESTS !== "0")("Stripe webhook atomic ledger r
     expect((await prisma.fund.findUniqueOrThrow({ where: { id: fundId } })).availableAmount.toString()).toBe("88");
     expect(await prisma.expense.count({ where: { organizationId: orgId } })).toBe(3);
   });
+  it.each([false, true])("sandbox capture debits once and creates an employee receipt expense (webhook first: %s)", async (webhookFirst) => {
+    const card = await prisma.card.findUniqueOrThrow({ where: { id: cardId } });
+    const before = await prisma.fund.findUniqueOrThrow({ where: { id: fundId } });
+    const capture = { id: `ipi_sandbox_${webhookFirst}_${remoteCard}`, card: remoteCard, authorization: null, amount: -800, currency: "usd", type: "capture", merchant_data: { name: "Sandbox Merchant" } } as unknown as Stripe.Issuing.Transaction;
+    const issuer = Object.assign(Object.create(StripeCardIssuerAdapter.prototype), {
+      name: "stripe",
+      createForceCaptureRaw: vi.fn(async () => {
+        if (webhookFirst) await applyStripeIssuingTransactionCreated(capture);
+        return capture;
+      }),
+    });
+    const provider = vi.spyOn(issuerProvider, "getCardIssuer").mockReturnValue(issuer);
+    const stripeMode = vi.spyOn(issuerProvider, "isStripeCardIssuer").mockReturnValue(true);
+    const ctx: RequestContext = {
+      actorType: "INTERNAL_USER", organizationId: orgId, userId: card.holderId,
+      entityIds: [card.legalEntityId], roles: ["Owner"], permissions: ["*"],
+      grants: [{ permission: "*", scope: "ORGANIZATION", entityId: null }],
+      entitlements: [], sessionId: "regression", correlationId: "regression",
+    };
+    try {
+      const body = { cardId, amount: "8", currency: "USD", merchant: "Sandbox Merchant", merchantCategory: "software", idempotencyKey: capture.id };
+      const result = await cards.authorizeStripeSandbox(ctx, body);
+      await applyStripeIssuingTransactionCreated(capture);
+      const replay = await cards.authorizeStripeSandbox(ctx, body);
+      expect(replay.transactionId).toBe(result.transactionId);
+      expect(issuer.createForceCaptureRaw).toHaveBeenCalledTimes(1);
+      expect((await prisma.fund.findUniqueOrThrow({ where: { id: fundId } })).availableAmount.toString()).toBe(before.availableAmount.minus(8).toString());
+      expect(await prisma.txn.count({ where: { organizationId: orgId, stripeTransactionId: capture.id } })).toBe(1);
+      const expense = await prisma.expense.findFirstOrThrow({ where: { organizationId: orgId, transactionId: result.transactionId } });
+      expect(expense.status).toBe("INCOMPLETE");
+      expect(expense.userId).toBe(card.holderId);
+    } finally {
+      provider.mockRestore();
+      stripeMode.mockRestore();
+    }
+  });
+
 });

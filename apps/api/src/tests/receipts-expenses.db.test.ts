@@ -164,7 +164,7 @@ describe.runIf(runDb)("M4 receipts and expenses", () => {
     await expect(expenses.submit(requester, sharedExpenseId)).rejects.toMatchObject({ code: "EXPENSE_POLICY_BLOCK" });
 
     const attachment = await ingestDocument(requester, tinyPng(), {
-      name: `amazon-89.50-${suffix}.png`,
+      name: `BestBuy-${(await prisma.expense.findUniqueOrThrow({ where: { id: sharedExpenseId } })).amount}-${suffix}.png`,
       mimeType: "image/png",
       classification: "RECEIPT",
     });

@@ -8,6 +8,7 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHeader, StatusBadge } from "@finance/design-system";
+import { ReceiptDocument } from "@/components/ReceiptDocument";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
 import { canSeeItem, findNavItem } from "@/config/navigation";
@@ -30,6 +31,7 @@ type ExpenseDetail = {
     merchantGuess: string | null;
     amountGuess: string | number | null;
     matchStatus: string;
+    matchReasons?: string[];
     ocrStatus: string;
     attachmentId: string;
   } | null;
@@ -88,7 +90,7 @@ export default function ExpenseDetailPage() {
       classification: "RECEIPT",
       contentBase64: content,
     });
-    return api.post("/receipts", { attachmentId: uploaded.id, expenseId: params.id });
+    return api.post<{ matchStatus: string }>("/receipts", { attachmentId: uploaded.id, expenseId: params.id });
   }
 
   const saveMemo = useMutation({
@@ -102,19 +104,24 @@ export default function ExpenseDetailPage() {
   });
   const attachReceipt = useMutation({
     mutationFn: () => uploadAndLinkReceipt(fileContent, fileName),
-    onSuccess: () => {
+    onSuccess: (receipt) => {
       setActionError("");
-      setMessage("Receipt linked. You can submit the expense now.");
+      setMessage(receipt.matchStatus === "MATCHED"
+        ? "Receipt uploaded. Submit the expense for review."
+        : "Receipt uploaded but needs correction. Check the mismatch details and upload the correct receipt.");
       setFileContent("");
       setFileName("receipt.png");
       void queryClient.invalidateQueries({ queryKey: ["expense-detail", params.id] });
+      void queryClient.invalidateQueries({ queryKey: ["resource", "receipts"] });
+      void queryClient.invalidateQueries({ queryKey: ["resource", "expenses"] });
+      void queryClient.invalidateQueries({ queryKey: ["inbox"] });
     },
     onError: (error) => setActionError(error instanceof Error ? error.message : "Could not upload receipt"),
   });
   const submit = useMutation({
     mutationFn: async () => {
       // File picker alone does not attach — upload first if still pending.
-      if (!detail.data?.receipt && fileContent) {
+      if (fileContent) {
         await uploadAndLinkReceipt(fileContent, fileName);
         setFileContent("");
         setFileName("receipt.png");
@@ -202,7 +209,9 @@ export default function ExpenseDetailPage() {
     session?.userId === data.expense.userId ||
     session?.roles.includes("Owner") ||
     session?.permissions.includes("*");
+  const receiptNeedsCorrection = ["MISMATCH", "NEEDS_REVIEW"].includes(data.receipt?.matchStatus ?? "");
   const canEdit = ["INCOMPLETE", "REJECTED"].includes(data.expense.status) && Boolean(isOwner);
+  const canUploadReceipt = canEdit || (Boolean(isOwner) && receiptNeedsCorrection && ["SUBMITTED", "IN_REVIEW"].includes(data.expense.status));
   const canApprove =
     ["SUBMITTED", "IN_REVIEW"].includes(data.expense.status) &&
     Boolean(
@@ -335,7 +344,7 @@ export default function ExpenseDetailPage() {
             </dl>
           )}
 
-          {canEdit && (
+          {canUploadReceipt && (
             <form
               className="record-form"
               onSubmit={(event) => {
@@ -343,12 +352,22 @@ export default function ExpenseDetailPage() {
                 attachReceipt.mutate();
               }}
             >
-              <h3 style={{ margin: "8px 0 0", fontSize: 14 }}>Attach receipt</h3>
+              <h3 style={{ margin: "8px 0 0", fontSize: 14 }}>{receiptNeedsCorrection ? "Upload correct receipt" : "Attach receipt"}</h3>
+              {receiptNeedsCorrection && (
+                <p className="error" id="receipt-correction-help" role="alert">
+                  {data.receipt?.matchReasons?.join(". ") || "This receipt does not match the expense."}
+                  {" "}Choose a replacement receipt, then upload it. Submit the expense again for review.
+                </p>
+              )}
               <label>
                 File
                 <input
                   className="input"
                   type="file"
+                  name="receipt"
+                  aria-describedby={receiptNeedsCorrection ? "receipt-correction-help" : undefined}
+                  required
+                  disabled={attachReceipt.isPending}
                   accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
                   onChange={(e) => onFile(e.target.files?.[0] ?? null)}
                 />
@@ -363,12 +382,14 @@ export default function ExpenseDetailPage() {
               <button
                 className="btn btn-ghost"
                 type="submit"
-                disabled={attachReceipt.isPending || fileReading || !fileContent}
+                disabled={attachReceipt.isPending || fileReading}
               >
                 {attachReceipt.isPending ? "Uploading…" : "Upload & link"}
               </button>
             </form>
           )}
+
+          {data.attachment && <ReceiptDocument key={data.attachment.id} id={data.attachment.id} name={data.attachment.originalName} />}
 
           {data.receipt && (
             <dl className="detail-list">

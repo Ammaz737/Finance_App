@@ -35,7 +35,7 @@ import { getTravelProvider, getTravelCapabilities } from "../integrations/travel
 import { evaluateCardAuthorizationRules, merchantMatchesLock, mergeMerchantLocks } from "../modules/cards/domain/authorization-rules";
 import { settleCompanyBankForCardClear } from "../modules/cards/application/company-bank-settle";
 import { debitReimbursementCash, adjustedSandboxCash, SANDBOX_REIMBURSEMENT_CASH } from "../modules/reimbursements/company-cash";
-import { evaluateExpenseRequirements } from "../modules/expenses/domain/requirements";
+import { evaluateExpenseRequirements, validateReceiptMatch } from "../modules/expenses/domain/requirements";
 import { evaluateBillDuplicate } from "../modules/ap/domain/duplicate-check";
 import { matchVendor } from "../modules/ap/domain/vendor-match";
 import { calculateReimbursement } from "../modules/reimbursements/domain/calc";
@@ -1509,80 +1509,56 @@ export const cards = {
       mapIssuerError(error);
     }
 
-    const stripeAuthId = typeof stripeTxn.authorization === "string"
-      ? stripeTxn.authorization
-      : stripeTxn.authorization?.id ?? null;
+    // Force captures have no local authorization hold. The shared settlement path
+    // owns the wallet debit and deduplicates against concurrent Stripe webhooks.
+    await applyStripeIssuingTransactionCreated(stripeTxn);
 
-    // Reserve local fund capacity (force-capture has no prior auth hold).
-    const reserved = await prisma.fund.updateMany({
-      where: {
-        id: card.fundId,
+    const localAuth = await prisma.cardAuthorization.create({
+      data: {
         organizationId: ctx.organizationId,
-        status: "ACTIVE",
-        availableAmount: { gte: amount },
+        cardId: card.id,
+        fundId: card.fundId,
+        amount,
+        currency: money.currency,
+        merchant: body.merchant,
+        merchantCategory: body.merchantCategory,
+        decision: "APPROVED",
+        reason: "stripe_force_capture",
+        providerEventId: stripeTxn.id,
+        stripeAuthorizationId: null,
+        idempotencyKey: scopedKey,
       },
-      data: { availableAmount: { decrement: amount } },
     });
-    if (reserved.count !== 1) {
-      throw new AppError("INSUFFICIENT_FUND", "Insufficient fund available after Stripe capture; reconcile balances", 409);
-    }
 
-    try {
-      const localAuth = await prisma.cardAuthorization.create({
-        data: {
+    await prisma.txn.updateMany({
+      where: {
+        organizationId: ctx.organizationId,
+        stripeTransactionId: stripeTxn.id,
+        authorizationId: null,
+      },
+      data: { authorizationId: localAuth.id },
+    });
+
+    const localTxn = await prisma.txn.findFirst({
+      where: { organizationId: ctx.organizationId, stripeTransactionId: stripeTxn.id },
+    });
+
+    // Ensure company Operating cash is cut even if the Stripe txn row already existed
+    // (webhook race) or an older settle path skipped the bank debit.
+    if (localTxn && localTxn.status === "CLEARED" && localTxn.amount.greaterThan(0)) {
+      await prisma.$transaction(async (tx) => {
+        await settleCompanyBankForCardClear(tx, {
           organizationId: ctx.organizationId,
-          cardId: card.id,
-          fundId: card.fundId,
-          amount,
-          currency: money.currency,
-          merchant: body.merchant,
-          merchantCategory: body.merchantCategory,
-          decision: "APPROVED",
-          reason: "stripe_force_capture",
-          providerEventId: stripeTxn.id,
-          stripeAuthorizationId: stripeAuthId,
-          idempotencyKey: scopedKey,
-        },
-      });
-
-      await applyStripeIssuingTransactionCreated(stripeTxn);
-
-      await prisma.txn.updateMany({
-        where: {
-          organizationId: ctx.organizationId,
-          stripeTransactionId: stripeTxn.id,
-          authorizationId: null,
-        },
-        data: { authorizationId: localAuth.id },
-      });
-
-      const localTxn = await prisma.txn.findFirst({
-        where: { organizationId: ctx.organizationId, stripeTransactionId: stripeTxn.id },
-      });
-
-      // Ensure company Operating cash is cut even if the Stripe txn row already existed
-      // (webhook race) or an older settle path skipped the bank debit.
-      if (localTxn && localTxn.status === "CLEARED" && localTxn.amount.greaterThan(0)) {
-        await prisma.$transaction(async (tx) => {
-          await settleCompanyBankForCardClear(tx, {
-            organizationId: ctx.organizationId,
-            legalEntityId: card.legalEntityId,
-            amount: localTxn.amount,
-            currency: localTxn.currency,
-            transactionId: localTxn.id,
-            direction: "debit",
-          });
+          legalEntityId: card.legalEntityId,
+          amount: localTxn.amount,
+          currency: localTxn.currency,
+          transactionId: localTxn.id,
+          direction: "debit",
         });
-      }
-
-      return { ...localAuth, transactionId: localTxn?.id };
-    } catch (error) {
-      await prisma.fund.update({
-        where: { id: card.fundId },
-        data: { availableAmount: { increment: amount } },
-      }).catch(() => undefined);
-      throw error;
+      });
     }
+
+    return { ...localAuth, transactionId: localTxn?.id };
   },
 
   /** Local auth+capture ledger used by mock issuer and as Stripe sandbox fallback. */
@@ -2824,6 +2800,65 @@ async function applyBudgetReverse(
   });
 }
 
+type MatchReceipt = Parameters<typeof validateReceiptMatch>[0];
+type MatchPurchase = Parameters<typeof validateReceiptMatch>[1];
+function assertReceiptMatchesExpense(receipt: MatchReceipt, expense: MatchPurchase) {
+  const match = validateReceiptMatch(receipt, expense);
+  if (match.status !== "MATCHED") throw new AppError("RECEIPT_MISMATCH", match.reasons.join(". "), 400);
+}
+
+async function receiptWithMatchStatus<T extends MatchReceipt & { organizationId: string; expenseId: string | null; transactionId: string | null; matchStatus: string }>(
+  db: Pick<Prisma.TransactionClient, "expense" | "txn">, receipt: T,
+) {
+  const expense = receipt.expenseId
+    ? await db.expense.findFirst({ where: { id: receipt.expenseId, organizationId: receipt.organizationId } }) : null;
+  const purchase = expense ?? (receipt.transactionId
+    ? await db.txn.findFirst({ where: { id: receipt.transactionId, organizationId: receipt.organizationId } }) : null);
+  const match = purchase ? validateReceiptMatch(receipt, purchase) : null;
+  return { ...receipt, matchStatus: match?.status ?? receipt.matchStatus, matchReasons: match?.reasons ?? [] };
+}
+
+async function replaceExpenseReceipt(
+  tx: Prisma.TransactionClient, ctx: RequestContext,
+  expense: { id: string; organizationId: string; userId: string; legalEntityId: string; status: string; receiptId: string | null; amount: Prisma.Decimal; currency: string; merchant: string },
+  receiptId: string,
+) {
+  assertEntityPermission(ctx, "expense.create", expense.legalEntityId);
+  if (expense.userId !== ctx.userId && !ctx.roles.includes("Owner") && !ctx.permissions.includes("*")) {
+    throw new AppError("FORBIDDEN", "You can only replace receipts on your own expenses", 403);
+  }
+  if (expense.receiptId === receiptId) return;
+  const previous = expense.receiptId ? await tx.receipt.findFirst({ where: { id: expense.receiptId, organizationId: ctx.organizationId } }) : null;
+  const reopen = ["SUBMITTED", "IN_REVIEW"].includes(expense.status) && previous &&
+    ["MISMATCH", "NEEDS_REVIEW"].includes(validateReceiptMatch(previous, expense).status);
+  if (!["INCOMPLETE", "REJECTED"].includes(expense.status) && !reopen) {
+    throw new AppError("INVALID_STATE", "Receipt cannot be replaced in this expense state", 409);
+  }
+  const claim = await tx.expense.updateMany({
+    where: { id: expense.id, organizationId: ctx.organizationId, status: expense.status, receiptId: expense.receiptId },
+    data: { receiptId, ...(reopen ? { status: "INCOMPLETE" } : {}) },
+  });
+  if (claim.count !== 1) throw new AppError("EXPENSE_CONFLICT", "Expense changed; refresh and try again", 409);
+  if (previous) await tx.receipt.updateMany({
+    where: { id: previous.id, organizationId: ctx.organizationId, expenseId: expense.id },
+    data: { expenseId: null, transactionId: null, matchStatus: "UNMATCHED" },
+  });
+  if (reopen) {
+    const instances = await tx.approvalInstance.findMany({ where: {
+      organizationId: ctx.organizationId, objectType: "expense", objectId: expense.id,
+      status: { in: ["IN_REVIEW", "INFO_REQUESTED"] },
+    } });
+    const ids = instances.map((instance) => instance.id);
+    await tx.approvalInstance.updateMany({ where: { id: { in: ids }, organizationId: ctx.organizationId }, data: { status: "CANCELED" } });
+    await tx.inboxItem.updateMany({ where: { organizationId: ctx.organizationId, approvalInstanceId: { in: ids } }, data: { status: "DONE", availableActions: [] } });
+  }
+  await tx.auditEvent.create({ data: {
+    organizationId: ctx.organizationId, actorId: ctx.userId, action: "expense.receipt_replaced",
+    objectType: "Expense", objectId: expense.id, oldValue: { receiptId: expense.receiptId, status: expense.status },
+    newValue: { receiptId, status: reopen ? "INCOMPLETE" : expense.status }, correlationId: ctx.correlationId,
+  } });
+}
+
 export const expenses = {
   async submit(ctx: RequestContext, id: string) {
     return prisma.$transaction(async (tx) => {
@@ -2837,6 +2872,7 @@ export const expenses = {
       const linkedReceipt = expense.receiptId
         ? await tx.receipt.findFirst({ where: { id: expense.receiptId, organizationId: ctx.organizationId } })
         : await tx.receipt.findFirst({ where: { organizationId: ctx.organizationId, expenseId: expense.id } });
+      if (linkedReceipt) assertReceiptMatchesExpense(linkedReceipt, expense);
       const hasReceipt = Boolean(linkedReceipt);
       const { rules } = await loadPolicyRules(
         (args) => tx.policy.findMany(args as never),
@@ -2914,6 +2950,10 @@ export const expenses = {
       const expense = await tx.expense.findFirst({ where: { id, organizationId: ctx.organizationId } });
       if (!expense) throw new AppError("NOT_FOUND", "Expense not found", 404);
       assertEntityPermission(ctx, "expense.approve", expense.legalEntityId);
+      const linkedReceipt = await tx.receipt.findFirst({ where: { organizationId: ctx.organizationId,
+        ...(expense.receiptId ? { id: expense.receiptId } : { expenseId: expense.id }) } });
+      if (linkedReceipt) assertReceiptMatchesExpense(linkedReceipt, expense);
+
       const instance = await tx.approvalInstance.findFirst({
         where: { organizationId: ctx.organizationId, objectId: id, objectType: "expense", status: "IN_REVIEW" },
         orderBy: { createdAt: "desc" },
@@ -3021,16 +3061,21 @@ export const expenses = {
     const file = receipt
       ? await prisma.attachment.findFirst({ where: { id: receipt.attachmentId, organizationId: ctx.organizationId } })
       : null;
+    const match = receipt ? validateReceiptMatch(receipt, expense) : null;
+    const checkedReceipt = receipt ? { ...receipt, matchStatus: match!.status, matchReasons: match!.reasons } : null;
     const requirements = evaluateExpenseRequirements({
-      hasReceipt: Boolean(receipt || expense.receiptId),
+      hasReceipt: checkedReceipt?.matchStatus === "MATCHED",
       hasMemo: Boolean(expense.memo?.trim()),
       hasCategory: Boolean(expense.merchant?.trim()),
     });
-    return { expense, receipt, attachment: file, splits, transaction, requirements, timeline: audit };
+    return { expense, receipt: checkedReceipt, attachment: file, splits, transaction, requirements, timeline: audit };
   },
 };
 
 export const receipts = {
+  async withMatchStatus(items: Awaited<ReturnType<typeof prisma.receipt.findMany>>) {
+    return Promise.all(items.map((receipt) => receiptWithMatchStatus(prisma, receipt)));
+  },
   async getLinkCandidates(ctx: RequestContext, id: string, query = "") {
     const receipt = await prisma.receipt.findFirst({ where: { id, organizationId: ctx.organizationId } });
     if (!receipt) throw new AppError("NOT_FOUND", "Receipt not found", 404);
@@ -3108,7 +3153,7 @@ export const receipts = {
       return { ...expense, employee: users.find((user) => user.id === expense.userId), score, reasons };
     }).sort((a, b) => b.score - a.score || b.createdAt.getTime() - a.createdAt.getTime());
 
-    return { receipt, candidates };
+    return { receipt: await receiptWithMatchStatus(prisma, receipt), candidates };
   },
   async updateProgram(ctx: RequestContext, id: string, body: {
     name: string;
@@ -3204,13 +3249,14 @@ export const receipts = {
           data: {
             expenseId: expense?.id ?? existing.expenseId,
             transactionId: transactionId ?? existing.transactionId,
-            matchStatus: expense || transactionId ? "MATCHED" : existing.matchStatus,
+            matchStatus: existing.matchStatus,
           },
         });
         if (expense && expense.receiptId !== updated.id) {
-          await tx.expense.update({ where: { id: expense.id }, data: { receiptId: updated.id } });
+          await replaceExpenseReceipt(tx, ctx, expense, updated.id);
         }
-        return updated;
+        const checked = await receiptWithMatchStatus(tx, updated);
+        return tx.receipt.update({ where: { id: updated.id }, data: { matchStatus: checked.matchStatus } });
       }
 
       const ocr = await ocrProvider.extract({
@@ -3228,13 +3274,13 @@ export const receipts = {
           transactionId,
           merchantGuess: ocr.merchantGuess,
           amountGuess: ocr.amountGuess,
-          matchStatus: expense || transactionId ? "MATCHED" : "UNMATCHED",
+          matchStatus: "UNMATCHED",
           ocrStatus: "COMPLETED",
           ocrPayload: ocr as never,
         },
       });
       if (expense) {
-        await tx.expense.update({ where: { id: expense.id }, data: { receiptId: receipt.id } });
+        await replaceExpenseReceipt(tx, ctx, expense, receipt.id);
       }
       await tx.auditEvent.create({ data: {
         organizationId: ctx.organizationId, actorId: ctx.userId, action: "receipt.create",
@@ -3246,7 +3292,8 @@ export const receipts = {
         organizationId: ctx.organizationId, type: "receipt.created",
         payload: { objectType: "Receipt", objectId: receipt.id, expenseId: expense?.id ?? null },
       } });
-      return receipt;
+      const checked = await receiptWithMatchStatus(tx, receipt);
+      return tx.receipt.update({ where: { id: receipt.id }, data: { matchStatus: checked.matchStatus } });
     });
   },
 
@@ -3276,11 +3323,11 @@ export const receipts = {
         data: {
           expenseId: expense?.id ?? receipt.expenseId,
           transactionId,
-          matchStatus: "MATCHED",
+          matchStatus: "UNMATCHED",
         },
       });
       if (expense) {
-        await tx.expense.update({ where: { id: expense.id }, data: { receiptId: updated.id } });
+        await replaceExpenseReceipt(tx, ctx, expense, updated.id);
       }
       await tx.auditEvent.create({ data: {
         organizationId: ctx.organizationId, actorId: ctx.userId, action: "receipt.link",
@@ -3288,7 +3335,8 @@ export const receipts = {
         newValue: { expenseId: updated.expenseId, transactionId: updated.transactionId },
         correlationId: ctx.correlationId,
       } });
-      return updated;
+      const checked = await receiptWithMatchStatus(tx, updated);
+      return tx.receipt.update({ where: { id: updated.id }, data: { matchStatus: checked.matchStatus } });
     });
   },
 };

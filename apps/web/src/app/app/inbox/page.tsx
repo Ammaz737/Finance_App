@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DrawerReview, PageHeader, StatusBadge, type Column } from "@finance/design-system";
 import { NavigationIcon } from "@/components/NavigationIcon";
+import { ReceiptDocument } from "@/components/ReceiptDocument";
 import { api } from "@/lib/api";
 import { useSession } from "@/providers/session-provider";
 
@@ -39,6 +40,7 @@ type Task = {
 };
 
 type TaskDetail = Task & {
+  document: { id: string; name: string; mimeType: string; malwareStatus: string; receiptStatus: string | null } | null;
   timeline: Array<{ at: string; actor: string; action: string; comment: string }>;
   policy: { result: string; explanation: string; evidence: string[]; requiredAction?: string; matchedRules: string[] } | null;
 };
@@ -655,6 +657,9 @@ export default function Page() {
                     ))}
                   </div>
                 ) : null}
+
+                {detail.data?.document && <ReceiptDocument key={detail.data.document.id} id={detail.data.document.id} name={detail.data.document.name} />}
+                {detail.data && !detail.data.document && ["expense", "reimbursement", "bill"].includes(selected.objectType) && <p className="muted">No receipt / invoice attached.</p>}
 
                 <Link className="detail-link" href={sourceHref(selected)}>View source record <span aria-hidden="true">↗</span></Link>
 

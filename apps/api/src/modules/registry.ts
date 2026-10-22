@@ -8,7 +8,7 @@ import { assertEntityPermission, assertResourcePermission } from "../platform/re
 import { getContext } from "../platform/auth/context";
 import { login } from "../platform/auth";
 import { ok } from "../platform/http";
-import { ingestDocument } from "../engines/documents";
+import { ingestDocument, getDocumentContent } from "../engines/documents";
 import { can } from "../platform/rbac";
 import { searchOrganization } from "../engines/search";
 import * as actions from "../application/actions";
@@ -627,7 +627,10 @@ export const routers = {
     },
   }),
   receipts: createResourceRouter({
-    getDelegate: () => prisma.receipt as never,
+    getDelegate: () => ({
+      findMany: async (args: Parameters<typeof prisma.receipt.findMany>[0]) => actions.receipts.withMatchStatus(await prisma.receipt.findMany(args)),
+      findFirst: prisma.receipt.findFirst.bind(prisma.receipt),
+    }) as never,
     get: (ctx, id, query) => actions.receipts.getLinkCandidates(ctx, id, typeof query.q === "string" ? query.q : ""),
     create: (ctx, body) => actions.receipts.createFromAttachment(ctx, z.object({
       attachmentId: z.string().uuid(),
@@ -1162,6 +1165,12 @@ export const routers = {
   })(),
   documents: (() => {
     const router = createResourceRouter({ getDelegate: () => prisma.attachment as never });
+    router.get("/:id/content", async (req, res, next) => {
+      try {
+        res.setHeader("Cache-Control", "no-store");
+        return ok(res, await getDocumentContent(getContext(req), req.params.id));
+      } catch (error) { next(error); }
+    });
     router.post("/upload", async (req, res, next) => {
       try {
         const ctx = getContext(req);

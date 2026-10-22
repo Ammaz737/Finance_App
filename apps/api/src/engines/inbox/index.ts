@@ -319,7 +319,24 @@ export async function getInboxTaskDetail(ctx: RequestContext, id: string) {
     });
   }
 
-  return { ...task, timeline, policy };
+  // The task has already passed assignee/role checks in listInboxTasks.
+  let attachmentId: string | null = null;
+  let receiptStatus: string | null = null;
+  if (task.objectType === "expense" || task.objectType === "reimbursement") {
+    const record = task.objectType === "expense"
+      ? await prisma.expense.findFirst({ where: { id: task.objectId, organizationId: ctx.organizationId } })
+      : await prisma.reimbursement.findFirst({ where: { id: task.objectId, organizationId: ctx.organizationId } });
+    const receipt = record?.receiptId
+      ? await prisma.receipt.findFirst({ where: { id: record.receiptId, organizationId: ctx.organizationId } })
+      : task.objectType === "expense" ? await prisma.receipt.findFirst({ where: { expenseId: task.objectId, organizationId: ctx.organizationId } }) : null;
+    attachmentId = receipt?.attachmentId ?? null;
+    receiptStatus = receipt?.matchStatus ?? null;
+  } else if (task.objectType === "bill") {
+    attachmentId = (await prisma.bill.findFirst({ where: { id: task.objectId, organizationId: ctx.organizationId } }))?.attachmentId ?? null;
+  }
+  const file = attachmentId ? await prisma.attachment.findFirst({ where: { id: attachmentId, organizationId: ctx.organizationId } }) : null;
+  const document = file ? { id: file.id, name: file.originalName, mimeType: file.mimeType, malwareStatus: file.malwareStatus, receiptStatus } : null;
+  return { ...task, timeline, policy, document };
 }
 
 export async function decideInboxTask(ctx: RequestContext, id: string, decision: "approve" | "reject" | "request_info" | "release", comment = "") {

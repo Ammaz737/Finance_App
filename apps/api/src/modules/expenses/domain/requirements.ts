@@ -1,6 +1,32 @@
 /** Deterministic receipt↔transaction match before AI. */
 export type ReceiptMatchDecision = "MATCHED" | "SUGGESTED" | "NO_MATCH";
 
+/** A file link alone is not evidence that a receipt matches a purchase. */
+export function validateReceiptMatch(
+  receipt: { amountGuess: unknown; merchantGuess: string | null; ocrPayload: unknown; ocrStatus: string },
+  purchase: { amount: unknown; currency: string; merchant: string },
+): { status: "MATCHED" | "MISMATCH" | "NEEDS_REVIEW"; reasons: string[] } {
+  const payload = receipt.ocrPayload && typeof receipt.ocrPayload === "object"
+    ? receipt.ocrPayload as Record<string, unknown> : {};
+  const currency = typeof payload.currencyGuess === "string" ? payload.currencyGuess.toUpperCase() : null;
+  const amount = receipt.amountGuess == null ? NaN : Number(receipt.amountGuess);
+  const reasons: string[] = [];
+  if (Number.isFinite(amount) && Math.round(amount * 100) !== Math.round(Number(purchase.amount) * 100)) {
+    reasons.push(`Receipt amount ${amount.toFixed(2)} differs from expense ${Number(purchase.amount).toFixed(2)} ${purchase.currency}`);
+  }
+  if (currency && currency !== purchase.currency.toUpperCase()) reasons.push("Receipt currency differs from expense currency");
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const merchant = normalize(receipt.merchantGuess ?? "");
+  const target = normalize(purchase.merchant);
+  const merchantMatches = Boolean(merchant && target && (merchant.includes(target) || target.includes(merchant)));
+  if (merchant && target && !merchantMatches) reasons.push("Receipt merchant differs from expense merchant");
+  if (reasons.length) return { status: "MISMATCH", reasons };
+  if (receipt.ocrStatus !== "COMPLETED" || !Number.isFinite(amount) || !currency || !merchantMatches) {
+    return { status: "NEEDS_REVIEW", reasons: ["Receipt extraction is incomplete; verify amount, currency and merchant"] };
+  }
+  return { status: "MATCHED", reasons: [] };
+}
+
 export function scoreReceiptMatch(input: {
   receiptAmount?: number | null;
   receiptCurrency?: string | null;

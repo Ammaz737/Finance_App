@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { evaluateExpenseRequirements, scoreReceiptMatch } from "../modules/expenses/domain/requirements";
+import { evaluateExpenseRequirements, scoreReceiptMatch, validateReceiptMatch } from "../modules/expenses/domain/requirements";
+
+describe("linked receipt validation", () => {
+  const purchase = { amount: "250", currency: "USD", merchant: "OpenAI" };
+  const receipt = { amountGuess: "250", merchantGuess: "OpenAI receipt", ocrPayload: { currencyGuess: "USD" }, ocrStatus: "COMPLETED" };
+  it("flags the furniture USD 100 receipt against USD 250 OpenAI", () => {
+    const result = validateReceiptMatch({ ...receipt, amountGuess: "100", merchantGuess: "furniture invoice 100 usd" }, purchase);
+    expect(result.status).toBe("MISMATCH");
+    expect(result.reasons).toHaveLength(2);
+  });
+  it("rejects a different merchant even when the amount matches", () => {
+    expect(validateReceiptMatch({ ...receipt, merchantGuess: "Furniture" }, purchase).status).toBe("MISMATCH");
+  });
+  it("rejects a different currency", () => {
+    expect(validateReceiptMatch({ ...receipt, ocrPayload: { currencyGuess: "EUR" } }, purchase).status).toBe("MISMATCH");
+  });
+  it("requires review when extraction is missing", () => {
+    expect(validateReceiptMatch({ ...receipt, amountGuess: null }, purchase).status).toBe("NEEDS_REVIEW");
+  });
+  it("matches consistent extracted values", () => {
+    expect(validateReceiptMatch(receipt, purchase).status).toBe("MATCHED");
+  });
+});
 
 describe("expense requirements", () => {
   it("lists missing receipt and memo", () => {
